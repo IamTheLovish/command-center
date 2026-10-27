@@ -30,6 +30,11 @@ function St-Stub([string]$tmp, [string]$name, [string]$fx, [string]$auth) {
   Copy-Item (Join-Path $fx 'AGENTS.excerpt.md') (Join-Path $s 'AGENTS.md')
   return $s
 }
+function St-Stress289([string]$stubDir, [string]$fx) {
+  Copy-Item (Join-Path $fx 'pr289.real.json') (Join-Path $stubDir 'pr289.json')
+  Copy-Item (Join-Path $fx 'pr289.real.diff') (Join-Path $stubDir 'pr289.diff')
+  foreach ($f in @(Get-ChildItem -LiteralPath $fx -Filter 'stress-*.real.txt')) { Copy-Item $f.FullName (Join-Path $stubDir ($f.Name -replace '\.real\.txt$', '.txt')) }
+}
 function St-Ctx([string]$root, [string]$stub, $now) { return (New-GateCtx @{ Root = $root; Repo = $root; Stub = $stub; NoLog = $true; Now = $now }) }
 function St-ModeA([string]$root, [string]$n, [string]$sha, [string]$reviewer, [string]$mtimeUtc) {
   $p = Join-Path $root ('reviews\pr-' + $n + '-modeA.md')
@@ -43,7 +48,19 @@ function St-Fix247([string]$stubDir, [string]$mode) {
   if ($mode -match 'authors') { $t = [regex]::Replace($t, '"email":\s*"noreply@anthropic.com"', '"email":  "IamTheLovish@users.noreply.github.com"'); $t = [regex]::Replace($t, '"name":\s*"Claude"', '"name":  "IamTheLovish"') }
   if ($mode -match 'acctnoreply') { $t = [regex]::Replace($t, '"email":\s*"noreply@anthropic.com"', '"email":  "339019718+IamTheLovish@users.noreply.github.com"'); $t = [regex]::Replace($t, '"name":\s*"Claude"', '"name":  "Lovish"') }
   if ($mode -match 'otheracct') { $t = [regex]::Replace($t, '"email":\s*"noreply@anthropic.com"', '"email":  "12345+SomeoneElse@users.noreply.github.com"'); $t = [regex]::Replace($t, '"name":\s*"Claude"', '"name":  "Lovish"') }
-  if ($mode -match 'stress') { $t = [regex]::Replace($t, '"comments":\s*\[\s*\]', '"comments":  [{"body":"[Stress] flake-stress 30 runs: 0 with any failure","createdAt":"2026-10-27T03:00:00Z"}]') }
+  if ($mode -match 'stress') {
+    $t = [regex]::Replace($t, '"comments":\s*\[\s*\]', '"comments":  [{"body":"[Stress] flake-stress 30 runs: 0 with any failure","createdAt":"2026-10-27T03:00:00Z"}]')
+    # SYNTHETIC (M20): the saved #247 diff stops at the @GameTest lines, so each gets a method name, and a flake-stress
+    # run of #247's branch (found by its run-name title) whose summary passes all six
+    $script:StK = 0
+    $df = [regex]::Replace((Read-Text (Join-Path $stubDir 'pr247.diff')), '(?m)^(\+\s*@GameTest\b[^\r\n]*)', { param($m) $script:StK++; $m.Groups[1].Value + "`n+    public static void perf_quick_wins_case_" + $script:StK + '(GameTestHelper helper) {' })
+    Write-Text (Join-Path $stubDir 'pr247.diff') $df $false
+    Write-Text (Join-Path $stubDir 'stressruns.json') '[{"databaseId":40500000001,"displayTitle":"flake-stress claude/perf-quick-wins","status":"completed","conclusion":"success","createdAt":"2026-10-27T03:00:00Z"}]' $false
+    $sum = "workflow: flake-stress`nref: claude/perf-quick-wins`n[Stress] 6 runners; 0 with any failure"
+    for ($i = 1; $i -le $script:StK; $i++) { $sum += "`nperf_quick_wins_case_" + $i + ': failed 0, passed 6' }
+    Write-Text (Join-Path $stubDir 'stress-40500000001.txt') $sum $false
+    $script:StK = 0
+  }
   if ($mode -match 'cmt-(\w+)') { $tag = $Matches[1]; $b = 'VERDICT: PASS\nREVIEWER: opus reviewer'; if ($tag -ne 'none') { $b += (' [id:' + $tag + ']') }; $t = [regex]::Replace($t, '"comments":\s*\[\s*\]', ('"comments":  [{"body":"' + $b + '","createdAt":"2026-10-27T11:47:00Z"}]')) }
   if ($mode -match 'cifail') { $rx = New-Object regex('"conclusion":\s*"SUCCESS"'); $t = $rx.Replace($t, '"conclusion":  "FAILURE"', 1) }
   Write-Text $p $t $false
@@ -207,6 +224,30 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
   St-Fix247 $s19b 'open otheracct stress'
   $c = Invoke-GateAccept (St-Ctx $r3 $s19b $now) '247'
   St-Assert 'M19 control: another account numeric noreply still fails' $c 'authors' 'FAIL' 'not authored as IamTheLovish'
+
+  # ---- M20 (Oct 27 night): flake-stress runs 40565576897, 40581759617, 40582259285 and 40582056986 were given bare test
+  #      names, ran 0 tests ("All 0 required tests passed" on every runner) and were posted as "[Stress] 0 with any
+  #      failure"; #273 and #289 merged on them. Real #289 (pr289.real.*) and the real summaries of every run its body and
+  #      comments cite (stress-<id>.real.txt): its new @GameTest sealed_arena_has_no_fluid_after_openGround is in no
+  #      summary of a flake-stress run of its branch (40581759617 ran 0 tests, 40572402176 listed only vanilla_path).
+  $r20 = St-Root $tmp 'm20' $fx $good
+  $s20 = St-Stub $tmp 'm20' $fx 'auth-noworkflow.txt'
+  St-Stress289 $s20 $fx
+  $c = Invoke-GateAccept (St-Ctx $r20 $s20 $now) '289'
+  St-Assert 'M20 #289: a [Stress] comment over a 0-test run is no evidence' $c 'gametests' 'FAIL' 'sealed_arena_has_no_fluid_after_openGround'
+  # SYNTHETIC controls: a run of the branch (run-name title) whose summary names the test passes; the same summary on a
+  # run that checked out main, or with passed 0, does not
+  $one = "workflow: flake-stress`nref: {0}`n[Stress] 6 runners; 0 with any failure`nsealed_arena_has_no_fluid_after_openGround: failed 0, passed {1}"
+  foreach ($case in @(@('ok', 'claude/flake-015b-pathing-arenas', '6', 'PASS', 'passed 6', 'M20 control: a run of the branch naming the test passes'),
+                      @('main', 'main', '6', 'FAIL', 'sealed_arena_has_no_fluid_after_openGround', 'M20 control: the same summary from a run of main does not count'),
+                      @('zero', 'claude/flake-015b-pathing-arenas', '0', 'FAIL', 'sealed_arena_has_no_fluid_after_openGround', 'M20 control: passed 0 is not a pass'))) {
+    $sc = St-Stub $tmp ('m20-' + $case[0]) $fx 'auth-noworkflow.txt'
+    St-Stress289 $sc $fx
+    Write-Text (Join-Path $sc 'stressruns.json') '[{"databaseId":40599999999,"displayTitle":"flake-stress claude/flake-015b-pathing-arenas","status":"completed","conclusion":"success","createdAt":"2026-10-27T22:00:00Z"}]' $false
+    Write-Text (Join-Path $sc 'stress-40599999999.txt') ($one -f $case[1], $case[2]) $false
+    $c = Invoke-GateAccept (St-Ctx $r20 $sc $now) '289'
+    St-Assert $case[5] $c 'gametests' $case[3] $case[4]
+  }
 
   # ---- report-lint
   $rr = St-Root $tmp 'rep' $fx $good

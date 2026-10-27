@@ -1,0 +1,4 @@
+workflow: flake-stress
+ref: claude/combat-engage
+[Stress] 6 runners; 0 with any failure
+no test failed in any run

@@ -1,0 +1,4 @@
+workflow: flake-stress
+ref: claude/flake-015b-pathing-arenas
+[Stress] 6 runners; 0 with any failure
+no test failed in any run
