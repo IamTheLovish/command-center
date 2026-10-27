@@ -1,0 +1,204 @@
+AREA hero  packages=['hero']  files=25 lines=6239
+SUBDIRS (lines): hero/=6239
+TOP FILES:
+    992 hero/PossessionServer.java
+    968 hero/PossessionClientEvents.java
+    749 hero/HeroKits.java
+    501 hero/PossessionHudClient.java
+    387 hero/HeroBot.java
+    238 hero/FactionHeroAbility.java
+    233 hero/HeroCore.java
+    223 hero/HeroProgression.java
+    193 hero/HeroFx.java
+    187 hero/PossessionPredictionClient.java
+    185 hero/PossessionServerboundPacket.java
+    181 hero/FactionHero.java
+    161 hero/PossessionClientboundPacket.java
+    141 hero/HeroServerEvents.java
+    138 hero/HeroKit.java
+    123 hero/HeroClientboundPacket.java
+    115 hero/FallenHeroClientboundPacket.java
+    114 hero/HeroRoles.java
+    113 hero/HeroExperienceOrb.java
+     81 hero/HeroProd.java
+     77 hero/HeroServerboundPacket.java
+     51 hero/HeroTypes.java
+     44 hero/HeroReviveProd.java
+     27 hero/HeroClientEvents.java
+     17 hero/HeroAction.java
+OVER1000: 
+SUBSCRIBEEVENT files: hero/PossessionClientEvents.java(9), hero/PossessionServer.java(8), hero/HeroServerEvents.java(2), hero/PossessionHudClient.java(1)
+PACKET files: hero/FallenHeroClientboundPacket.java, hero/HeroClientboundPacket.java, hero/HeroServerboundPacket.java, hero/PossessionClientboundPacket.java, hero/PossessionServerboundPacket.java
+INSTRUMENTATION ids: 
+COMMANDS: allow, deny, release, rts-possession
+IMPORTS FROM OTHER PKGS: unit=46, ability=14, registrars=12, building=11, player=9, keybinds=6, resources=6, alliance=6, hud=4, network=4
+IMPORTED BY: unit=21, gametest=9, registrars=4, building=3, mixin=3, player=3, ability=2, fogofwar=2, network=2, bot=1
+GAMETEST classes by import count: HeroGameTests(62), SkirmishGameTests(39), H13GameTests(7), DuelGameTests(6), HeroAiGameTests(6), RegressionGameTests(6), WinPaysGameTests(4), AudienceGameTests(2)
+--- HEADS (non-import, first 40 lines) of top files ---
+### hero/PossessionServer.java (992 lines)
+/**
+ * Possession, server side (design/hero_mode.md, section 2): a player takes direct control of one of their team's
+ * units - first person or over the shoulder - and the unit leaves RTS control until they let go.
+ *
+ * How the unit is driven: while possessed, Mob.serverAiStep is cancelled for that mob (PossessionMobMixin calls
+ * {@link #drive}), so no goal, navigation or move control touches it; instead the possessor's latest input is
+ * written into the same fields the AI would set (speed, zza/xxa/yya, jumping, rotation) and vanilla travel() moves
+ * the unit at its own speed with its own collision. An ability hands the AI back for a moment so cast goals that
+ * walk into range or channel still run.
+ *
+ * Every claim goes through {@link #mayPossess}; every input/attack/ability is dropped unless it comes from the
+ * unit's current possessor (the client never names a target: the server finds it along the look ray). Orders the
+ * RTS side gives a possessed unit become objectives for the possessor instead ({@link #divertOrders}).
+ *
+ * Cost at 8v8 scale: the mixin's per-mob check is an empty-map early-out when nobody possesses anything, one hash
+ * lookup otherwise; the tick loop walks only the possessions (at most one per player).
+ */
+public final class PossessionServer {
+    private PossessionServer() { }
+    /** +10% damage while a human drives the unit: control, not stats, is the reward (hero_mode.md, balance 1). */
+    public static final float DAMAGE_BONUS = 1.10f;
+    /** Attack cooldown multiplier while possessed: a quicker wind-up for a human's aimed swing/shot. */
+    public static final float COOLDOWN_MULT = 0.85f;
+    /** How long an ability hands control back to the unit's AI (cast goals walk into range, then channel). */
+    static final int ABILITY_AI_TICKS = 60;
+    /** No input for this long (lag, alt-tab) and the unit stops instead of running on with the last keys. */
+    static final int INPUT_STALE_TICKS = 40;
+    /** The possessor's (invisible, spectating) player is kept within this of the unit, so its chunks and entities
+     * keep streaming to them. */
+    static final double PLAYER_LEASH = 16;
+    // movement prediction (hero slice 3): the client moves its copy of the unit at once and claims where it got to;
+    // the server moves the real unit there through vanilla collision, within what the unit could have walked
+    /** Claims arrive every client tick while moving; this long without one and plain input drives the unit again. */
+    static final int CLAIM_FRESH_TICKS = 5;
+    /** At most this many ticks of movement banked (half a second of lag spike absorbed, no more). */
+    static final int MOVE_BUDGET_MAX = 10;
+    /** A claim may cover at most this many ticks more than really passed since the last one (claims bunched by the
+     * network: two in one server tick, none in the next). */
+    public static final int CLAIM_JITTER_TICKS = 2;
+    /** Server and claim further apart than this after the move (blocks): tell the client where the unit really is. */
+### hero/PossessionClientEvents.java (968 lines)
+/**
+ * Possession, client side (design/hero_mode.md, section 2): the camera inside the possessed mob, the input sent to
+ * the server, and the Silica-style HUD - "UNIT FEED: <unit>" top right, HP / hero XP / four ability slots at the
+ * bottom, a crosshair, a circular radar top left and the commander's current objective with a waypoint.
+ *
+ * The RTS session is left running underneath: the RTS view stays "on" (OrthoviewClientEvents.enabled) but
+ * OrthoviewClientEvents.isEnabled() answers false while possessing, so every RTS camera / HUD / fog hook steps
+ * aside on its own, and nothing has to be torn down and rebuilt on the way back. Locally the RTS screen is just
+ * closed (the server keeps the player spectating), the client camera entity becomes the mob, and the player's own
+ * (mouse-turned) rotation is copied onto the mob every frame, so looking around is instant even though movement is
+ * the server's.
+ *
+ * Controls are the vanilla Minecraft bindings (WASD, Space, Shift, Ctrl / double-tap W to sprint, left click, 1-4, F5,
+ * Auto-Jump if it is on), so they follow whatever the player set in Controls; V also toggles the over-the-shoulder view (60% boards have no F5), and 
+ * Return to command goes back to the RTS view.
+ */
+public class PossessionClientEvents {
+    private static final Minecraft MC = Minecraft.getInstance();
+    static final int RADAR_R = 40;
+    static final float RADAR_RANGE = 48f;
+    static final long OBJECTIVE_MS = 60_000;
+    static final int GOLD = 0xFFFFD27A, DIM = 0xFFB0B0B0, PANEL = 0xA0101418;
+    private static int possessedId = -1;
+    private static int missingTicks = 0;
+    private static boolean heroRole = false;
+    /** The commanders a Hero-role player serves (from the ROLE packet): their units count as ours for team fog. */
+    private static final List<String> heroCommanders = new ArrayList<>();
+    /** unit id -> who possesses it (any player's), for the ally marker */
+    private static final Map<Integer, String> possessors = new HashMap<>();
+    private static PossessionServer.Objective objective = PossessionServer.Objective.NONE;
+    private static double objX, objY, objZ;
+    private static int objTarget = -1;
+    private static long objSetAt = 0;
+    // last input sent (only changes and a heartbeat go to the server)
+    private static int lastF, lastS, sinceSent;
+    private static boolean lastJump, lastDesc, vWasDown;
+    private static float lastYaw, lastPitch;
+    private static int attackHeldTicks;
+    private static int clientTicks;
+    // the possessed unit's ability icons, built once per possession and refreshed now and then
+### hero/HeroKits.java (749 lines)
+/**
+ * The seven faction heroes' kits (design/hero_mode.md section 5): body stats, cost and four abilities each, and the
+ * abilities' effects. Each hero has a movement ability of its own kind - the Paladin charges, the Gravecaller blinks
+ * through the grave, the Warchief leaps, the Druid walks the roots, the Corsair grapples, the Storm Witch flies on her
+ * cloud, the Arch-Engineer rocket-jumps - and its fourth ability is team utility (a shield wall, vision, war drums, a
+ * hiding thicket, a tidepool, an energy refund, field repairs) rather than more damage: what a commander can't do from
+ * above, so a hero stays worth having after tier 2.5.
+ * <p>
+ * Balance (design/hero_mode.md section 6): at level 1 a hero has ~2x a T2 unit's health and a T1 unit's damage; with
+ * its abilities a level-5 hero trades with two or three T2 units and never with a whole army. Every stun or root is at
+ * most 1.5 s (HeroFx caps them), nothing is map-wide or permanent. Costs are BAR metal/energy (no config entry: the
+ * hero's price is part of its kit), the revive is Reign of Nether's level-scaled one.
+ */
+public final class HeroKits {
+    private HeroKits() { }
+    static final ResourceCost HERO_COST = ResourceCost.Unit(0, 300, 300, 45, 4);   // 300 metal, 300 energy, 45 s, 4 pop
+    static int[] cd(int r1, int r2, int r3) { return new int[] { r1, r2, r3 }; }
+    static float[] v(float r1, float r2, float r3) { return new float[] { r1, r2, r3 }; }
+    static float[] v(float all) { return new float[] { all, all, all }; }
+    // ------------------------------------------------------------------------------------------------ Sunforged
+    public static final HeroKit DAWN_PALADIN = new HeroKit("dawn_paladin", "Dawn Paladin", "villagers", Role.VANGUARD,
+        200, 9, 4, 0.28f, 100, 8, 0.8f, HERO_COST,   // 160/7 -> 200/9 (balance-pass: a level-5 hero lost to two Iron Golems; design/balance.md "Heroe
+        new AbilitySpec("shield_charge", "hero_shield_charge", Target.GROUND, Ai.ENGAGE, cd(14, 12, 10), v(8, 10, 12), 2.5f,
+            30, 2, v(6, 9, 12), v(0.5f, 0.75f, 1.0f), HeroKits::shieldCharge),
+        new AbilitySpec("judgement", "hero_judgement", Target.ENEMY, Ai.STRIKE, cd(12, 10, 8), v(10), 0,
+            35, 6, v(10, 15, 20), v(50), HeroKits::judgement),
+        new AbilitySpec("sun_banner", "hero_sun_banner", Target.SELF, Ai.FIGHT_SELF, cd(30, 26, 22), v(0), 8,
+            50, 0, v(6, 8, 10), v(0, 0, 10), HeroKits::sunBanner),
+        new AbilitySpec("aegis_of_dawn", "hero_aegis_of_dawn", Target.SELF, Ai.FIGHT_SELF, cd(75, 65, 55), v(0), 14,
+            80, 0, v(8, 12, 16), v(12), HeroKits::aegisOfDawn));
+    // ------------------------------------------------------------------------------------------------ Gravebound
+    public static final HeroKit GRAVECALLER = new HeroKit("gravecaller", "Gravecaller", "monsters", Role.CASTER,
+        165, 8, 0, 0.26f, 140, 12, 1.2f, HERO_COST,   // 120/6 -> 165/8 (balance-pass)
+        new AbilitySpec("bone_spear", "hero_bone_spear", Target.GROUND, Ai.STRIKE, cd(8, 7, 6), v(14), 0,
+            30, 6, v(8, 12, 16), v(1, 1, 1.3f), HeroKits::boneSpear),
+        new AbilitySpec("grave_step", "hero_grave_step", Target.GROUND, Ai.NONE, cd(16, 13, 10), v(8, 11, 14), 3,
+            25, 2, v(8, 11, 14), v(2, 2.5f, 3), HeroKits::graveStep),
+        new AbilitySpec("raise_the_fallen", "hero_raise_the_fallen", Target.GROUND, Ai.FIGHT_GROUND, cd(40, 35, 30), v(10), 2,
+            60, 10, v(2, 3, 4), v(20, 25, 30), HeroKits::raiseTheFallen),
+        new AbilitySpec("grave_sight", "hero_grave_sight", Target.SELF, Ai.FIGHT_SELF, cd(60, 50, 40), v(0), 24,
+### hero/PossessionHudClient.java (501 lines)
+/**
+ * Possessed combat feel and first-person polish (design/hero_mode.md, hero slice 3), drawn into the possession HUD
+ * (PossessionClientEvents calls in) plus the world-space damage numbers. Inspiration: Silica's first-person vehicle
+ * combat (a reticle that tells you whether the target is in your gun's reach; a compass and radar to navigate by) and
+ * Deadlock's ability feedback (a key press shows at once, a refused cast says why, a cooldown coming back chimes).
+ *
+ * <ul>
+ *   <li><b>Crosshair</b> adapts to the unit: melee brackets that close in when a hostile is within reach; a ranged
+ *       ring with "distance / range" that opens up when the target is out of range. Red = hostile in reach, pink =
+ *       hostile out of reach, blue = friendly. The aim ray runs once a tick, not per frame.</li>
+ *   <li><b>Hit marker</b> (an X round the crosshair, red and longer on a kill) and a tick sound on every HIT the server
+ *       confirms; optional floating <b>damage numbers</b> (Mod config hero_damage_numbers, or the Esc menu).</li>
+ *   <li><b>Cast feedback</b>: the slot flashes on the key press (no round trip), then gold when the server took the
+ *       cast or red with the reason ("ON COOLDOWN", "NOT ENOUGH MANA", ...) when it didn't.</li>
+ *   <li><b>Cooldown-ready cue</b>: a slot whose cooldown runs out pulses and chimes.</li>
+ *   <li><b>Compass</b> strip along the top with the objective's bearing, and an arrow round the crosshair toward an
+ *       objective that is off to the side.</li>
+ *   <li><b>Radar terrain</b>: cliffs (2+ blocks of height change) and water outlined under the radar's unit dots,
+ *       from the client's height map, rebuilt every half second (48 x 48 cells of 2 blocks).</li>
+ * </ul>
+ * All state is fixed-size arrays: nothing allocated per frame except the few strings the HUD already draws.
+ */
+public final class PossessionHudClient {
+    private PossessionHudClient() { }
+    private static final Minecraft MC = Minecraft.getInstance();
+    /** The compass strip's bottom edge: the objective banner sits under it. */
+    public static final int COMPASS_BOTTOM = 15;
+    static final int COMPASS_HALF_W = 100;
+    static final float COMPASS_SPAN_DEG = 75f;
+    // ---- aim (per tick) ----
+    private static boolean ranged;
+    private static double reach, aimDist = -1;
+    private static boolean aimHostile, inReach;
+    private static String aimText = "";
+    private static int aimTextDist = -1, aimTextRange = -1;
+    // ---- hit marker / damage numbers ----
+    static final long HIT_MS = 180, KILL_MS = 380, NUMBER_MS = 900;
+    static final int NUMBERS = 32;
+    private static long hitAt = 0, hitSoundAt = 0;
+    private static boolean hitKill;
+### signatures hero/PossessionServer.java: private PossessionServer() { } | Possession(UUID player, String playerName, int unitId, String ownerName, ServerLevel level, boolean headless) { | public static boolean isPossessed(Entity e) { | public static boolean isPossessed(int unitId) { | public static Possession of(UUID player) { | public static Possession ofUnit(int unitId) { | public static String mayPossess(String name, Entity e) { | public static void requestPossess(ServerPlayer sp, int unitId) { | public static String claim(ServerLevel level, String name, UUID uuid, int unitId, boolean headless) { | public static boolean release(UUID player, String reason) { | static void dropOrders(Mob mob, Unit unit) { | static Entity findTeamHero(ServerLevel level, String name) { | static double walkPerTick(double speed) { | public static double walkPerTick(double speed, boolean sprinting) { | static boolean sprints(Mob mob, float forward, boolean sprint) { | static boolean isFlyer(Mob mob) { | static void setSprintFlag(Mob mob, boolean on) { | static double flyPerTick(double speed) { | static void applyClaim(Possession p, Mob mob, boolean flyer) { | static void sendSync(Possession p, Mob mob, int flags) { | static boolean scriptedMotion(Mob mob) { | static void setLook(Possession p, float yaw, float pitch) { | public static boolean attack(UUID player, int unitId, float yaw, float pitch) { | public static boolean ability(UUID player, int unitId, int slot, float yaw, float pitch) { | static int castCheck(Unit unit, Ability ability, Possession p) { | static void sendCast(Possession p, int slot, int result) { | public static boolean rankUp(UUID player, int unitId, int slot) { | public static Ability abilityInSlot(Unit unit, int slot) { | static LivingEntity lookTarget(Mob mob, float yaw, float pitch, double reach, boolean hostileOnly) { | static Vec3 lookPoint(Mob mob, float yaw, float pitch, double reach) {
+### signatures hero/PossessionClientEvents.java: public static boolean isPossessing() { | public static int getPossessedId() { | public static boolean isHeroRole() { | public static boolean isTeamOwner(String owner) { | public static String possessorOf(int unitId) { | static LivingEntity possessed() { | public static void onPacket(PossessionClientboundPacket p) { | static void onRole(String text) { | static void begin(int unitId) { | private static void lookThrough(Entity e) { | static void end() { | static void end(boolean keepView) { | public static void requestRelease() { | public static boolean onToggleKey() { | static boolean mayHop(LivingEntity le) { | static LivingEntity hopTarget(LivingEntity from, float yaw, float pitch) { | public static boolean onHopKey() { | static void requestHop() { | private static boolean down(KeyMapping km) { | private static void drain(KeyMapping km) { | public static void onClientTick(TickEvent.ClientTickEvent evt) { | static boolean updateSprint(LivingEntity mob, int forward) { | static boolean stepAhead(LivingEntity mob, float yaw) { | public static void onComputeFov(ViewportEvent.ComputeFov evt) { | private static void resetSprint() { | public static void onMovementInput(MovementInputUpdateEvent evt) { | public static void onRenderTick(TickEvent.RenderTickEvent evt) { | static void tickObjective(LivingEntity mob) { | static String objectiveText() { | static void rebuildSlots(Entity e) {
+### signatures hero/HeroKits.java: private HeroKits() { } | static int[] cd(int r1, int r2, int r3) { return new int[] { r1, r2, r3 }; } | static float[] v(float r1, float r2, float r3) { return new float[] { r1, r2, r3 }; } | static float[] v(float all) { return new float[] { all, all, all }; } | public static HeroKit forFaction(String factionName) { | static int ticks(float seconds) { return Math.round(seconds * 20); } | static boolean shieldCharge(Cast c) { | static boolean judgement(Cast c) { | static boolean sunBanner(Cast c) { | static boolean aegisOfDawn(Cast c) { | static boolean boneSpear(Cast c) { | static boolean graveStep(Cast c) { | static boolean raiseTheFallen(Cast c) { | static boolean graveSight(Cast c) { | static boolean savageLeap(Cast c) { | static boolean frenzy(Cast c) { | static boolean cleave(Cast c) { | static boolean warDrums(Cast c) { | static boolean thornVolley(Cast c) { | static boolean rootWalk(Cast c) { | static boolean rejuvenate(Cast c) { | static boolean groveSeed(Cast c) { | static boolean pistolShot(Cast c) { | static boolean grappleHook(Cast c) { | static boolean riptide(Cast c) { | static boolean tidepool(Cast c) { | static boolean chainLightning(Cast c) { | static boolean cloudRide(Cast c) { | static boolean frostNova(Cast c) { | static boolean manaFont(Cast c) {

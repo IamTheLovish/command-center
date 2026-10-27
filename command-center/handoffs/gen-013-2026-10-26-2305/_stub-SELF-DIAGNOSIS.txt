@@ -1,0 +1,24 @@
+# Self-diagnosis - gen-013
+
+## Mistakes I made in this chat
+TODO
+For each one: what happened → why → what the next commander should do instead.
+
+## Usage check (from today's ledger)
+- Assignments: 26 by model: haiku 1 / sonnet 13 / opus 11 / fable 0
+- Redos: 1 escalations: 0 rate: 3.8% (redo+escalated / assignments)
+- Tokens by model: haiku 7951 / sonnet 697000 / opus 651000 / fable 0; unclosed rows: 12
+- Work I did myself that an agent should have done (context wasted): TODO
+- Agents that were overpowered for the job (could have gone a tier lower): TODO
+- Agents that were underpowered (caused redos): TODO
+
+## Efficiency score (1-10) for usage and for output quality, with one line each on why
+TODO
+
+## Auditor advice: adopted / declined, and the result
+TODO
+
+## Rule changes
+- To lessons.md: TODO
+- To model-routing.md: TODO
+

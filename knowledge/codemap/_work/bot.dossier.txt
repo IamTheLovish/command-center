@@ -1,0 +1,209 @@
+AREA bot  packages=['bot', 'survival', 'scenario', 'sandbox']  files=42 lines=10229
+SUBDIRS (lines): bot/=5668, survival/=1421, scenario/=1362, sandbox/=1003, survival/spawners=775
+TOP FILES:
+   2885 bot/BotPlayer.java
+    632 bot/BotArmy.java
+    464 sandbox/SandboxClientEvents.java
+    409 bot/BotCombatEngineers.java
+    380 scenario/ScenarioClientEvents.java
+    379 scenario/ScenarioMenu.java
+    356 survival/SurvivalServerEvents.java
+    318 survival/WaveEnemy.java
+    312 survival/SurvivalClientEvents.java
+    279 bot/BotGameEnders.java
+    271 sandbox/SandboxActionButtons.java
+    268 bot/BotEconomy.java
+    260 bot/BotServerEvents.java
+    239 bot/BotSites.java
+    231 bot/BotSiteWatch.java
+    216 bot/BotDefences.java
+    213 scenario/ScenarioServerboundPacket.java
+    213 survival/spawners/WaveSpawner.java
+    194 survival/spawners/IllagerWaveSpawner.java
+    187 survival/spawners/MonsterWaveSpawner.java
+    181 survival/spawners/PiglinWaveSpawner.java
+    143 scenario/ScenarioServerEvents.java
+    134 sandbox/SandboxServer.java
+    115 survival/WavePortal.java
+    111 survival/Wave.java
+    102 sandbox/SandboxServerboundPacket.java
+     88 bot/BotStartPick.java
+     81 bot/BotTuning.java
+     80 bot/BotRoles.java
+     71 survival/SurvivalClientboundPacket.java
+OVER1000: bot/BotPlayer.java(2885)
+SUBSCRIBEEVENT files: survival/SurvivalServerEvents.java(7), bot/BotServerEvents.java(4), scenario/ScenarioServerEvents.java(3), scenario/ScenarioClientEvents.java(2), sandbox/SandboxClientEvents.java(1)
+PACKET files: sandbox/SandboxServerboundPacket.java, scenario/ScenarioClientboundPacket.java, scenario/ScenarioServerboundPacket.java, survival/SurvivalClientboundPacket.java, survival/SurvivalServerboundPacket.java
+INSTRUMENTATION ids: BOTS
+COMMANDS: add, bot, debug-end-wave, debug-next-night, remove
+IMPORTS FROM OTHER PKGS: unit=90, building=86, faction=30, player=21, hud=15, registrars=15, util=12, resources=10, ability=10, research=10
+IMPORTED BY: gametest=16, building=11, hud=5, player=4, unit=4, commands=3, matchstart=3, onboarding=3, registrars=3, time=3
+GAMETEST classes by import count: SkirmishGameTests(36), BigUnitGameTests(24), BotGameTests(8), DuelGameTests(4), BrassworksGameTests(3), TierGateGameTests(3), CombatEngineerGameTests(2), HeroAiGameTests(2)
+--- HEADS (non-import, first 40 lines) of top files ---
+### bot/BotPlayer.java (2885 lines)
+/**
+ * A skirmish opponent. Each bot owns an RTSPlayer (PlayerServerEvents.startRTSBot gives it workers and resources)
+ * and this brain plays the match for it: a capitol, workers, metal extractors on the map's metal patches, wind
+ * generators, houses ahead of the population cap, an army building, then waves of fighters at the nearest enemy.
+ * Decisions are re-derived from world state every second, so it recovers cleanly after a reload.
+ */
+public class BotPlayer {
+    public enum Difficulty { EASY, MEDIUM, HARD }
+    /**
+     * What each faction uses for each job. T2 lives in its own lab (needs Tier 2 research): it trains the T2 army
+     * and the T2 constructor, the only worker that may raise the T3 lab, which makes the experimental.
+     */
+    public record Kit(Building capitol, Building house, Building farm, Building extractor, Building wind, Building armyBuilding,
+               Building tower, ProductionItem worker, List<ProductionItem> army,
+               Building t2Lab, ProductionItem t2Worker, List<ProductionItem> t2Army,
+               Building t3Building, ProductionItem t3Unit, Building converter) { }
+    /**
+     * The faction's kit, or null if bots cannot play it yet. Every faction is listed explicitly: the old version
+     * returned the villager kit for anything unknown, so a Verdant Court bot would have built Sunforged buildings.
+     */
+    public static Kit kitFor(Faction faction) {
+        if (faction == null)
+            return null;
+        // the Horde's army lab is a Basic Portal the bot refits to a Military Portal (think() queues the refit): the
+        // old kit named the Bastion, which only researches, so a Horde bot never trained a single Brute
+        if (faction.equals(Factions.PIGLINS))
+            return new Kit(Buildings.CENTRAL_PORTAL, Buildings.PORTAL_POCKET, null,   // no farms any more (Factions)
+                    Buildings.METAL_EXTRACTOR_PIGLINS, Buildings.WIND_GENERATOR_PIGLINS, Buildings.PORTAL_BASIC,
+                    null, ProductionItems.GRUNT, List.of(ProductionItems.BRUTE, ProductionItems.HEADHUNTER),
+                    Buildings.FLAME_SANCTUARY, ProductionItems.BONEWRIGHT,
+                    List.of(ProductionItems.BLAZE, ProductionItems.WITHER_SKELETON, ProductionItems.MAGMA_CUBE, ProductionItems.GHAST,
+                            ProductionItems.GOREHORN_RHINO),   // big-units T2 beast
+                    Buildings.FORTRESS, ProductionItems.WAR_MAMMOTH, Buildings.ENERGY_CONVERTER_PIGLINS);
+        if (faction.equals(Factions.MONSTERS))
+            return new Kit(Buildings.MAUSOLEUM, null, null,   // no house or farm any more (Factions)
+                    Buildings.METAL_EXTRACTOR_MONSTERS, Buildings.WIND_GENERATOR_MONSTERS, Buildings.GRAVEYARD,
+                    Buildings.DARK_WATCHTOWER, ProductionItems.ZOMBIE_VILLAGER, List.of(ProductionItems.ZOMBIE, ProductionItems.SKELETON),
+                    Buildings.DUNGEON, ProductionItems.EMBALMER,
+                    List.of(ProductionItems.CREEPER, ProductionItems.WRAITH, ProductionItems.WARDEN, ProductionItems.OSSUARY_BEHEMOTH),
+                    Buildings.STRONGHOLD, ProductionItems.BONE_DRAGON, Buildings.ENERGY_CONVERTER_MONSTERS);
+### bot/BotArmy.java (632 lines)
+/**
+ * The bot's army brain: a small state machine run once per think (about once a second) after the economy step.
+ * Everything is measured in army value (the summed metal cost of living fighters, as the match history does), not
+ * unit counts, so a T2 army of ten counts like a T1 army of thirty.
+ * <pre>
+ *   BUILD_UP  fighters gather at a rally point ahead of home; raids and scouting go out from here; when the army's
+ *             value crosses the difficulty's threshold (growing with the clock) and the wave cooldown is up, a wave
+ *             marches on the best known enemy site                                -> ATTACK
+ *   ATTACK    the wave attack-moves to its target, stragglers and reinforcements rejoin it, a fallen target is
+ *             replaced by the next known site; a wave that has lost 40%+ of its value and is outweighed on the spot
+ *             by retreatRatio pulls back                                           -> RETREAT (or BUILD_UP when done)
+ *   RETREAT   the army walks home on Return fire for up to 20 s, then regroups    -> BUILD_UP
+ *   DEFEND    (from any state) enemy value at home above defendValue, one of our buildings taking damage, or the
+ *             commander being hit, pulls the whole army back onto the intruder; 5 s after the last one is gone
+ *             -> BUILD_UP. The attacker of a hit building or commander is the intruder even when the home scan
+ *             cannot see it: a flyer above HEIGHT_BAND, artillery past BASE_RADIUS (lovish's Oct 13 2v2: a Celestial
+ *             Dragon razed the Sunforged base while forty of its fighters stood in rows beside it, because the hit
+ *             only counted once an intruder had been found in the flat scan). A flying intruder is met on the
+ *             ground under it (an attack-move at a block in the air is a walk to nowhere).
+ * </pre>
+ * A single scout at home is met by three idle fighters instead of recalling a wave (the old bot's whole army ran
+ * home for any one enemy within 45 blocks, which is why it never pressured anyone).
+ * <p>
+ * Minimum army: raids, scout errands and capture-site squads wait until {@link #MIN_FIGHTERS} fighters are alive.
+ * Before that every fighter the labs make would walk out alone and die (the ally hard bot of Oct 13 lost 33 units
+ * for 0 kills with its army value pinned at 0), and a wave only ever goes above the difficulty's threshold anyway.
+ *
+ * No map hack: a wave only targets enemy buildings one of the bot's units or buildings has come within sight of
+ * ({@link #knownSites}, refreshed every 5 s), and the scout is what finds them. The fallback after
+ * {@link BotTuning#blindAttackMinute} marches on the nearest enemy building regardless, because start positions
+ * are public in the lobby and a bot that never finds the enemy is no opponent.
+ *
+ * Cost per think: one grid query at home, one more at the army's centre only while a wave is out, and the
+ * sightings pass (a few hundred flat distances) every 5 s.
+ */
+public class BotArmy {
+    public enum State { BUILD_UP, ATTACK, DEFEND, RETREAT }
+    /** The nearest enemy inside the base on the last army step (null if none) - diagnostics for tests and logs. */
+    public LivingEntity lastIntruder;
+    /** Why the last step launched no wave (one short phrase for the army log; "" when a wave is out). */
+### sandbox/SandboxClientEvents.java (464 lines)
+public class SandboxClientEvents {
+    // NONE == neutral
+    private static Faction faction = Factions.NONE;
+    public static Relationship relationship = Relationship.OWNED;
+    public static SandboxMenuType sandboxMenuType = SandboxMenuType.UNITS;
+    public static CustomBuildingSortOption customBuildingSortOption = CustomBuildingSortOption.NAME;
+    private static final Minecraft MC = Minecraft.getInstance();
+    public static Faction getFaction() { return faction; }
+    public static String spawnUnitName = "";
+    public static boolean isSandboxPlayer(String playerName) {
+        return MC.player != null && playerName.equals(MC.player.getName().getString()) &&
+                PlayerClientEvents.isRTSPlayer() && ClientGameModeHelper.gameMode == GameMode.SANDBOX;
+    }
+    public static boolean isSandboxPlayer() {
+        return PlayerClientEvents.isRTSPlayer() && ClientGameModeHelper.gameMode == GameMode.SANDBOX;
+    }
+    public static List<BuildingPlaceButton> getBuildingButtons() {
+        return faction.getBuildingButtons();
+    }
+    public static List<Button> getCustomBuildingButtons() {
+        if (CustomBuildingClientEvents.customBuildings.isEmpty()) {
+            return List.of(new Button(
+                    "Custom building info",
+                    Button.itemIconSize,
+                    ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "textures/hud/help.png"),
+                    (Keybinding) null,
+                    () -> false,
+                    () -> false,
+                    () -> true,
+                    () -> {
+                        if (MC.player != null) {
+                            MC.player.addItem(new ItemStack(BlockRegistrar.RTS_STRUCTURE_BLOCK.get()));
+                        }
+                    },
+                    null,
+                    List.of(
+                            fcs(I18n.get("sandbox.reignofnether.custom_buildings_info.tooltip1")),
+                            fcs(I18n.get("sandbox.reignofnether.custom_buildings_info.tooltip2")),
+                            fcs(""),
+                            fcs(I18n.get("sandbox.reignofnether.custom_buildings_info.tooltip3"))
+### bot/BotCombatEngineers.java (409 lines)
+/**
+ * The bots' combat engineers (design/combat_engineers.md "Bots"). Kept out of BotPlayer, which only calls
+ * {@link #think} from one line once it has sorted its units and buildings. Per think it:
+ * <ol>
+ *   <li>takes the engineers out of the worker list, so the economy rules never hand one an extractor or a lab to place
+ *       (the server refuses an engineer that) and the worker count stays a count of workers;</li>
+ *   <li>keeps a few in training at the T2 lab once the army is worth escorting: none on easy, one on medium, two on
+ *       hard, one more per {@link #ARMY_PER_EXTRA} fighters, at most {@link #MAX_ENGINEERS};</li>
+ *   <li>every {@link #ORDER_TICKS}: an idle engineer reclaims the nearest wreck near the army, else walks up a few
+ *       blocks behind it - its field repair (CombatEngineers.tickFieldRepair) then mends whatever is hurt around it;</li>
+ *   <li>now and then, while the army gathers, has them raise an anti-raid tower at the rally point (BAR: the builders
+ *       that follow the army throw up a defence where it stands);</li>
+ *   <li>casts each engineer's faction ability when its trigger holds. The cheap tests come first and the scans run only
+ *       for an engineer off cooldown, so a quiet army costs a few checks.</li>
+ * </ol>
+ * Server thread only (BotPlayer.think).
+ */
+public final class BotCombatEngineers {
+    private BotCombatEngineers() { }
+    /** No engineers before the army has this many units: they escort an army, they don't replace one. */
+    static final int MIN_ARMY = 6;
+    static final int ARMY_PER_EXTRA = 12;
+    static final int MAX_ENGINEERS = 3;
+    /** Orders (reclaim, follow, the forward tower) at most this often per bot. */
+    static final int ORDER_TICKS = 40;
+    /** Where an engineer stands: this far behind the army's centre, toward home. */
+    static final double TRAIL = 6;
+    /** An engineer this far from its follow point (and not already walking there) is sent after the army. */
+    static final double LAG = 10;
+    /** Wrecks an idle engineer goes for: within this of itself and of the army's centre. */
+    static final double WRECK_REACH = 14;
+    /** A forward tower at most this often (hard) / twice as often apart (medium). */
+    static final long TOWER_EVERY_TICKS = 20 * 120;
+    /** One forward tower per rally point: none if an own anti-raid tower already stands within this of it. */
+    static final double TOWER_COVER = 14;
+    /** Per bot: when it last ordered, when it last laid a tower, its engineers this think, and a reused unit scan. */
+    static final class State {
+        long lastOrderAt = -1, lastTowerAt = -1;
+        final List<LivingEntity> engineers = new ArrayList<>();
+        final List<LivingEntity> scan = new ArrayList<>();
+### signatures bot/BotPlayer.java: public static Kit kitFor(Faction faction) { | public static Building t2TowerFor(Faction faction) { | public static Building vaultFor(Faction faction) { | public BotPlayer(String name, Faction faction, Difficulty difficulty, BlockPos home) { | int targetWorkers() { | int maxConcurrentSites() { | boolean floating() { return metalFill > BotTuning.FLOAT_FRAC; } | int targetLabs(int labs, long minutes) { | boolean isLab(BuildingPlacement bp) { | boolean t2Ready(long minutes, int fighters, float energyIncome, List<BuildingPlacement> buildings) { | float techEnergyTarget(boolean tier2, List<BuildingPlacement> buildings) { | float averageEnergyIncome(float energyIncome, List<BuildingPlacement> buildings, boolean rising) { | float plannedEnergyIncome(float energyIncome, List<BuildingPlacement> buildings) { | boolean anyLabCanLevel(List<BuildingPlacement> buildings) { | boolean levelInsteadOfLab(int labs, List<BuildingPlacement> buildings) { | public boolean queueLabLevel(List<BuildingPlacement> buildings) { | Building annexFor() { | BuildingPlacement labWantingAnnex(List<BuildingPlacement> buildings) { | int countLabs(List<BuildingPlacement> buildings) { | long paceMinutes(long gameTime) { | boolean lostStart(ServerLevel level, long gameTime, List<LivingEntity> workers, BuildingPlacement capitol, int unitCount | public void think(ServerLevel level, long gameTime) { | void logNoArmy(long gameTime, int units, List<BuildingPlacement> buildings, BuildingPlacement capitol) { | ProductionItem pickArmyItem(List<ProductionItem> list, List<LivingEntity> mine, boolean t2) { | int targetT2Workers() { return difficulty == Difficulty.HARD ? 2 : 1; } | void queueT2Worker(ProductionPlacement lab) { | void trainWorkers(BuildingPlacement capitol, int workerCount) { | void assignBuilders(ServerLevel level, List<BuildingPlacement> buildings, List<LivingEntity> workers) { | boolean placeExtractor(ServerLevel level, BlockPos patch, List<LivingEntity> workers) { | boolean placeExtractorImpl(ServerLevel level, BlockPos patch, List<LivingEntity> workers) {
+### signatures bot/BotArmy.java: public BotArmy(BotPlayer bot, BotTuning tuning) { | static float metal(LivingEntity le) { | public static float valueOf(List<LivingEntity> units) { | public void seedSite(BlockPos origin, Building building, long gameTime) { | void enter(State next, long gameTime) { | void buildUp(ServerLevel level, long gameTime, BlockPos home, float value, long minutes) { | void attack(ServerLevel level, long gameTime, BlockPos home, float value, long minutes) { | void raid(ServerLevel level, long gameTime, BlockPos home) { | void scout(ServerLevel level, long gameTime, List<LivingEntity> mine, List<BuildingPlacement> buildings, BlockPos home)  | void updateKnownSites(List<LivingEntity> mine, List<BuildingPlacement> buildings) { | static boolean stands(BlockPos pos) { | BlockPos pickTarget(BlockPos home, long minutes) { | BlockPos rallyPoint(ServerLevel level, BlockPos home) { | static boolean centreWithin(List<LivingEntity> units, BlockPos at, double r) { | BuildingPlacement buildingsHit(List<BuildingPlacement> buildings) { | LivingEntity enemyOrNull(Entity e) { | LivingEntity commanderAttacker(List<LivingEntity> mine) { | static BlockPos meetingPoint(ServerLevel level, LivingEntity intruder) { | void collectIdle(List<LivingEntity> from, BlockPos near, int n, boolean nearestFirst) { | void stance(List<LivingEntity> units, EngagementStance s) {
+### signatures sandbox/SandboxClientEvents.java: public static Faction getFaction() { return faction; } | public static boolean isSandboxPlayer(String playerName) { | public static boolean isSandboxPlayer() { | public static List<BuildingPlaceButton> getBuildingButtons() { | public static List<Button> getCustomBuildingButtons() { | public static List<UnitSpawnButton> getUnitButtons() { | public static String getRelationshipName(Relationship relationship) { | public static Button getToggleFactionButton() { | public static List<FormattedCharSequence> getRenderTooltipList() { | public static Button getToggleRelationshipButton() { | public static Button getCycleBuildingOrUnitsButton() { | public static Button getToggleBuildingCheatsButton() { | public static Button getToggleUnitCheatsButton() { | public static Button getToggleNonUnitControlButton() { | public static Button getSortCustomBuildingsButton() { | public static void sortCustomBuildings() { | public static Button getExitSandboxButton() { | public static Button getPublishScenarioButton() { | public static Button getConfigureScenarioButton() { | public static void onMouseClick(ScreenEvent.MouseButtonPressed.Post evt) {

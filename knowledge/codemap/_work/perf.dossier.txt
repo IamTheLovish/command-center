@@ -1,0 +1,205 @@
+AREA perf  packages=['perf', 'taskscheduler', 'debug', 'persistence']  files=26 lines=2824
+SUBDIRS (lines): perf/=1879, debug/=635, taskscheduler/=168, persistence/=142
+TOP FILES:
+    393 perf/ServerTickProfile.java
+    233 perf/Sys.java
+    177 debug/RtsDebugNavmesh.java
+    158 perf/FrameParts.java
+    156 perf/AnimProfile.java
+    153 perf/SysTimer.java
+    142 persistence/MatchStateSaveData.java
+    129 debug/RtsDebugPathPreview.java
+    124 perf/FrameAuto.java
+    120 debug/RtsDebugServerEvents.java
+    120 perf/ProfileDump.java
+     96 debug/RtsDebugClientEvents.java
+     95 perf/FrameWindow.java
+     89 taskscheduler/TickScheduler.java
+     85 perf/BatSections.java
+     75 perf/GcLog.java
+     74 perf/SysReport.java
+     69 debug/RtsDebugStatsClientboundPacket.java
+     61 perf/FrameProfile.java
+     47 perf/SectionRebuilds.java
+     44 debug/RtsDebugChunksClientboundPacket.java
+     43 perf/UnitRing.java
+     41 taskscheduler/TaskSchedulerServerEvents.java
+     38 taskscheduler/TaskSchedulerClientEvents.java
+     34 perf/FrameBudget.java
+     28 perf/RefreshGate.java
+OVER1000: 
+SUBSCRIBEEVENT files: perf/ServerTickProfile.java(3), taskscheduler/TaskSchedulerServerEvents.java(2), taskscheduler/TaskSchedulerClientEvents.java(2), persistence/MatchStateSaveData.java(2), perf/FrameWindow.java(2), perf/AnimProfile.java(2), debug/RtsDebugPathPreview.java(2), debug/RtsDebugNavmesh.java(2), debug/RtsDebugClientEvents.java(2), perf/FrameProfile.java(1), perf/FrameAuto.java(1), debug/RtsDebugServerEvents.java(1)
+PACKET files: debug/RtsDebugChunksClientboundPacket.java, debug/RtsDebugStatsClientboundPacket.java
+INSTRUMENTATION ids: ATTACKER, DIRTY_SECTIONS, FRAME_SECTIONS, NAMES, SECTIONS, UNIT_BODIES, UNIT_SHADOW
+COMMANDS: rts-perf
+IMPORTS FROM OTHER PKGS: unit=19, orthoview=5, mana=3, network=2, registrars=2, util=2, keybinds=1, alliance=1, building=1, tide=1
+IMPORTED BY: unit=16, building=14, ability=5, gametest=5, resources=4, fogofwar=3, mixin=3, player=3, registrars=3, healthbars=2
+GAMETEST classes by import count: SkirmishGameTests(10), RegressionGameTests(3), PerfProfileGameTests(2), TargetScanGameTests(2), PerfPushGameTests(1)
+--- HEADS (non-import, first 40 lines) of top files ---
+### perf/ServerTickProfile.java (393 lines)
+/**
+ * The server's whole-tick profile (inbox/spec-5-performance section 3, instrument 1). Nothing in the game was ever
+ * measured as a whole tick - only our own systems in isolation (the 8v8 stress test) - so the first thing every
+ * performance change needs is this baseline. Reads {@code MinecraftServer.tickTimes}, vanilla's own ring of the last
+ * 100 tick durations (what the F3 pie and the server's "Can't keep up" warning use), so the cost of measuring is
+ * nothing. Two outputs:
+ * <ul>
+ *   <li>a {@code [Tick]} log line every 10 s while units exist: p50 / p95 / max of the last 100 ticks, live units,
+ *       buildings, players;</li>
+ *   <li>{@code /rts-perf <seconds>} (op): records every tick for that long, then writes
+ *       {@code logs/perf-<date>-<time>.json} next to the game's logs (every sample, the percentiles, the counts) and
+ *       answers with one chat line. This is what lovish runs at minute 15 of a 4v4 and hands to a session.</li>
+ * </ul>
+ * Since Oct 21 the capture below runs vanilla's metrics recorder (what /perf uses), the only profiler that splits the
+ * tick into sections, and our own systems appear in it as {@code bat:<name>} sections (see {@link Sys}). The old
+ * time profiler behind /debug start is only a tick-rate timer: it returned an empty profile, which the lag capture
+ * printed as "heaviest:  0.0%" while its test passed.
+ * No behaviour change: this class only reads.
+ */
+public final class ServerTickProfile {
+    private ServerTickProfile() { }
+    static final int LOG_EVERY_TICKS = 200;
+    static final int MAX_RECORD_SECONDS = 600;
+    private static int ticks = 0;
+    // /rts-perf: tick durations (ms) being recorded, and how many ticks are left
+    private static List<Double> recording = null;
+    private static int recordTicksLeft = 0;
+    private static CommandSourceStack recorder = null;
+    @SubscribeEvent
+    public static void onRegisterCommands(RegisterCommandsEvent event) {
+        event.getDispatcher().register(Commands.literal("rts-perf")
+            .requires(source -> source.hasPermission(2))
+            .then(Commands.argument("seconds", IntegerArgumentType.integer(1, MAX_RECORD_SECONDS))
+                .executes(ctx -> start(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "seconds"))))
+            .executes(ctx -> start(ctx.getSource(), 30)));
+    }
+    private static int start(CommandSourceStack source, int seconds) {
+        if (recording != null) {
+            source.sendFailure(Component.literal("rts-perf: a recording is already running (" + (recordTicksLeft / 20) + " s left)"));
+            return 0;
+### perf/Sys.java (233 lines)
+/**
+ * Names the server-tick cost of our own systems (Oct 21 perf plan, PR 1). Nothing measured a match as a whole before:
+ * lovish's 3-player log said the tick ran at 55-105 ms with ~600 units, but not WHICH system. Two readings come out of
+ * one pair of calls around each system:
+ * <ul>
+ *   <li>a {@code [Sys]} log line every 10 s while the server is slow (see {@link #SLOW_P95_MS}): the milliseconds each
+ *       system spent per tick, its self time (sections nested in it taken out, {@link SysTimer}), the worst tick, and
+ *       how much of the whole tick the timed systems are - the rest is vanilla, other mods and GC;</li>
+ *   <li>a {@code bat:<name>} section in vanilla's profiler (the metrics recorder behind /perf and the automatic lag
+ *       capture, ServerTickProfile), so a profile report names our systems instead of burying them under
+ *       {@code minecraft:<unit type> > goalSelector}.</li>
+ * </ul>
+ *
+ * Use at a call site: {@code int t = Sys.begin(Sys.ATTACKER); try { ... } finally { Sys.end(t); }}.
+ *
+ * Cost when the server is healthy and nothing is recording: one volatile boolean read per begin, and nothing else (no
+ * clock, no allocation) - safe in a per-unit path. Measuring switches on by itself when the last 100 ticks' p95
+ * reaches {@link #SLOW_P95_MS} (checked once a second), while a lag capture or /rts-perf runs, and in tests
+ * ({@link #force}); it costs two nanoTime calls and an inactive-profiler call per section call, about 0.1 us.
+ *
+ * Server thread only: Unit.tick also runs on the client, and a LAN host shares the JVM, so a call from any other
+ * thread is ignored.
+ */
+public final class Sys {
+    private Sys() { }
+    // the sections. Names are what [Sys] prints; the profiler gets "bat:" + name.
+    public static final int UNIT = 0;              // Unit.tick, minus the systems below it
+    public static final int ATTACKER = 1;          // AttackerUnit.tick, minus the scans below it
+    public static final int ATTACK_MOVE = 2;       // an attack-moving unit looking for a target
+    public static final int IDLE_AGGRO = 3;        // an idle unit looking for something to attack
+    public static final int RETARGET = 4;          // a fighting unit checking for a closer enemy
+    public static final int ENTITY_SCAN = 5;       // MiscUtil.findClosestAttackableEntity
+    public static final int BUILDING_SCAN = 6;     // MiscUtil.findClosestAttackableBuilding
+    public static final int SEPARATION = 7;        // bodies stepping apart
+    public static final int STUCK_NUDGE = 8;       // the nudge for a unit that stopped making progress
+    public static final int UNSTICK = 9;           // freeing a unit trapped in a block
+    public static final int REACTIONS = 10;        // Kite and Brace
+    public static final int PATHFINDER = 11;       // the main-thread half of the pathfinder (the workers are not timed)
+    public static final int BUILDINGS = 12;        // BuildingPlacement.tick for every building
+    public static final int BOTS = 13;             // bot brains thinking
+### debug/RtsDebugNavmesh.java (177 lines)
+// NAVMESH overlay: a colored ground tile on every standable cell around the selected unit, tinted by its A*
+// score, plus blue outlines around the built (cached) navmesh chunks. Drawn only in NAVMESH mode + orthoview.
+public class RtsDebugNavmesh {
+    private static final Minecraft MC = Minecraft.getInstance();
+    // A colored ground tile: where the navmesh says a cell is standable, tinted by its A* score for the
+    // selected unit. Recomputed periodically (not every frame) from a client-side ChunkSnapshot.
+    private record ScoreTile(BlockPos pos, float r, float g, float b, float score, boolean noFit, boolean label) {}
+    private static final ArrayList<ScoreTile> scoreTiles = new ArrayList<>();
+    private static int scoreRecalcCooldown = 0;
+    // Built navmesh chunk keys pushed from the server once a second; drawn as blue chunk outlines.
+    private static volatile long[] builtChunks = new long[0];
+    public static void setBuiltChunks(long[] keys) { builtChunks = keys; }
+    public static int scoreTileCount() { return scoreTiles.size(); }
+    private static final int NAVMESH_RADIUS = 14;
+    private static final int NAVMESH_UP = 10;   // cells above the unit to scan (overhangs / upper floors)
+    private static final int NAVMESH_DOWN = 18; // cells below the unit to scan (stairs / drops / lower floors)
+    private static void recomputeScoreTiles() {
+        scoreTiles.clear();
+        if (MC.level == null) return;
+        LivingEntity sel = null;
+        for (LivingEntity e : UnitClientEvents.getSelectedUnits())
+            if (e instanceof Unit) { sel = e; break; }
+        if (!(sel instanceof Mob mob) || !(sel instanceof Unit unit)) return;
+        MobilityClass mobility = MobilityClass.of(unit);
+        int fr = RtsPathfinder.footprintRadiusFor(mob);
+        int clearance = Math.max(2, Mth.ceil(mob.getBbHeight()));
+        BlockPos center = mob.blockPosition();
+        int R = NAVMESH_RADIUS;
+        ChunkSnapshot view;
+        try {
+            view = ChunkSnapshot.capture(MC.level, center, center, R + 4, mobility, clearance, fr, 1.0f, false);
+        } catch (Throwable t) {
+            return;
+        }
+        for (int dx = -R; dx <= R; dx++) {
+            for (int dz = -R; dz <= R; dz++) {
+                int x = center.getX() + dx, z = center.getZ() + dz;
+                // Show EVERY standable navmesh cell in a vertical band - so stairs, bridges, overhangs and
+                // separate floors above/below the unit all show, not just the surface nearest its feet.
+                for (int dy = NAVMESH_UP; dy >= -NAVMESH_DOWN; dy--) {
+### perf/FrameParts.java (158 lines)
+/**
+ * Names the client cost of our own systems, the client twin of {@link Sys} (Oct 21 perf plan, PR 1). lovish's log
+ * showed the client at 120 fps with no units and 33-55 fps with 600, with 17-23 ms a frame even at strategic zoom where
+ * no unit body is drawn, but the frame profile only said how long a frame took, not which of our handlers ate it. Each
+ * of our per-frame handlers is a section here; {@link FrameWindow} writes a {@code [FrameParts]} line every 10 s:
+ * <ul>
+ *   <li>the frame sections (outlines and underlines on units, building boxes, the strategic icons, the minimap, the
+ *       HUD, the unit bodies' draw time from {@link AnimProfile}, the selection and range rings): milliseconds per
+ *       frame, the worst frame, calls per frame;</li>
+ *   <li>the client-tick section ({@code Unit.tick} on the client): milliseconds per client tick;</li>
+ *   <li>the section re-mesh requests per second (fog of war marks whole columns dirty).</li>
+ * </ul>
+ * Every section is also a {@code bat:<name>} section in vanilla's client profiler, so an F3+L report and the
+ * {@link FrameAuto} capture name them.
+ *
+ * Unlike {@link Sys} this is always on while a world is open: a handful of sections per frame is a few hundred
+ * nanoseconds, and the per-unit client tick section is 24 ns x units x 20 Hz. Outside a world, or on any thread but
+ * the client's, {@code begin} costs one volatile read. No client classes are named here (the facade is reached from
+ * Unit.tick, which a dedicated server runs too); {@link FrameWindow} owns the client side.
+ *
+ * Use: {@code int t = FrameParts.begin(FrameParts.HUD); try { ... } finally { FrameParts.end(t); }}.
+ */
+public final class FrameParts {
+    private FrameParts() { }
+    // frame sections (ids below FRAME_SECTIONS), timed per rendered frame
+    public static final int UNIT_OVERLAYS = 0;     // UnitClientEvents.onRenderLevel: selection outlines, underlines
+    public static final int BUILDING_BOXES = 1;    // BuildingClientEvents.onRenderLevel: boxes, ghost, fog blocks
+    public static final int STRATEGIC_ICONS = 2;   // StrategicViewClientEvents: the icon overlay at far zoom
+    public static final int MINIMAP = 3;           // MinimapClientEvents.onRenderOverlay
+    public static final int HUD = 4;               // HudClientEvents.onDrawScreen: the RTS HUD
+    public static final int UNIT_BODIES = 5;       // the units' own render in the view (AnimProfile: posing + drawing)
+    public static final int UNIT_RINGS = 6;        // StrategicViewClientEvents.onRenderLevel: selection and range rings
+    // Oct 22: lovish's capture had 13.6% of the frame "unspecified" in after_translucent_blocks - the handlers below
+    // were not measured. Each is one handler group, so the next [FrameParts] / [FrameAuto] line names the cost.
+    public static final int BUILDING_PARTS = 7;    // PartRenderClientEvents: animated building parts (real geometry)
+    public static final int BUILDING_DECOR = 8;    // statues, windmills, banners, scaffolds
+    public static final int BARS = 9;              // health bars, build / production progress bars
+    public static final int WORLD_FX = 10;         // BarFx glow/smoke/decals, ground memory
+    public static final int WORLD_MARKERS = 11;    // metal/resource markers, wrecks, map + start markers, grids, lines
+    // Oct 22 (unit render LOD): with a shader pack every unit is drawn a second time into the pack's shadow map.
+### signatures perf/ServerTickProfile.java: private ServerTickProfile() { } | public static void onRegisterCommands(RegisterCommandsEvent event) { | private static int start(CommandSourceStack source, int seconds) { | public static void onServerTick(TickEvent.ServerTickEvent evt) { | private static boolean captureAwaiting() { | public static boolean startCapture(MinecraftServer server, int ticksToCapture, String reason) { | private static void pollCapture(MinecraftServer server) { | private static void fail(String why) { | private static void finishCapture(MinecraftServer server, net.minecraft.util.profiling.ProfileResults results) { | private static void finishRecording(MinecraftServer server) { | public static void onServerStopping(ServerStoppingEvent evt) { | static double[] sortedMs(long[] nanos) { | static double percentile(double[] sorted, double p) { | static String fmt(double ms) {
+### signatures perf/Sys.java: private Sys() { } | public static int begin(int id) { | public static void end(int token) { | public static boolean isMeasuring() { | public static void force(Object holder, boolean value) { | static void capture(boolean value) { | private static void refresh() { | static void onServerTickEnd(MinecraftServer server, double lastTickMs) { | static String report() { | public static String snapshot() { | public static long calls(int id) { | public static long[] lifetime(int id) { | static void onServerStopping() {
+### signatures debug/RtsDebugNavmesh.java: private record ScoreTile(BlockPos pos, float r, float g, float b, float score, boolean noFit, boolean label) {} | public static void setBuiltChunks(long[] keys) { builtChunks = keys; } | public static int scoreTileCount() { return scoreTiles.size(); } | private static void recomputeScoreTiles() { | public static void onClientTick(TickEvent.ClientTickEvent evt) { | private static void drawScoreLabel(PoseStack poseStack, ScoreTile t) { | public static void onRenderLevel(RenderLevelStageEvent evt) {

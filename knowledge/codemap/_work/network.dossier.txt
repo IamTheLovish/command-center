@@ -1,0 +1,209 @@
+AREA network  packages=['network', 'registrars', 'commands', 'config']  files=56 lines=12715
+SUBDIRS (lines): registrars/=4190, commands/rtsapi=3173, config/=1998, commands/lang=1141, commands/=1092, network/=859, config/elements=262
+TOP FILES:
+   1214 registrars/EntityRegistrar.java
+   1092 commands/CommandsServerEvents.java
+    730 config/ReignOfNetherCommonConfigs.java
+    616 registrars/PacketHandler.java
+    533 commands/rtsapi/PlayerCommands.java
+    530 commands/rtsapi/BuildingCommands.java
+    529 registrars/ItemRegistrar.java
+    474 network/Audience.java
+    412 commands/lang/IntentExecutor.java
+    403 commands/lang/CommandLanguage.java
+    398 commands/rtsapi/UnitCommands.java
+    394 registrars/BlockRegistrar.java
+    382 commands/rtsapi/argument/BuildingSelectorParser.java
+    352 registrars/SoundRegistrar.java
+    245 registrars/ClientEventRegistrar.java
+    241 config/ReignOfNetherClientConfigs.java
+    221 commands/rtsapi/argument/options/BuildingSelectorOptions.java
+    214 commands/rtsapi/data_accessor/BuildingDataAccessor.java
+    207 commands/rtsapi/ExecuteCommands.java
+    199 network/PacketAuth.java
+    186 commands/rtsapi/argument/PlayerNameArgument.java
+    186 registrars/GameRuleRegistrar.java
+    158 registrars/ServerEventRegistrar.java
+    156 config/DisplaySettings.java
+    150 commands/rtsapi/argument/BuildingArgument.java
+    150 commands/rtsapi/argument/UnitArgument.java
+    148 commands/rtsapi/argument/BuildingSelector.java
+    146 config/DisplaySettingsScreen.java
+    146 config/ReignOfNetherConfigScreen.java
+    138 config/ConfigClientEvents.java
+OVER1000: registrars/EntityRegistrar.java(1214), commands/CommandsServerEvents.java(1092)
+SUBSCRIBEEVENT files: config/ConfigClientEvents.java(2), config/DisplaySettings.java(1), config/ConfigVanillaServerEvents.java(1), commands/lang/CommandBarClientEvents.java(1), commands/CommandsServerEvents.java(1)
+PACKET files: config/ClientboundSyncResourceCostPacket.java, network/PacketAuth.java, registrars/PacketHandler.java
+INSTRUMENTATION ids: 
+COMMANDS: *, action, add, allies, ally, anchor, attacker, building, camera, cancel, command, cooldown, defeat, destroy, enemies, enemysearch, entity, fade, get, heal, hurt, list, move, owner, place, player, reignofnether, remove, research, resources
+IMPORTS FROM OTHER PKGS: unit=52, building=39, resources=24, player=17, hud=13, hero=10, orthoview=9, items=9, ability=8, fogofwar=8
+IMPORTED BY: unit=317, gametest=66, building=36, ability=20, blocks=16, hero=14, hud=14, mixin=12, resources=12, player=10
+GAMETEST classes by import count: SkirmishGameTests(372), BrassworksGameTests(29), BotGameTests(6), AudienceGameTests(4), BlueprintGameTests(3), AttackMoveGameTests(2), CommandLanguageGameTests(2), H13GameTests(2)
+--- HEADS (non-import, first 40 lines) of top files ---
+### registrars/EntityRegistrar.java (1214 lines)
+public class EntityRegistrar {
+    public static final DeferredRegister<EntityType<?>> ENTITIES = DeferredRegister.create(ForgeRegistries.ENTITY_TYPES, ReignOfNether.MOD_ID);
+    private static final int UNIT_CLIENT_TRACKING_RANGE = 100;
+    public static final RegistryObject<EntityType<ZombieVillagerUnit>> ZOMBIE_VILLAGER_UNIT = ENTITIES.register("zombie_villager_unit",
+            () -> EntityType.Builder.of(ZombieVillagerUnit::new, MobCategory.CREATURE)
+                    .sized(EntityType.ZOMBIE_VILLAGER.getWidth(), EntityType.ZOMBIE_VILLAGER.getHeight())
+                    .clientTrackingRange(UNIT_CLIENT_TRACKING_RANGE)
+                    .build(ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "zombie_villager_unit").toString()));
+    public static final RegistryObject<EntityType<BatUnit>> BAT_UNIT = ENTITIES.register("bat_unit",
+            () -> EntityType.Builder.of(BatUnit::new, MobCategory.CREATURE)
+                    .sized(EntityType.BAT.getWidth(), EntityType.BAT.getHeight())
+                    .clientTrackingRange(UNIT_CLIENT_TRACKING_RANGE)
+                    .build(ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "bat_unit").toString()));
+    public static final RegistryObject<EntityType<ZombieUnit>> ZOMBIE_UNIT = ENTITIES.register("zombie_unit",
+            // can add other attributes here like sized() for hitbox, no summon, fire immunity, etc.
+            () -> EntityType.Builder.of(ZombieUnit::new, MobCategory.CREATURE)
+                    .sized(EntityType.ZOMBIE.getWidth(), EntityType.ZOMBIE.getHeight())
+                    .clientTrackingRange(UNIT_CLIENT_TRACKING_RANGE)
+                    .build(ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "zombie_unit").toString()));
+    public static final RegistryObject<EntityType<HuskUnit>> HUSK_UNIT = ENTITIES.register("husk_unit",
+            () -> EntityType.Builder.of(HuskUnit::new, MobCategory.CREATURE)
+                    .sized(EntityType.HUSK.getWidth(), EntityType.HUSK.getHeight())
+                    .clientTrackingRange(UNIT_CLIENT_TRACKING_RANGE)
+                    .build(ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "husk_unit").toString()));
+    public static final RegistryObject<EntityType<DrownedUnit>> DROWNED_UNIT = ENTITIES.register("drowned_unit",
+            () -> EntityType.Builder.of(DrownedUnit::new, MobCategory.CREATURE)
+                    .sized(EntityType.DROWNED.getWidth(), EntityType.DROWNED.getHeight())
+                    .clientTrackingRange(UNIT_CLIENT_TRACKING_RANGE)
+                    .build(ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "drowned_unit").toString()));
+    public static final RegistryObject<EntityType<ZombiePiglinUnit>> ZOMBIE_PIGLIN_UNIT = ENTITIES.register("zombie_piglin_unit",
+            () -> EntityType.Builder.of(ZombiePiglinUnit::new, MobCategory.CREATURE)
+                    .sized(EntityType.ZOMBIFIED_PIGLIN.getWidth(), EntityType.ZOMBIFIED_PIGLIN.getHeight())
+                    .clientTrackingRange(UNIT_CLIENT_TRACKING_RANGE)
+                    .build(ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "zombie_piglin_unit").toString()));
+    public static final RegistryObject<EntityType<ZoglinUnit>> ZOGLIN_UNIT = ENTITIES.register("zoglin_unit",
+            () -> EntityType.Builder.of(ZoglinUnit::new, MobCategory.CREATURE)
+                    .sized(EntityType.ZOGLIN.getWidth(), EntityType.ZOGLIN.getHeight())
+                    .clientTrackingRange(UNIT_CLIENT_TRACKING_RANGE)
+                    .build(ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "zoglin_unit").toString()));
+    public static final RegistryObject<EntityType<SkeletonUnit>> SKELETON_UNIT = ENTITIES.register("skeleton_unit",
+### commands/CommandsServerEvents.java (1092 lines)
+public class CommandsServerEvents {
+	private static final SimpleCommandExceptionType UNKNOWN_BUILDING =
+		new SimpleCommandExceptionType(Component.translatable("commands.reignofnether.error.unknown_building"));
+	private static final SimpleCommandExceptionType UNKNOWN_RESOURCE =
+		new SimpleCommandExceptionType(Component.translatable("commands.reignofnether.error.unknown_resource"));
+	private static final SimpleCommandExceptionType NO_SERVER_LEVEL =
+		new SimpleCommandExceptionType(Component.translatable("commands.reignofnether.error.no_server_level"));
+	@SubscribeEvent
+	public static void onRegisterCommands(RegisterCommandsEvent event) {
+		CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
+		RTSApiCommands.register(dispatcher);
+		dispatcher.register(Commands.literal("rtsapi-place-building")
+			.requires(source -> source.hasPermission(2))
+			.then(Commands.argument("buildingName", StringArgumentType.string())
+				.then(placeBuildingTail(ctx -> ""))
+				.then(Commands.argument("ownerName", StringArgumentType.string())
+					.then(placeBuildingTail(ctx -> StringArgumentType.getString(ctx, "ownerName")))
+				)
+				.then(Commands.argument("ownerSelector", EntityArgument.player())
+					.then(placeBuildingTail(ctx -> getPlayerName(EntityArgument.getPlayer(ctx, "ownerSelector"))))
+				)
+			)
+		);
+		dispatcher.register(Commands.literal("rtsapi-destroy-building")
+			.requires(source -> source.hasPermission(2))
+			.then(Commands.argument("pos", BlockPosArgument.blockPos())
+				.executes(ctx -> destroyBuildingsAt(BlockPosArgument.getLoadedBlockPos(ctx, "pos"), ctx.getSource()))
+			)
+		);
+		dispatcher.register(Commands.literal("rtsapi-set-unit-owner")
+			.requires(source -> source.hasPermission(2))
+			.then(setUnitOwnerTail(ctx -> ""))
+			.then(Commands.argument("ownerName", StringArgumentType.string())
+				.then(setUnitOwnerTail(ctx -> StringArgumentType.getString(ctx, "ownerName")))
+				.then(Commands.argument("newOwnerName", StringArgumentType.string())
+					.then(setUnitOwnerTail(
+						ctx -> StringArgumentType.getString(ctx, "ownerName"),
+						ctx -> StringArgumentType.getString(ctx, "newOwnerName")
+					))
+				)
+### config/ReignOfNetherCommonConfigs.java (730 lines)
+/*
+    Class responsible for defining all configurable ResourceCosts; this occurs during commonsetup
+ */
+public class ReignOfNetherCommonConfigs {
+    public static final ForgeConfigSpec.Builder BUILDER = new ForgeConfigSpec.Builder();
+    public static final ForgeConfigSpec SPEC;
+    // A world that remembers: the [world_memory] block below (read by worldmemory/WorldMemoryConfig at server start)
+    public static final ForgeConfigSpec.ConfigValue<Boolean> WORLD_MEMORY_SCARS;
+    public static final ForgeConfigSpec.ConfigValue<Integer> WORLD_MEMORY_SCORCH_HALF_LIFE, WORLD_MEMORY_SCORCH_FLOOR,
+        WORLD_MEMORY_CRATER_HALF_LIFE, WORLD_MEMORY_CRATER_FLOOR;
+    static {
+        BUILDER.push("Configuration File");
+        BUILDER.pop();
+        BUILDER.comment("Unit cost configurations");
+        //*Units*
+        //Monsters
+        BUILDER.comment("Monsters");
+        UnitCosts.CREEPER.define(BUILDER);
+        UnitCosts.ZOMBIE.define(BUILDER);
+        UnitCosts.ZOMBIE_VILLAGER.define(BUILDER);
+        UnitCosts.BAT.define(BUILDER);
+        UnitCosts.SKELETON.define(BUILDER);
+        UnitCosts.STRAY.define(BUILDER);
+        UnitCosts.BOGGED.define(BUILDER);
+        UnitCosts.HUSK.define(BUILDER);
+        UnitCosts.DROWNED.define(BUILDER);
+        UnitCosts.SPIDER.define(BUILDER);
+        UnitCosts.POISON_SPIDER.define(BUILDER);
+        UnitCosts.WRAITH.define(BUILDER);
+        UnitCosts.SLIME.define(BUILDER);
+        UnitCosts.WARDEN.define(BUILDER);
+        UnitCosts.ZOMBIE_PIGLIN.define(BUILDER);
+        UnitCosts.ZOGLIN.define(BUILDER);
+        UnitCosts.NECROMANCER.define(BUILDER);
+        UnitCosts.WRETCHED_WRAITH.define(BUILDER);
+        //VillagersFaction
+        BUILDER.comment("VillagersFaction");
+        UnitCosts.VILLAGER.define(BUILDER);
+        UnitCosts.SCOUT_DOG.define(BUILDER);
+        UnitCosts.SCOUT_CAT.define(BUILDER);
+### registrars/PacketHandler.java (616 lines)
+// Initialises all of the client-server packet-sending classes
+public final class PacketHandler {
+    private static final String PROTOCOL_VERSION = ModList.get()
+            .getModContainerById("reignofnether")
+            .map(c -> c.getModInfo().getVersion().toString())
+            .orElse("dev");
+    public static final SimpleChannel INSTANCE = NetworkRegistry.newSimpleChannel(
+            ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "main"), () -> PROTOCOL_VERSION, PROTOCOL_VERSION::equals,
+            PROTOCOL_VERSION::equals);
+    private PacketHandler() { }
+    public static void init() {
+        int index = 0;
+        INSTANCE.messageBuilder(TopdownGuiServerboundPacket.class, index++, NetworkDirection.PLAY_TO_SERVER)
+                .encoder(TopdownGuiServerboundPacket::encode).decoder(TopdownGuiServerboundPacket::new)
+                .consumerMainThread(TopdownGuiServerboundPacket::handle).add();
+        INSTANCE.messageBuilder(UnitActionServerboundPacket.class, index++, NetworkDirection.PLAY_TO_SERVER)
+                .encoder(UnitActionServerboundPacket::encode).decoder(UnitActionServerboundPacket::new)
+                .consumerMainThread(UnitActionServerboundPacket::handle).add();
+        INSTANCE.messageBuilder(BeaconSyncClientboundPacket.class, index++, NetworkDirection.PLAY_TO_CLIENT)
+                .encoder(BeaconSyncClientboundPacket::encode).decoder(BeaconSyncClientboundPacket::new)
+                .consumerMainThread(BeaconSyncClientboundPacket::handle).add();
+        INSTANCE.messageBuilder(UnitConvertClientboundPacket.class, index++, NetworkDirection.PLAY_TO_CLIENT)
+                .encoder(UnitConvertClientboundPacket::encode).decoder(UnitConvertClientboundPacket::new)
+                .consumerMainThread(UnitConvertClientboundPacket::handle).add();
+        INSTANCE.messageBuilder(UnitSyncClientboundPacket.class, index++, NetworkDirection.PLAY_TO_CLIENT)
+                .encoder(UnitSyncClientboundPacket::encode).decoder(UnitSyncClientboundPacket::new)
+                .consumerMainThread(UnitSyncClientboundPacket::handle).add();
+        INSTANCE.messageBuilder(UnitSyncWorkerClientBoundPacket.class, index++, NetworkDirection.PLAY_TO_CLIENT)
+                .encoder(UnitSyncWorkerClientBoundPacket::encode).decoder(UnitSyncWorkerClientBoundPacket::new)
+                .consumerMainThread(UnitSyncWorkerClientBoundPacket::handle).add();
+        INSTANCE.messageBuilder(UnitSyncAbilityClientboundPacket.class, index++, NetworkDirection.PLAY_TO_CLIENT)
+                .encoder(UnitSyncAbilityClientboundPacket::encode).decoder(UnitSyncAbilityClientboundPacket::new)
+                .consumerMainThread(UnitSyncAbilityClientboundPacket::handle).add();
+        INSTANCE.messageBuilder(UnitSyncServerboundPacket.class, index++, NetworkDirection.PLAY_TO_SERVER)
+                .encoder(UnitSyncServerboundPacket::encode).decoder(UnitSyncServerboundPacket::new)
+                .consumerMainThread(UnitSyncServerboundPacket::handle).add();
+        INSTANCE.messageBuilder(UnitAnimationClientboundPacket.class, index++, NetworkDirection.PLAY_TO_CLIENT)
+                .encoder(UnitAnimationClientboundPacket::encode).decoder(UnitAnimationClientboundPacket::new)
+                .consumerMainThread(UnitAnimationClientboundPacket::handle).add();
+        INSTANCE.messageBuilder(UnitPathClientboundPacket.class, index++, NetworkDirection.PLAY_TO_CLIENT)
+### signatures registrars/EntityRegistrar.java: public static void init(FMLJavaModLoadingContext context) { | public static EntityType<? extends Mob> getEntityType(String unitName) { | return switch(unitName) {
+### signatures commands/CommandsServerEvents.java: 
+### signatures config/ReignOfNetherCommonConfigs.java: 

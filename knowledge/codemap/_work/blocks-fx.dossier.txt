@@ -1,0 +1,209 @@
+AREA blocks-fx  packages=['blocks', 'postfx', 'particles', 'barfx', 'brass', 'nether', 'sounds']  files=71 lines=8642
+SUBDIRS (lines): blocks/=2943, barfx/=2573, sounds/=1184, particles/=595, brass/=543, postfx/=412, nether/=392
+TOP FILES:
+   1268 barfx/BarFxClient.java
+    531 barfx/BarFx.java
+    392 nether/NetherBlocks.java
+    330 sounds/SfxClient.java
+    324 barfx/DomeFx.java
+    287 postfx/WorldLookPass.java
+    277 sounds/SoundClientEvents.java
+    254 blocks/ThicketCover.java
+    245 blocks/ThicketBlock.java
+    236 barfx/BarFxServerEvents.java
+    223 blocks/BlockServerEvents.java
+    219 sounds/Sfx.java
+    209 blocks/BlockClientEvents.java
+    200 blocks/WraithSnowLayerBlock.java
+    180 brass/Heat.java
+    167 brass/ShieldServerEvents.java
+    152 particles/BigVibrationParticle.java
+    128 blocks/WraithSnowBlockEntity.java
+    126 blocks/TidepoolBlock.java
+    119 sounds/SoundClientboundPacket.java
+    115 blocks/RangeIndicator.java
+    109 blocks/FrostSheetBlock.java
+    108 blocks/VineSnareBlock.java
+    107 blocks/ThicketBlockEntity.java
+    106 blocks/VineSnareBlockEntity.java
+    104 blocks/BlockUtils.java
+    102 blocks/RTSStructureBlock.java
+     94 particles/BigEnchantParticle.java
+     91 blocks/RTSStructureBlockEntity.java
+     88 postfx/ShaderPacks.java
+OVER1000: barfx/BarFxClient.java(1268)
+SUBSCRIBEEVENT files: barfx/BarFxServerEvents.java(7), postfx/WorldLookClientEvents.java(3), blocks/ThicketCover.java(3), barfx/BarFxClientEvents.java(3), brass/ShieldServerEvents.java(2), blocks/BlockServerEvents.java(2), blocks/BlockClientEvents.java(2), sounds/ZoomVolume.java(1), sounds/SoundClientEvents.java(1), brass/BrassUnitEvents.java(1)
+PACKET files: barfx/BarFxClientboundPacket.java, sounds/SoundClientboundPacket.java
+INSTRUMENTATION ids: MARKERS_RANGE, WORLD_FX, WORLD_MARKERS
+COMMANDS: 
+IMPORTS FROM OTHER PKGS: unit=28, registrars=26, building=17, items=9, util=6, ability=6, alliance=6, fogofwar=5, faction=5, orthoview=4
+IMPORTED BY: unit=68, building=31, ability=26, gametest=7, registrars=7, items=6, mixin=6, resources=6, hero=5, mana=4
+GAMETEST classes by import count: SkirmishGameTests(150), BrassworksGameTests(19), AudioGameTests(4), AudienceGameTests(2), BigUnitGameTests(1), SoundLevelGameTests(1), WorldMemoryGameTests(1)
+--- HEADS (non-import, first 40 lines) of top files ---
+### barfx/BarFxClient.java (1268 lines)
+/**
+ * BAR-style battle effects, client side: thin bright beams, muzzle flashes, rocket smoke trails, very bright short
+ * bloom-like flashes on impact followed by sparks and lingering dark smoke, shockwave rings, tumbling debris coloured
+ * like the ground, scorch marks and craters that accumulate and fade slowly, and a little camera shake on big blasts.
+ * Ported from Beyond and Tabs' original client Fx system. Driven by {@link BarFxClientboundPacket} events plus trails
+ * sampled from projectile entities the client already knows about.
+ */
+@OnlyIn(Dist.CLIENT)
+public final class BarFxClient {
+    private BarFxClient() { }
+    private static final Minecraft MC = Minecraft.getInstance();
+    // particle kinds
+    static final int FLASH = 0, SMOKE = 1, SPARK = 2, DEBRIS = 3, FIRE = 4, RING = 5, BEAM = 6, DECAL = 7, EMITTER = 8,
+            DELAY = 9;   // invisible timer: a building collapse's secondary pop, fired when it expires
+    /**
+     * Per-packet (= per server tick) budget of full unit-death effects. A big 8v8 trade can kill dozens of units in
+     * one tick; past the budget a death only gets its flash, so the frame cost stays flat however many die.
+     */
+    static final int DEATH_BUDGET = 24;
+    static final int MAX = 4000, MAX_DECALS = 260, MAX_DEBRIS = 900;
+    // scorch marks (not craters): an artillery duel stacked dozens into one black blob (lovish's clip). A new mark
+    // within MERGE_R of a live one refreshes that one instead; at most MAX_SCORCH live; they fade over SCORCH_FADE s
+    static final int MAX_SCORCH = 24;
+    static final float MERGE_R = 2f, SCORCH_FADE = 2f, SCORCH_MAX_LIFE = 12f;
+    static int scorchCount = 0;
+    // craters: the same treatment (clip study Oct 13 b12: dozens of black rings carpeted one siege and never seemed
+    // to go). A crater lives CRATER_LIFE s and fades over its last CRATER_FADE s; a new one within CRATER_MERGE_R of
+    // a live crater refreshes and slightly widens that one instead; at most MAX_CRATERS live, the oldest dropped
+    static final int MAX_CRATERS = 40;
+    static final float CRATER_LIFE = 60f, CRATER_FADE = 10f, CRATER_MERGE_R = 2.5f;
+    static int craterCount = 0;
+    static final class P {
+        int kind, color, color2;
+        float x, y, z, vx, vy, vz, x2, y2, z2, born, life, size, grow, spin, alpha = 1;
+        float ax, ay, az = 1;          // debris spin axis
+        float ground = Float.NaN;      // debris: ground height under it
+        int groundKey = Integer.MIN_VALUE;
+        float rate, acc;               // emitters
+        boolean crater;
+        boolean steady;                // beams: hold full brightness, fade only at the very end (nano beams)
+### barfx/BarFx.java (531 lines)
+/**
+ * Server side of the BAR-style battle effects. Gameplay code calls the static helpers below whenever something
+ * worth showing happens (a shot, an impact, an explosion, a death, a building part breaking); events are queued per
+ * level and sent once per tick to each nearby player as one {@link BarFxClientboundPacket}. Everything visual is
+ * done on the client in {@code BarFxClient}. Safe to call from anywhere: client-side calls are ignored.
+ */
+public final class BarFx {
+    private BarFx() { }
+    // ---- event types
+    public static final byte SHOT = 0, IMPACT = 1, EXPLOSION = 2, DEATH = 3, BUILDING_PART = 4, COLLAPSE = 5, NANO = 6,
+            SCORCH = 7, SFX = 8, DOME = 9;
+    // ---- DOME (a barrier drawn as geometry, barfx/DomeFx): flags low 2 bits = what happened, bit 4 = it follows the
+    // entity whose id is the dome id; kind = style; a = radius, b = lifetime in ticks, c = the dome id (float-exact)
+    public static final byte DOME_START = 0, DOME_HIT = 1, DOME_END = 2, DOME_BROKEN = 3;
+    public static final byte DOME_FOLLOW = 0x10;
+    public static final byte DS_SUN = 0, DS_BRASS = 1, DS_LANTERN = 2;
+    /** Live domes are announced again this often: a late viewer sees them, and a channelled one stays alive. */
+    public static final int DOME_REFRESH_TICKS = 40;
+    private static int domeCounter = 0;
+    // ---- SHOT flags, low 4 bits: the weapon's sound class where the projectile kind alone can't tell (a musket's
+    // hit-scan shot reuses K_ARROW's tracer look but must not sound like a bow). 0 = by kind. Bits 4-6 = the shooter's
+    // faction (F_*), see shotFlags: the client tints flash, trail and sparks with it while the kind keeps the shape.
+    public static final byte W_BY_KIND = 0, W_GUN = 1;
+    // ---- SFX flags (sounds.Sfx): bit 0 = global (every player, no position)
+    public static final byte SFX_GLOBAL = 1;
+    // ---- nanolathe beam tints (NANO kind): one per faction so a glance tells whose builders are at work
+    // (N_NEUTRAL: factions without their own tint - they used to borrow Sunforged gold; see FactionTraits)
+    public static final byte N_SUNFORGED = 0, N_GRAVEBOUND = 1, N_HORDE = 2, N_NEUTRAL = 3, N_VERDANT = 4, N_TIDE = 5,
+            N_STORM = 6, N_BRASS = 7;
+    /** Minimum ticks between two nano beams from the same worker (a beam lives a little longer, so they overlap). */
+    public static final int NANO_INTERVAL = 8;
+    // ---- weapon / projectile kinds (shots and impacts)
+    public static final byte K_ARROW = 0, K_FIREBALL = 1, K_BIG_FIREBALL = 2, K_MAGIC = 3, K_THROWN = 4, K_TNT = 5,
+            K_ROCKET = 6, K_SONIC = 7, K_MELEE = 8, K_POTION = 9, K_HEAVY_MELEE = 10, K_OTHER = 11;
+    // ---- impact "where" flags (low 4 bits; bits 4-6 = the shooter's faction, see shotFlags)
+    public static final byte AT_GROUND = 0, AT_UNIT = 1, AT_BUILDING = 2;
+    // ---- death kinds
+    public static final byte D_FLESH = 0, D_CONSTRUCT = 1, D_BONE = 2, D_SLIME = 3;
+    // ---- death flags: low 3 bits = faction debris tint, next 2 bits = cost tier (0 = not an RTS unit).
+    // The faction field was 2 bits until the Verdant Court needed a fifth value (F_NONE + three factions filled it);
+### nether/NetherBlocks.java (392 lines)
+// mappings of which overworld blocks will transform into which nether blocks when near a piglin base
+public class NetherBlocks {
+    private final static Random random = new Random();
+    public static BlockState getNetherBlock(Level level, BlockPos overworldBp) {
+        BlockState overworldBs = level.getBlockState(overworldBp);
+        if (!overworldBs.isAir()) {
+            for (Map.Entry<Block, List<Block>> entrySet : MAPPINGS.entrySet())
+                for (Block block : entrySet.getValue())
+                    if (overworldBs.getBlock().equals(block))
+                        return entrySet.getKey().defaultBlockState();
+            String descId = overworldBs.getBlock().getDescriptionId();
+            if (descId.contains("concrete_powder"))
+                return Blocks.SOUL_SOIL.defaultBlockState();
+            else if (descId.contains("concrete"))
+                return Blocks.NETHERRACK.defaultBlockState();
+            else if (descId.contains("terracotta") && !descId.contains("glazed_terracotta"))
+                return Blocks.NETHERRACK.defaultBlockState();
+        }
+        return null;
+    }
+    public static BlockState getNetherPlantBlock(Level level, BlockPos overworldBp) {
+        BlockState overworldBs = level.getBlockState(overworldBp);
+        if (!overworldBs.isAir())
+            for (Map.Entry<Block, List<Block>> entrySet : PLANT_MAPPINGS.entrySet())
+                for (Block block : entrySet.getValue())
+                    if (overworldBs.getBlock().equals(block)) {
+                        BlockState bs = entrySet.getKey().defaultBlockState();
+                        if (bs.getBlock() instanceof NetherWartBlock)
+                            return bs.setValue(BlockStateProperties.AGE_3, 3);
+                        return bs;
+                    }
+        return null;
+    }
+    public static boolean isNetherBlock(Level level, BlockPos bp) {
+        BlockState bs = level.getBlockState(bp);
+        if (bs.getBlock() == Blocks.OBSIDIAN)
+            return true;
+        if (bs.getBlock().getName().getContents() instanceof TranslatableContents contents &&
+            (contents.getKey().contains("blackstone") ||
+            contents.getKey().contains("nylium") ||
+### sounds/SfxClient.java (330 lines)
+/**
+ * Client playback of the mod's sound effects (sounds.Sfx, design/audio.md).
+ *
+ * <p><b>Where sounds come from.</b> {@link #onFx} sees every BarFx event the client receives (BarFxClient.ingest):
+ * shots by weapon class, melee and building hits, faction deaths, building collapses, builders' nanolathe beams
+ * (the construction "loop"), reclaim beams, and the SFX events the server sends for discrete moments. A few client
+ * hooks call in directly (a building finishing, the match starting, the start-position phase).
+ *
+ * <p><b>Nothing gets worse with army size</b> (lovish). Three layers keep a 200-unit fight from turning into noise:
+ * each sound has a minimum gap between plays (Sfx.minGapTicks), each category has a per-tick budget (a fight of any
+ * size plays at most a handful of weapon sounds a tick), and each category tracks how many sounds it was asked for
+ * lately: the busier it is, the quieter each one plays, so the overall level stays roughly flat as the fight grows.
+ * When a category is busy, far events are skipped first.
+ *
+ * <p><b>Distance.</b> Volume falls off linearly from the "ear" (the middle of the screen in the RTS view, else the
+ * camera) - full within NEAR blocks, silent at the category's reach, which grows with the RTS zoom. Minecraft's own
+ * attenuation is only 16 blocks, so each sound is placed at a stand-in point a few blocks from the camera in the true
+ * direction: it pans correctly while the volume is ours.
+ *
+ * <p>Allocation: one SimpleSoundInstance per played sound (bounded by the budgets); the checks before allocate nothing.
+ */
+@OnlyIn(Dist.CLIENT)
+public final class SfxClient {
+    private SfxClient() { }
+    private static final Minecraft MC = Minecraft.getInstance();
+    private static final RandomSource RANDOM = RandomSource.create();
+    private static final Sfx[] ALL = Sfx.values();
+    private static final Sfx.Category[] CATS = Sfx.Category.values();
+    // per-sound: game tick of the last play
+    private static final long[] lastPlay = new long[ALL.length];
+    // per-category: sounds played this tick, sounds asked for this tick, and a smoothed "asked per tick"
+    private static final int[] playedThisTick = new int[CATS.length];
+    private static final int[] askedThisTick = new int[CATS.length];
+    private static final float[] busy = new float[CATS.length];
+    private static long tick = Long.MIN_VALUE;
+    /** Most new sounds a category may start in one tick (UNITS, BUILDINGS, ABILITIES, ANNOUNCER, UI). */
+    private static final int[] BUDGET = { 3, 2, 3, 4, 4 };
+    /** Reach (blocks from the ear) at RTS zoom 0 / first person; the RTS zoom adds to it. */
+    private static final float[] REACH = { 36, 48, 56, 72, 72 };
+    private static final float NEAR = 10;
+### signatures barfx/BarFxClient.java: private BarFxClient() { } | static float rnd(float a, float b) { return a + R.nextFloat() * (b - a); } | static P add(int kind, float x, float y, float z, float life, float size, int color) { | private static void init(P p, int kind, float x, float y, float z, float life, float size, int color) { | static P scorchMark(float x, float y, float z, float life, float r, int c, float alpha) { | public static int liveDomes() { | public static void clear() { | public static void ingest(List<BarFx.Event> events) { | static boolean visible(float x, float y, float z) { | static float screenDist(float x, float y, float z) { | static boolean near(float x, float y, float z, float margin) { | static int tint(int c, int faction) { | static void shot(int kind, int faction, float x, float y, float z, float x2, float y2, float z2) { | static void hit(int kind, int where, int faction, float x, float y, float z, float dx, float dz, float size) { | static void explosion(int kind, float x, float y, float z, float r) { | static void death(int kind, int faction, int tier, float x, float y, float z, float w, float h, boolean full) { | static void factionDebris(int faction, int tier, float x, float y, float cy, float z, float scale) { | static void verdantPetals(int tier, float x, float cy, float z, float scale) { | static void stormSparks(int tier, float x, float cy, float z, float scale) { | static void brassSteam(int tier, float x, float cy, float z, float scale) { | static void tideSpray(int tier, float x, float cy, float z, float scale) { | static void scorchRing(float x, float y, float z, float r, boolean busy) { | static void buildingPart(float x, float y, float z, int col) { | static void collapse(float x, float y, float z, float half, float height, boolean shake) { | static void delayed(P d) { | static void nano(int tint, int lifeTicks, float x, float y, float z, float x2, float y2, float z2, boolean busy) { | static P flash(float x, float y, float z, float size, float life, int c) { return add(FLASH, x, y, z, life, size, c); } | static P smoke(float x, float y, float z, float size, float life, int c, float alpha) { | static P dust(float x, float y, float z, float size, int c) { | static void sparks(float x, float y, float z, int n, float speed, int c, float bx, float bz) {
+### signatures barfx/BarFx.java: private BarFx() { } | public static byte deathFlags(byte faction, int tier) { | public static int deathFaction(byte flags) { | public static int deathTier(byte flags) { | public static byte shotFlags(byte detail, byte faction) { | public static int shotDetail(byte flags) { | public static int shotFaction(byte flags) { | public static byte factionOf(Entity shooter) { | public static int tierOf(int metal) { | public Event(byte type, byte kind, byte flags, float x, float y, float z, float a, float b, float c) { | public static void muteExplosions(boolean mute) { | static void emit(Level level, Event e) { | public static void sfx(ServerLevel level, double x, double y, double z, int id, float volume, float pitch, boolean globa | private static boolean isMinor(byte type) { | public static int nextDomeId() { | public static void dome(Level level, int id, Vec3 centre, float radius, int ticks, byte style, boolean follow) { | public static void domeHit(Level level, int id, Vec3 at, byte style) { | public static void domeEnd(Level level, int id, Vec3 centre, byte style, boolean broken) { | public static void shot(Level level, Vec3 from, Vec3 to, byte kind) { | public static void shot(Level level, Vec3 from, Vec3 to, byte kind, byte weapon) { | public static void shot(Level level, Vec3 from, Vec3 to, byte kind, Entity shooter) { | public static void shot(Level level, Vec3 from, Vec3 to, byte kind, byte weapon, Entity shooter) { | public static void shot(Level level, Vec3 from, Vec3 to, byte kind, byte weapon, byte faction) { | public static void impact(Level level, Vec3 pos, Vec3 dir, byte kind, byte where, float size) { | public static void impact(Level level, Vec3 pos, Vec3 dir, byte kind, byte where, float size, Entity shooter) { | public static void impact(Level level, Vec3 pos, Vec3 dir, byte kind, byte where, float size, byte faction) { | public static void explosion(Level level, Vec3 pos, float radius, byte kind) { | private static void remember(Level level, java.util.function.Consumer<GroundMemoryServerCalls> stamp) { | public void groundImpact(ServerLevel level, double x, double y, double z, byte kind, float size) { | public void blast(ServerLevel level, double x, double y, double z, float radius, byte kind) {
+### signatures nether/NetherBlocks.java: public static BlockState getNetherBlock(Level level, BlockPos overworldBp) { | public static BlockState getNetherPlantBlock(Level level, BlockPos overworldBp) { | public static boolean isNetherBlock(Level level, BlockPos bp) { | public static boolean isNetherPlantBlock(Level level, BlockPos bp) { | public static BlockState getOverworldBlock(Level level, BlockPos overworldBp) { | public static BlockState getOverworldPlantBlock(Level level, BlockPos overworldBp, boolean randomisePlant) { | private static Block getRandomPlantForBiome(Level level, BlockPos overworldBp) {

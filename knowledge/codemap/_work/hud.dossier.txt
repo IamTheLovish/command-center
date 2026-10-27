@@ -1,0 +1,209 @@
+AREA hud  packages=['hud', 'cursor', 'guiscreen', 'healthbars', 'keybinds', 'onboarding', 'tutorial', 'attackwarnings']  files=114 lines=23641
+SUBDIRS (lines): hud/=10386, onboarding/=2475, hud/buttons=2204, hud/playerdisplay=2011, tutorial/=1785, hud/custombutton=1050, keybinds/=903, healthbars/=863, cursor/=762, hud/effecticons=609, guiscreen/=315, attackwarnings/=278
+TOP FILES:
+   2709 hud/HudClientEvents.java
+   1060 tutorial/TutorialClientEvents.java
+    999 hud/LobbyBackdrop.java
+    840 hud/NotificationClientEvents.java
+    762 cursor/CursorClientEvents.java
+    692 hud/PortraitRendererUnit.java
+    692 hud/playerdisplay/PlayerPanelClientEvents.java
+    566 onboarding/OnboardingServer.java
+    543 hud/EconomyBarRenderer.java
+    537 hud/UnitInfoCard.java
+    512 onboarding/OnboardingClient.java
+    476 hud/GothicText.java
+    422 healthbars/HealthBarClientEvents.java
+    399 hud/buttons/Button.java
+    395 hud/playerdisplay/DiplomacyPlayerDisplay.java
+    369 hud/SplashArt.java
+    347 tutorial/TutorialServerEvents.java
+    324 hud/playerdisplay/PlayerDisplayClientEvents.java
+    316 hud/buttons/AbstractUnitItemButton.java
+    308 hud/buttons/HelperButtons.java
+    298 hud/custombutton/CustomButtonActions.java
+    278 hud/effecticons/MobEffectIcons.java
+    271 hud/buttons/ButtonBuilder.java
+    267 onboarding/ControlsReferenceScreen.java
+    249 healthbars/BuildProgressBarClientEvents.java
+    248 hud/HudPanels.java
+    247 hud/PortraitRendererBuilding.java
+    240 onboarding/OnboardingTips.java
+    239 hud/HoverCards.java
+    220 keybinds/Keybindings.java
+OVER1000: hud/HudClientEvents.java(2709), tutorial/TutorialClientEvents.java(1060)
+SUBSCRIBEEVENT files: hud/HudClientEvents.java(9), cursor/CursorClientEvents.java(7), tutorial/TutorialClientEvents.java(5), onboarding/OnboardingClient.java(5), guiscreen/TopdownGuiClientEvents.java(5), onboarding/OnboardingTips.java(4), onboarding/OnboardingServer.java(4), hud/TextInputClientEvents.java(4), hud/NotificationClientEvents.java(4), healthbars/HealthBarClientEvents.java(4), hud/playerdisplay/PlayerDisplayClientEvents.java(3), hud/MatchBanner.java(3), hud/HudPanels.java(3), hud/HintBar.java(3)
+PACKET files: attackwarnings/AttackWarningClientboundPacket.java, guiscreen/TopdownGuiServerboundPacket.java, hud/HudClientboundPacket.java, hud/custombutton/CustomButtonActionServerboundPacket.java, hud/custombutton/CustomButtonClientboundPacket.java, onboarding/OnboardingClientboundPacket.java, onboarding/OnboardingServerboundPacket.java, tutorial/TutorialClientboundPacket.java, tutorial/TutorialServerboundPacket.java
+INSTRUMENTATION ids: BARS
+COMMANDS: 
+IMPORTS FROM OTHER PKGS: unit=121, building=95, util=43, player=41, resources=36, orthoview=27, faction=21, registrars=16, alliance=15, config=14
+IMPORTED BY: unit=175, ability=145, building=121, research=58, gametest=15, matchstart=14, mixin=9, player=8, items=7, resources=6
+GAMETEST classes by import count: SkirmishGameTests(17), OnboardingGameTests(4), BuildGroupGameTests(3), CommanderKeyGameTests(3), ReturnResourcesKeyGameTests(3), KeybindGameTests(2), SandboxSecurityGameTests(2), AnnouncementFeedGameTests(1)
+--- HEADS (non-import, first 40 lines) of top files ---
+### hud/HudClientEvents.java (2709 lines)
+public class HudClientEvents {
+    private static final Minecraft MC = Minecraft.getInstance();
+    public static boolean enabled = true;
+    private static String tempMsg = "";
+    private static int tempMsgTicksLeft = 0;
+    private static final int TEMP_MSG_TICKS_FADE = 50; // ticks left when the msg starts to fade
+    private static final int TEMP_MSG_TICKS_MAX = 150; // ticks to show the msg for
+    private static final int MAX_BUTTONS_PER_ROW = 6;
+    public static final ArrayList<ControlGroup> controlGroups = new ArrayList<>(10);
+    public static int lastSelCtrlGroupKey = -1;
+    private static final ArrayList<Button> buildingButtons = new ArrayList<>();
+    private static final ArrayList<Button> unitButtons = new ArrayList<>();
+    private static final ArrayList<Button> productionButtons = new ArrayList<>();
+    // buttons which are rendered at the moment in RenderEvent
+    private static final ArrayList<Button> renderedButtons = new ArrayList<>();
+    // the selected unit's / building's own card (orders, abilities, build menu, production): its hotkeys win over
+    // any HUD-wide button on the same key (the minimap toggle on M, the idle-worker cycler on ".", the last-alert
+    // jump on Space) - BAR's bound-key rule, generalised from the idle-worker case
+    private static final ArrayList<Button> cardButtons = new ArrayList<>();
+    // unit that is selected in the list of unit icons
+    public static LivingEntity hudSelectedEntity = null;
+    // building that is selected in the list of unit icons
+    public static BuildingPlacement hudSelectedPlacement = null;
+    // classes used to render unit or building portrait (mode, frame, healthbar, stats)
+    public static PortraitRendererUnit portraitRendererUnit = new PortraitRendererUnit();
+    public static PortraitRendererBuilding portraitRendererBuilding = new PortraitRendererBuilding();
+    private static RectZone unitPortraitZone = null;
+    private static RectZone buildingPortraitZone = null;
+    public static int mouseX = 0;
+    public static int mouseY = 0;
+    private static int mouseLeftDownX = 0;
+    private static int mouseLeftDownY = 0;
+    private final static int iconBgColour = 0x64000000;
+    private final static int frameBgColour = 0xA0000000;
+    private static final ArrayList<RectZone> hudZones = new ArrayList<>();
+    /** One selection-strip tile: the first unit of a type, how many, their summed HP and the type's unit cost. */
+    private record SelectionGroup(LivingEntity first, String name, int count, float hp, float maxHp, int cost) { }
+    private static final ArrayList<SelectionGroup> selectionGroups = new ArrayList<>();
+    // BAR orders its selection grid by cost, the expensive stuff first; ties keep the name order
+    private static final Comparator<SelectionGroup> BY_COST_DESC =
+### tutorial/TutorialClientEvents.java (1060 lines)
+public class TutorialClientEvents {
+    private static final Minecraft MC = Minecraft.getInstance();
+    private static TutorialStage tutorialStage = INTRO;
+    private static boolean enabled = false;
+    private static int ticksToProgressStage = 0;
+    private static int ticksToNextStage = 0;
+    private static int ticksOnStage = 0;
+    private static int stageProgress = 0; // used to track progress within each TutorialStage
+    private static boolean pressSpaceToContinue = false;
+    private static boolean blockUpdateStage = false; // prevent updateStage being called when we block it with a delay
+    public static boolean pannedUp = false;
+    public static boolean pannedDown = false;
+    public static boolean pannedLeft = false;
+    public static boolean pannedRight = false;
+    public static boolean clickedMinimap = false;
+    private static int villagersHoldingFood = 0;
+    private static final ArrayList<BuildingPlacement> damagedBuildings = new ArrayList<>();
+    // all these positions are for camera only, actual spawn locations differ slightly on the serverside
+    private static final Vec3i SPAWN_CAM_POS = new Vec3i(-2960, 0, -1156);
+    public static final Vec3i BUILD_CAM_POS = new Vec3i(-2954, 0, -1190);
+    private static final Vec3i WOOD_CAM_POS = new Vec3i(-2929, 0, -1186);
+    private static final Vec3i ORE_CAM_POS = new Vec3i(-2961, 0, -1214);
+    private static final Vec3i FOOD_CAM_POS = new Vec3i(-2949, 0, -1163);
+    private static final Vec3i MONSTER_CAM_POS = new Vec3i(-2993, 64, -1189);
+    private static final Vec3i BRIDGE_CAM_POS = new Vec3i(-3007, 0, -1196);
+    private static final Vec3i ARMY_CAM_POS = new Vec3i(-2973, 64, -1150);
+    public static final Vec3i BUILD_CAPITOL_POS = new Vec3i(-2936, 67, -1217);
+    private static final Vec3i MONSTER_BASE_POS = new Vec3i(-3085, 72, -1277);
+    private static Supplier<Boolean> shouldPauseTicking = () -> false;
+    private static int helpButtonClicks = 0;
+    private static String helpButtonText = "";
+    public static final Button helpButton = new Button(
+        "Tutorial Help",
+        18,
+        ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "textures/hud/help.png"),
+        (Keybinding) null,
+        () -> false,
+        () -> !isEnabled(),
+        () -> isEnabled() && !helpButtonText.isEmpty(),
+        () -> {
+### hud/LobbyBackdrop.java (999 lines)
+/**
+ * The animated lobby backdrop (design/lobby-backdrop.md): "the moonlit cathedral and the crimson river" behind the
+ * skirmish setup and multiplayer lobby screens. The layers are our own, painted from code by tools/gen_lobby_art.py;
+ * this class only places and animates them.
+ *
+ * Layout: one artboard in A units (A = the cover-scaled screen height, x from the centre, y from the top, bottom
+ * anchored), the same rects and river geometry as the generator. The framing layers and the foreground pop-outs are
+ * pinned to the screen edges instead, so 16:9 and 21:9 both keep their framing.
+ *
+ * Depth (lovish: "give the castle an ability to be 3D ... so it pops out and comes to life"): every layer has a parallax
+ * depth z (A of shift per unit of camera offset). The camera drifts on a slow lissajous (26 s x 19 s) and leans toward
+ * the mouse; the cathedral is eight depth layers (chevet, nave, aisle, far tower, facade, gable, near tower, portal),
+ * the ground is drawn as horizontal strips sheared by their own depth (so it reads as a plane receding to the horizon,
+ * and the river, cascade and flowers ride it exactly), mist sheets lie between the cathedral's layers, light shafts
+ * fall from the rose through them, and out-of-focus briars and a dead branch in the extreme foreground move fastest.
+ *
+ * Motion (lovish: "the castle is breathing with wind and water moving"): a 7 s breath swells the cathedral 0.6 % and
+ * its rim light, glass, shafts and portal haze together, sends a wave of glass light outward and thickens the mist; a
+ * gust crosses left to right every 9 s and everything wind-driven reads it at its own x; the cascade falls, glints flow
+ * down the river, the moon's reflection shimmers, rings spread from the rocks, embers rise from the door; stars twinkle,
+ * bats cross now and then. `splash_reduce_motion` freezes all of it (no drift, no parallax).
+ *
+ * Cost: about 150 textured quads a frame through the shared Tesselator, no allocation (static matrix, indexed loops,
+ * time-derived state). The PNGs are read once from our own mod file and uploaded as plain GL textures (like SplashArt);
+ * if any of them cannot be read the screens keep the vanilla background.
+ */
+public class LobbyBackdrop {
+    // ---- shared with tools/gen_lobby_art.py
+    private static final float ART_W = 2560f / 1100f;
+    private static final float MOON_X = 0.19f, MOON_Y = 0.215f, MOON_R = 0.16f;
+    private static final float FRAME_W = 0.66f;
+    private static final float HORIZON = 0.64f;
+    private static final float[][] RIVER = {   // x, y, half width (round 6: zig-zags back to the fall)
+        {0.372f, 0.800f, 0.030f}, {0.315f, 0.808f, 0.036f}, {0.200f, 0.818f, 0.046f}, {0.120f, 0.832f, 0.058f},
+        {0.170f, 0.850f, 0.074f}, {0.250f, 0.870f, 0.094f}, {0.205f, 0.895f, 0.120f}, {0.060f, 0.925f, 0.155f},
+        {-0.020f, 0.962f, 0.235f}, {0.040f, 1.005f, 0.310f}, {0.100f, 1.050f, 0.390f}};
+    /** the cascade: top x, top y, top half width, bottom x, bottom y, bottom half width */
+    private static final float[] CASCADE = {0.300f, 0.688f, 0.016f, 0.372f, 0.802f, 0.042f};
+    /** the cathedral breathes about the facade's foot */
+    private static final float PIVOT_X = 0.30f, PIVOT_Y = 0.69f;
+### hud/NotificationClientEvents.java (840 lines)
+/**
+ * BAR-style spoken notifications, done the Minecraft way: a short line under the economy bar plus a distinct chord of
+ * vanilla sounds per alert type, so a player looking at their base still hears "commander under attack" across the
+ * map. Every type has its own cooldown so a big fight produces one "unit lost" every few seconds, not a wall of
+ * them. Everything is client-side: the triggers are packets/state the client already has (attack warnings, building
+ * isBuilt transitions, unit deaths, economy syncs, idle-worker syncs, capture-site syncs and the T3 chat line).
+ *
+ * Rendering keeps a fixed 3-slot ring and pre-measured widths, so drawing allocates nothing per frame.
+ *
+ * Announcer voice: when on (and the line's ogg is present), each alert is spoken by a calm synthetic assistant voice
+ * instead of the chord. There is exactly one voice channel: lines wait in a tiny priority queue (commander attacked
+ * first, storage-full last), never overlap, and are dropped if they waited more than VOICE_STALE_MS - a "unit lost"
+ * from five seconds ago is noise, not information.
+ */
+public class NotificationClientEvents {
+    private static final Minecraft MC = Minecraft.getInstance();
+    public enum Alert {
+        // key, cooldown, text colour (-1 = voice only, no text line), voice priority (higher speaks first)
+        COMMANDER_ATTACKED("commander_attacked", 10_000, 0xFF5A5A, 100),
+        COMMANDER_KILLED("commander_killed", 5_000, 0xFF3030, 95),
+        EXPERIMENTAL_DETECTED("experimental_detected", 15_000, 0xFF60FF, 90),
+        BASE_ATTACKED("base_attacked", 20_000, 0xFF7A5A, 80),
+        ALLY_NEEDS_HELP("ally_needs_help", 20_000, 0xFFA040, 70),
+        UNITS_ATTACKED("units_attacked", 20_000, 0xFF9A7A, 65),
+        UNIT_LOST("unit_lost", 8_000, 0xC8C8C8, 60),
+        CAPTURE_LOST("capture_lost", 5_000, 0xFF7070, 55),
+        METAL_STALL("metal_stall", 20_000, 0xFF8A6A, 50),
+        ENERGY_STALL("energy_stall", 20_000, 0xFF8A6A, 50),
+        EXPERIMENTAL_READY("experimental_ready", 10_000, 0xE0A0FF, 45),
+        CAPTURE_TAKEN("capture_taken", 5_000, 0x80E0FF, 40),
+        CONSTRUCTION_COMPLETE("construction_complete", 4_000, 0x8CFF8C, 30),
+        RESEARCH_COMPLETE("research_complete", 4_000, -1, 30),   // ResearchClient already shows its own line
+        IDLE_CONSTRUCTOR("idle_constructor", 15_000, 0xFFE070, 25),
+        // playtest (lovish): "storage full" nagged all game. Once a minute per resource, and see STORAGE_QUIET_TICKS
+        METAL_FULL("metal_full", 60_000, 0xB4BEC8, 20),
+        ENERGY_FULL("energy_full", 60_000, 0xF0C83C, 20),
+        // the economy bar's OVERFLOWING banner is the text; this is its spoken line, once a minute. Voice only:
+        // eyes run 38524157524 showed the same sentence twice, the banner and this toast stacked over the unit panel
+        OVERFLOW_METAL("overflow_metal", 60_000, -1, 35),
+        OVERFLOW_ENERGY("overflow_energy", 60_000, -1, 35),
+### signatures hud/HudClientEvents.java: private record SelectionGroup(LivingEntity first, String name, int count, float hp, float maxHp, int cost) { } | public static int[] alertColumn(int screenWidth) { | private static List<Button> multiSelectCardButtons(ProductionPlacement shown) { | public static void setLowestCdHudEntity() { | public static void setHudSelectedEntity(LivingEntity entity) { | public static String getModifiedEntityName(LivingEntity entity) { | public static void showTempMessageI18n(String msgKey) { | public static void showTempMessageI18n(String msgKey, int ticks) { | public static void showTemporaryMessage(String msg) { | public static void showTemporaryMessage(String msg, int ticks) { | public static void removeFromControlGroups(int entityId) { | public static void onInput(InputEvent.Key evt) { | public static void onDrawScreen(ScreenEvent.Render.Post evt) { | private static void drawHud(ScreenEvent.Render.Post evt) { | public static void deferTooltip(List<FormattedCharSequence> lines, int x, int y) { | public static boolean isMouseOverAnyButton() { | public static Button getMousedOverStartPosButton() { | public static boolean isMouseOverAnyButtonOrHud() { | public static boolean isPointOverHud(int x, int y) { | public static Button getMousedOverButton() { | public static void onMousePress(ScreenEvent.MouseButtonPressed.Post evt) { | public static void onKeyRelease(ScreenEvent.KeyReleased.KeyReleased.Post evt) { | private static List<Button> withOtherBuildersMenus(List<Button> primary, List<LivingEntity> selUnits) { | private static Button keylessCopy(Button b) { | public static boolean isCardKey(int key) { | private static boolean isPanKey(int key) { | public static void onClientTick(TickEvent.ClientTickEvent evt) { | public static void onRenderLivingEntity(RenderLivingEvent.Post<? extends LivingEntity, ? extends Model> evt) { | public static void onRenderNamePlate(RenderNameTagEvent evt) { | public static void onKeyPress(ScreenEvent.KeyPressed.KeyPressed.Pre evt) {
+### signatures tutorial/TutorialClientEvents.java: public static void loadStage(TutorialStage stage) { | private static void setHelpButtonText(String text) { | private static void clearHelpButtonText() { | public static int getStageProgress() { | public static boolean isEnabled() { | public static void setEnabled(boolean value) { | public static TutorialStage getStage() { | private static void nextStage() { | private static void prevStage() { | public static void checkAndRenderNextAction(GuiGraphics poseStack, ArrayList<Button> buttons) { | public static void onMouseClick(ScreenEvent.MouseButtonPressed.Pre evt) { | public static void onKeyRelease(ScreenEvent.KeyReleased.Pre evt) { | public static void onKeyPress(ScreenEvent.KeyPressed.Pre evt) { | public static void onClientTick(TickEvent.ClientTickEvent evt) { | private static void msg(String msg, boolean bold, RegistryObject<SoundEvent> soundEvt, Object... params) { | private static void msg(String msg) { | private static void specialMsg(String msg, Object... params) { | public static boolean isAtOrPastStage(TutorialStage stage) { | public static void onRenderOverLay(RenderGuiOverlayEvent.Pre evt) { | private static void progressStage() { | private static void progressStageAfterDelay(int delay) { | private static void nextStageAfterDelay(int delay) { | private static void nextStageAfterSpace() { | private static boolean hasUnitSelected(String unitName) { | private static boolean hasBuildingSelected(Building building) { | public static void updateStage() {
+### signatures hud/LobbyBackdrop.java: public static boolean ensureLoaded() { | private static InputStream open(String path) throws IOException { | private static boolean reduceMotion() { | public static void render(Screen screen, GuiGraphics gg, int mouseX, int mouseY) { | public static boolean available() { | private static void draw(float t, boolean motion, Matrix4f pose) { | private static void lettering(float t, boolean motion) { | private static float textW(int tex, float textFrac, float s) { | private static void piece(int tex, float textFrac, float botV, float s, float x, float base) { | private static void strand(float x, float y, float hw, float len) { | private static void disc(float x, float y, float rx, float ry, float r, float g, float b, float a) { | public static void softScrim(Matrix4f pose, float x0, float y0, float x1, float y1, float alpha) { | public static void scrim(GuiGraphics gg, int x0, int y0, int x1, int y1) { | private static float sx(float x) { | private static float sy(float y) { | private static float ox(float z) { | private static float oy(float z) { | private static float zg(float y) { | private static void art(int tex, float x0, float y0, float x1, float y1, float depth, float alpha) { | private static void wrapped(int tex, float y0, float y1, float drift, float depth, float alpha) { | private static float gust(float x) { | private static void cathLayer(int tex, float[] r, float z, float swell, float alpha, boolean add) { | private static void ground(int tex, float y0, float y1) { | private static void swayed(int tex, float y0, float y1, float sway, float gustAmp, float t, boolean motion) { | private static void leaning(int tex, float x0, float y0, float x1, float y1, float lean, boolean anchoredBottom) { | private static void cascade(float v0, float alpha) { | private static void shaft(float x, float y, float hw, float xl, float xr, float yb, float alpha) { | private static void river(int tex, float t, float alpha) { | private static float smooth(float e0, float e1, float x) { | private static int hash(int x) {

@@ -1,0 +1,209 @@
+AREA mixin-misc  packages=['mixin', 'compat', 'util', 'launcher', 'api', 'entities']  files=145 lines=11801
+SUBDIRS (lines): mixin/=5678, util/=2694, mixin/fogofwar=1274, entities/=883, mixin/fire=441, entities/renderers=270, launcher/=167, entities/models=117, compat/=112, mixin/goals=74, mixin/perf=65, api/=26
+TOP FILES:
+   1153 util/MiscUtil.java
+    961 util/MyRenderer.java
+    572 mixin/UnitInventoryMobMixin.java
+    381 mixin/AbstractArrowMixin.java
+    381 mixin/LivingEntityMixin.java
+    369 mixin/TitleScreenMixin.java
+    226 mixin/BaseSpawnerMixin.java
+    219 mixin/fire/FireBlockMixin.java
+    216 util/MyMath.java
+    209 mixin/ClientLevelMixin.java
+    186 mixin/fogofwar/LevelRendererMixin.java
+    179 mixin/fogofwar/ClientChunkCacheMixin.java
+    173 mixin/EntityMixin.java
+    167 launcher/LauncherBrand.java
+    154 mixin/PathNavigationMixin.java
+    148 entities/BlazeUnitFireball.java
+    148 mixin/ThrownPotionMixin.java
+    128 entities/MoltenBombProjectile.java
+    127 mixin/ExecuteCommandMixin.java
+    121 mixin/fogofwar/ItemEntityRendererMixin.java
+    117 mixin/fogofwar/EntityRenderDispatcherMixin.java
+    115 util/ParticleUtil.java
+    113 mixin/MobMixin.java
+    111 util/TextureMips.java
+    109 mixin/EvokerFangsMixin.java
+    106 mixin/LivingEntityRendererMixin.java
+    100 mixin/ForgeGuiMixin.java
+     93 entities/GhastUnitFireball.java
+     86 mixin/SculkCatalystBlockEntityMixin.java
+     84 compat/EntityCullingCompat.java
+OVER1000: util/MiscUtil.java(1153)
+SUBSCRIBEEVENT files: compat/EntityCullingCompat.java(1)
+PACKET files: mixin/ClientPacketMixin.java, mixin/ServerGamePacketListenerImplMixin.java, mixin/fogofwar/ClientPacketListenerLightMixin.java
+INSTRUMENTATION ids: 
+COMMANDS: allies, building, enemies, entity, owner
+IMPORTS FROM OTHER PKGS: unit=106, building=36, registrars=30, orthoview=20, fogofwar=19, items=11, hud=11, blocks=10, alliance=9, research=8
+IMPORTED BY: building=109, unit=80, ability=70, hud=34, gametest=14, commands=8, research=8, items=7, matchstart=7, hero=4
+GAMETEST classes by import count: SkirmishGameTests(14), BuildGroupGameTests(2), BiomeBaseGameTests(1), BuildingGridGameTests(1), GameTestChunks(1), LaneCGameplayGameTests(1), MapMetalGameTests(1), MapRimGameTests(1)
+--- HEADS (non-import, first 40 lines) of top files ---
+### util/MiscUtil.java (1153 lines)
+public class MiscUtil {
+    private static final Random RANDOM = new Random();
+    private static final int[] DYE_COLORS = {
+            0xF0F0F0, 0xEB8844, 0xC354CD, 0x6689D3,
+            0xDECF2A, 0x41CD34, 0xD88198, 0x434343,
+            0xABABAB, 0x287697, 0x7B2FBE, 0x253193,
+            0x51301A, 0x3B511A, 0xB3312C, 0x1E1B1B
+    };
+    public static void shootFirework(Level level, Vec3 vec3) {
+        CompoundTag explosion = new CompoundTag();
+        int color = DYE_COLORS[level.random.nextInt(DYE_COLORS.length)];
+        explosion.put("Colors", new IntArrayTag(new int[]{color}));
+        explosion.putByte("Type", (byte) 0);
+        ListTag explosions = new ListTag();
+        explosions.add(explosion);
+        CompoundTag explosionsAndFlight = new CompoundTag();
+        explosionsAndFlight.put("Explosions", explosions);
+        explosionsAndFlight.putByte("Flight", (byte) 0b1);
+        CompoundTag fireworks = new CompoundTag();
+        fireworks.put("Fireworks", explosionsAndFlight);
+        ItemStack itemStack = new ItemStack(Items.FIREWORK_ROCKET);
+        itemStack.setTag(fireworks);
+        FireworkRocketEntity entity = new FireworkRocketEntity(level, null, vec3.x, vec3.y(), vec3.z, itemStack);
+        level.addFreshEntity(entity);
+        entity.moveTo(vec3);
+    }
+    public static void doRandomFireworkExplosion(Level level, Vec3 vec3) {
+        CompoundTag explosion = new CompoundTag();
+        int color = DYE_COLORS[level.random.nextInt(DYE_COLORS.length)];
+        explosion.put("Colors", new IntArrayTag(new int[]{color}));
+        byte type = (byte) level.random.nextInt(5);
+        explosion.putByte("Type", type);
+        ListTag explosions = new ListTag();
+        explosions.add(explosion);
+        CompoundTag explosionsAndFlight = new CompoundTag();
+        explosionsAndFlight.put("Explosions", explosions);
+        explosionsAndFlight.putByte("Flight", (byte) 0b1);
+        CompoundTag fireworks = new CompoundTag();
+        fireworks.put("Fireworks", explosionsAndFlight);
+        ItemStack itemStack = new ItemStack(Items.FIREWORK_ROCKET);
+### util/MyRenderer.java (961 lines)
+public class MyRenderer {
+    private static final Minecraft MC = Minecraft.getInstance();
+    public static final RenderType LINES_NO_DEPTH_TEST = RenderType.create(
+            "lines", DefaultVertexFormat.POSITION_COLOR_NORMAL, VertexFormat.Mode.LINES, 256, false, false,
+            RenderType.CompositeState.builder().setShaderState(RENDERTYPE_LINES_SHADER)
+                    .setLineState(new RenderStateShard.LineStateShard(OptionalDouble.empty()))
+                    .setLayeringState(VIEW_OFFSET_Z_LAYERING)
+                    .setTransparencyState(TRANSLUCENT_TRANSPARENCY)
+                    .setOutputState(ITEM_ENTITY_TARGET)
+                    .setWriteMaskState(COLOR_DEPTH_WRITE)
+                    .setCullState(NO_CULL)
+                    .setDepthTestState(NO_DEPTH_TEST)
+                    .createCompositeState(false)
+    );
+    // visible through terrain, but still occluded by entities (which draw later)
+    public static final RenderType LINES_UNDER_ENTITIES = RenderType.create(
+            ReignOfNether.MOD_ID + ":lines_under_entities",
+            DefaultVertexFormat.POSITION_COLOR_NORMAL, VertexFormat.Mode.LINES, 256, false, false,
+            RenderType.CompositeState.builder().setShaderState(RENDERTYPE_LINES_SHADER)
+                    .setLineState(new RenderStateShard.LineStateShard(OptionalDouble.empty()))
+                    .setLayeringState(VIEW_OFFSET_Z_LAYERING)
+                    .setTransparencyState(TRANSLUCENT_TRANSPARENCY)
+                    .setWriteMaskState(COLOR_WRITE)
+                    .setCullState(NO_CULL)
+                    .setDepthTestState(NO_DEPTH_TEST)
+                    .createCompositeState(false)
+    );
+    // ---- ground markers (the start-position phase, maps.StartMarkers; inbox/spec-3 section 2.3) ----
+    // Flat position-colour QUADS laid on the terrain: depth-tested so hills and the arena wall occlude them, never
+    // written to depth so units and the capitol ghost draw over them, both faces drawn (seen from above and from
+    // the ground). GROUND_TRANSLUCENT tints what is under it (a box's fill); GROUND_ADDITIVE adds light (the rim,
+    // the fence, the pillars), so it glows under a shader pack instead of greying the grass.
+    // (Vanilla has these three shards, but Forge's access transformer leaves them protected: built here instead.)
+    private static final RenderStateShard.ShaderStateShard GROUND_SHADER =
+            new RenderStateShard.ShaderStateShard(GameRenderer::getPositionColorShader);
+    private static final RenderStateShard.TransparencyStateShard ADDITIVE_TRANSPARENCY =
+            new RenderStateShard.TransparencyStateShard(ReignOfNether.MOD_ID + ":additive", () -> {
+                RenderSystem.enableBlend();
+                RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
+            }, () -> {
+### mixin/UnitInventoryMobMixin.java (572 lines)
+@Mixin(Mob.class)
+public abstract class UnitInventoryMobMixin extends LivingEntity implements UnitInventory {
+    @Shadow public abstract InteractionResult interact(Player pPlayer, InteractionHand pHand);
+    @Unique
+    private static final String RON$UNIT_ITEMS_KEY = "reignofnether:UnitItems";
+    @Unique
+    private final NonNullList<ItemStack> unitItems =
+            NonNullList.withSize(MAX_INVENTORY_SIZE, ItemStack.EMPTY);
+    protected UnitInventoryMobMixin(EntityType<? extends LivingEntity> type, Level level) {
+        super(type, level);
+    }
+    @Override
+    public NonNullList<ItemStack> getAllItems() {
+        return this.unitItems;
+    }
+    @Override
+    public boolean isFull(UnitItem item) {
+        for (ItemStack itemStack : getAllItems()) {
+            if (itemStack.isEmpty() || itemStack == ItemStack.EMPTY)
+                return false;
+            UnitItem held = ItemUtil.getUnitItem(itemStack);
+            if (held != null && held == item && itemStack.getCount() < Math.max(1, held.maxStackSize))
+                return false;
+        }
+        return true;
+    }
+    @Override
+    public boolean isEmpty() {
+        for (ItemStack itemStack : getAllItems())
+            if (itemStack != ItemStack.EMPTY && !itemStack.isEmpty())
+                return false;
+        return true;
+    }
+    @Override
+    public ItemStack get(int index) {
+        return this.unitItems.get(index);
+    }
+    @Override
+    @Nullable
+    public ItemStack get(UUID uuid) {
+### mixin/AbstractArrowMixin.java (381 lines)
+@Mixin(AbstractArrow.class)
+public abstract class AbstractArrowMixin extends Projectile {
+    protected AbstractArrowMixin(EntityType<? extends Projectile> pEntityType, Level pLevel) {
+        super(pEntityType, pLevel);
+    }
+    @Shadow public abstract boolean isNoPhysics();
+    @Shadow private int life;
+    @Shadow protected EntityHitResult findHitEntity(Vec3 pStartVec, Vec3 pEndVec) {
+        return null;
+    }
+    private boolean isInsideBuildingAndNotForeignEntity(BlockHitResult result, BuildingPlacement building) {
+        Vec3 vec32 = this.position();
+        Vec3 vec33 = vec32.add(getDeltaMovement());
+        EntityHitResult entityHitResult = this.findHitEntity(vec32, vec33);
+        boolean insideForeignEntity = entityHitResult != null && entityHitResult.getEntity() != getOwner();
+        if (entityHitResult != null && entityHitResult.getEntity() instanceof Unit unit1 && getOwner() instanceof Unit unit2 &&
+            GarrisonableBuildingAddon.getGarrison(unit1) == GarrisonableBuildingAddon.getGarrison(unit2))
+            insideForeignEntity = false;
+        return building != null && building.isPosInsideBuilding(result.getBlockPos()) && !insideForeignEntity;
+    }
+    /*
+    // prevent arrows from colliding with the building that a garrisoned unit is inside of
+    @Inject(
+            method = "isNoPhysics",
+            at = @At("HEAD"),
+            cancellable = true
+    )
+    public void isNoPhysics(CallbackInfoReturnable<Boolean> cir) {
+        if (this.getOwner() instanceof AttackerUnit aUnit) {
+            // garrisoned unit -> ground
+            BuildingPlacement building = GarrisonableBuildingAddon.getGarrison((Unit) aUnit);
+            if (isInsideBuildingAndNotForeignEntity(building)) {
+                cir.setReturnValue(true);
+            }
+            // ground -> garrisoned unit - allow through at 1/2 accuracy
+            // can't use random() here or the nophysics status will change every tick
+            //if (this.getId() % 2 == 0 &&
+            //    ((Unit) aUnit).getTargetGoal().getTarget() instanceof Unit tUnit) {
+            //    if (GarrisonableBuilding.getGarrison(tUnit) instanceof Building building &&
+            //        isInsideTopOfBuilding(building)) {
+### signatures util/MiscUtil.java: public static void shootFirework(Level level, Vec3 vec3) { | public static void doRandomFireworkExplosion(Level level, Vec3 vec3) { | public static boolean isGroundBlock(Level level, BlockPos bp) { | public static void addUnitCheckpoint(Unit unit, BlockPos blockPos, boolean green) { | public static void addUnitCheckpoint(Unit unit, int entityId, boolean green) { | public static List<BlockPos> getLine2D(BlockPos start, BlockPos end) { | public static BlockPos getHighestGroundBlock(Level level, BlockPos blockPos) { | public static BlockPos getHighestNonAirBlock(Level level, BlockPos blockPos, boolean ignoreLeaves, boolean ignoreStructu | public static BlockPos getHighestNonAirBlock(Level level, BlockPos blockPos, boolean ignoreLeaves) { | public static BlockPos getHighestNonAirBlock(Level level, BlockPos blockPos) { | public static boolean listContainsObjectValue(List<Object> objs, String obj) { | public static boolean isLeftClickDown(Minecraft MC) { | public static boolean isRightClickDown(Minecraft MC) { | public static Vector3d screenPosToWorldPos(Minecraft MC, int mouseX, int mouseY) { | public static boolean isMobInRangeOfPos(BlockPos pos, LivingEntity mob, float range) { | public static ArrayList<BlockPos> findAdjacentBlocks(BlockPos originPos, Predicate<BlockPos> condition) { | public static LivingEntity findClosestAttackableEntity(Mob unitMob, float range, ServerLevel level) { | public static boolean isMeleeAttacker(Mob unitMob) { | public static boolean isDeprioritisedTarget(LivingEntity e, boolean attackerIsMelee) { | public static Predicate<LivingEntity> targetPriority(Mob unitMob) { | public static boolean mayBeAutoTargeted(LivingEntity nonUnit, boolean neutralAggro) { | private static boolean isPassiveNonUnit(LivingEntity targetEntity) { | public static boolean isIdleOrMoveAttackable(Mob unitMob, LivingEntity targetEntity, boolean neutralAggro) { | public static BuildingPlacement findClosestAttackableBuilding(Mob unitMob, float range) { | public static BuildingPlacement findClosestAttackableBuilding(Mob unitMob, float range, BuildingGrid grid) { | ClosestAttackableBuilding(Mob unitMob, float range) { | public void visit(BuildingPlacement building, int index) { | private static double gapSq(int p, int lo, int hi) { | public static BuildingPlacement nearestEnemyBuildingForAttackMove(Unit unit) { | public static BuildingPlacement nearestEnemyBuildingForAttackMove(Unit unit, BuildingGrid grid) {
+### signatures util/MyRenderer.java: public static MutableComponent styledWithIcons(String text, Style textStyle) { | public static void drawBlockOutline(PoseStack matrixStack, BlockPos blockpos, float a) { | public static void drawEntityBox(PoseStack matrixStack, Entity entity, float a) { | public static void drawEntityBox(PoseStack matrixStack, Entity entity, float r, float g, float b, float a) { | public static void drawBoxBottom(PoseStack matrixStack, AABB aabb,  float r, float g, float b, float a) { | public static void drawBoxBottom(PoseStack matrixStack, AABB aabb, VertexConsumer vertexConsumer, float r, float g, floa | public static void drawLineBox(PoseStack matrixStack, AABB aabb, VertexConsumer vertexConsumer, float r, float g, float  | public static void drawLineBox(PoseStack matrixStack, AABB aabb, float r, float g, float b, float a) { | public static void pushCameraRelative(PoseStack matrixStack) { | public static RectZone renderFrameWithBg(GuiGraphics guiGraphics, int x, int y, int width, int height, int bgCol) { | public static RectZone renderIconFrameWithBg(GuiGraphics guiGraphics, ResourceLocation frameRl, int x, int y, int size,  | public static void renderIcon(GuiGraphics guiGraphics, ResourceLocation resourceLocation, int x, int y, int size) { | public static void renderTooltip(GuiGraphics guiGraphics, List<FormattedCharSequence> tooltipLines, int mouseX, int mous | public static List<FormattedCharSequence> wrapTooltip(List<FormattedCharSequence> lines, int maxWidth) { | private static FormattedText toText(FormattedCharSequence seq) { | public static void renderItemEntityTooltip(GuiGraphics guiGraphics, UnitItem unitItem, ItemStack itemStack, int mouseX,  | public static void renderItemInFrontOfEntityFace(PoseStack poseStack, LivingEntity entity, float partialTicks, ItemStack | public static void renderItem(GuiGraphics guiGraphics, ItemStack pStack, int pX, int pY, float scale) { | public static ResourceLocation getPlayerSkinRl(String playerName) { | public static void drawScaledString(GuiGraphics guiGraphics, Font font, String text, int x, int y, int color, float scal | public static void drawScaledCenteredString(GuiGraphics guiGraphics, Font font, String text, int x, int y, int color, fl | public static void renderPlayerHead(GuiGraphics g, String playerName, int x, int y, int iconSize, ResourceLocation fallb | public static void renderTooltipBackground(GuiGraphics g, int x, int y, int width, int height) { | public static int scaledWidth(Font font, FormattedCharSequence text, float scale) { | public static void renderTooltipDivider(GuiGraphics g, int x, int y, int width) {
+### signatures mixin/UnitInventoryMobMixin.java: protected UnitInventoryMobMixin(EntityType<? extends LivingEntity> type, Level level) { | public NonNullList<ItemStack> getAllItems() { | public boolean isFull(UnitItem item) { | public boolean isEmpty() { | public ItemStack get(int index) { | public ItemStack get(UUID uuid) { | public ItemStack get(UnitItem unitItem) { | public void set(int index, ItemStack stack) { | public void swapSlots(int index1, int index2) { | public boolean dropUUID(UUID uuid, BlockPos bp) { | public boolean deleteItem(UUID uuid) { | public boolean deleteItem(UnitItem item) { | public boolean tryAdding(ItemStack newItemStack) { | public void giveTo(UUID uuid, UnitInventory inv) { | public boolean useOnGround(UUID uuid, BlockPos blockPos) { | public boolean useOnEntity(UUID uuid, LivingEntity entity) { | public boolean useOnBuilding(UUID uuid, BuildingPlacement building) { | public boolean use(UUID uuid) { | public boolean isHolding(UnitItem unitItem) { | public boolean isHoldingActive(UnitItem unitItem) { | private void afterUse(UnitItem unitItem, ItemStack itemStack, UUID uuid) { | public boolean checkManaCostAndCooldown(UnitItem unitItem, ItemStack itemStack) { | private boolean canAffordManaCost(UnitItem unitItem) { | private boolean isOffCooldown(UnitItem unitItem, ItemStack itemStack) { | private void syncToClient() { | public void tick(CallbackInfo ci) { | isOffCooldown(unitItem, itemStack) && canAffordManaCost(unitItem)) { | public boolean canPickupUnitItems() { | public boolean canUseUnitItems() {

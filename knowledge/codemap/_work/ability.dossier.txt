@@ -1,0 +1,209 @@
+AREA ability  packages=['ability', 'mana', 'enchantments']  files=175 lines=22465
+SUBDIRS (lines): ability/abilities=14244, ability/heroAbilities=3539, mana/=2757, ability/=1824, enchantments/=101
+TOP FILES:
+    481 ability/abilities/CommanderDGun.java
+    473 mana/ManaServerEvents.java
+    366 ability/abilities/CommanderAbility.java
+    348 ability/abilities/SunriseSortie.java
+    343 mana/FrostServerEvents.java
+    323 ability/abilities/TotemOfThePack.java
+    309 mana/ManaWellServerEvents.java
+    308 ability/AutoCaster.java
+    294 mana/TempestServerEvents.java
+    282 mana/LeyNetwork.java
+    279 ability/Ability.java
+    275 mana/LanternDomeServerEvents.java
+    264 ability/abilities/PlantThicket.java
+    254 ability/abilities/LeafDash.java
+    254 ability/abilities/Rootwalk.java
+    252 ability/abilities/StagLeap.java
+    251 mana/WardServerEvents.java
+    235 ability/abilities/PlantVineSnare.java
+    227 ability/abilities/BastionAegis.java
+    219 ability/abilities/MendingRite.java
+    215 ability/abilities/TradeResources.java
+    213 ability/abilities/Bulwark.java
+    212 ability/abilities/SoulWisps.java
+    208 ability/abilities/SalvageHook.java
+    208 ability/abilities/WitheringFog.java
+    208 ability/heroAbilities/enchanter/MartialEnchantment.java
+    204 ability/abilities/AwakenThicket.java
+    201 ability/abilities/TidalSlam.java
+    198 mana/DecoyServerEvents.java
+    196 ability/abilities/Singularity.java
+OVER1000: 
+SUBSCRIBEEVENT files: mana/DecoyServerEvents.java(4), ability/abilities/TotemOfThePack.java(4), mana/WardServerEvents.java(3), mana/ManaWellServerEvents.java(3), mana/ManaClientEvents.java(3), mana/LanternDomeServerEvents.java(3), ability/abilities/AwakenThicket.java(3), mana/TempestServerEvents.java(2), mana/LeyNetwork.java(2), mana/FrostServerEvents.java(2), ability/abilities/WitheringFog.java(2), ability/abilities/SunriseSortie.java(2), ability/abilities/StagLeap.java(2), ability/abilities/SoulWisps.java(2)
+PACKET files: ability/AbilityClientboundPacket.java, ability/AbilityServerboundPacket.java, ability/BuildingAbilityClientboundPacket.java, ability/BuildingAbilityServerboundPacket.java, mana/ManaServerboundPacket.java
+INSTRUMENTATION ids: 
+COMMANDS: 
+IMPORTS FROM OTHER PKGS: unit=548, hud=215, keybinds=161, resources=153, building=111, cursor=81, util=33, registrars=25, alliance=24, research=14
+IMPORTED BY: unit=157, building=18, gametest=14, hero=9, player=8, hud=5, blocks=4, registrars=4, bot=3, commands=3
+GAMETEST classes by import count: SkirmishGameTests(430), ExperimentalAbilityTooltipGameTests(11), CombatEngineerGameTests(9), BigUnitGameTests(7), T3RoleGameTests(7), AutocastGameTests(6), CommanderAntiAirGameTests(5), ReactionGameTests(3)
+--- HEADS (non-import, first 40 lines) of top files ---
+### ability/abilities/CommanderDGun.java (481 lines)
+/**
+ * The commander's D-gun (BAR's signature commander weapon), one per faction with the same rules:
+ * aim at a spot, and everything hostile along a {@link #RANGE}-block line from the commander toward it takes
+ * {@link #DAMAGE} - enough to delete any T1 unit. Enemy commanders only take {@link #COMMANDER_DAMAGE}, so
+ * commander duels stay a fight, not a coin flip. Costs {@link #ENERGY_COST} energy per shot (refused, with the
+ * usual "not enough" warning, when the pool can't pay) and has a {@link #CD_SECONDS} s cooldown.
+ * <ul>
+ *   <li>Sunforged Kingdom - <b>Sunfire Decree</b>: a lance of sunlight.</li>
+ *   <li>Ironhide Horde - <b>Bloodstorm</b>: a hurled greataxe that cleaves the line.</li>
+ *   <li>Gravebound - <b>Soulreaper</b>: a sweep of soul-fire.</li>
+ *   <li>Verdant Court - <b>Thornburst</b>: a cone of thorns instead of a line ({@link #CONE_RANGE} blocks deep,
+ *       {@link #CONE_HALF_ANGLE_DEG} degrees either side), and what it hits is rooted for {@link #ROOT_TICKS} ticks.
+ *       Shorter than the line, wider up close: a brawler's D-gun for the faction that fights in the thickets.</li>
+ *   <li>Tidewrought - <b>Broadside</b>: a walking cannonade instead of a beam - {@link #BROADSIDE_SHOTS} cannonball
+ *       impacts stepping {@link #BROADSIDE_STEP} blocks forward, {@link #BROADSIDE_DELAY} ticks apart, each bursting
+ *       {@link #BROADSIDE_RADIUS} blocks wide. Every enemy caught takes the D-gun's damage once per volley. Entity damage
+ *       only: no explosion, so no terrain and no friend is touched. Same reach as the line, but a quick unit can step
+ *       out of the later shots - the Admiral's gun rewards aiming at a crowd, not a runner.</li>
+ *   <li>Stormcallers - <b>Heaven's Judgement</b>: a lightning <i>column</i> at the aimed spot (within {@link #RANGE})
+ *       instead of a line. A {@link #JUDGEMENT_DELAY}-tick gold glyph ring telegraphs it first (BAR's rule: danger is
+ *       shown before it lands), then every enemy within {@link #JUDGEMENT_RADIUS} of the spot takes the D-gun's damage.
+ *       A particle bolt from the sky (barfx/LightningFx), no LightningBolt entity: no fire, no friend hit. Paid through
+ *       the Mana core (ManaServerEvents.tryCast), so Overcharge doubles its cost and widens it to
+ *       {@link #JUDGEMENT_RADIUS_OVERCHARGED}; refused (nothing paid, no cooldown) when the pool can't pay.</li>
+ *   <li>Brassworks Artificers - <b>Rail Lance</b>: the line again, as a <i>projectile</i> at the explicit D-gun
+ *       amount through UnitDamage.hurtExplicit (design/brassworks_plan.md 3.3): shields, mirrors and domes answer it,
+ *       and the mixin's "a unit's projectile does its attack damage" rewrite is bypassed. A rail of sparks.</li>
+ *   <li>Any faction without one designed (FactionTraits) - a plain <b>D-gun</b>, same rules.</li>
+ * </ul>
+ * Friendly units are never hit (BAR's D-gun does hit friends - kept off here until lovish says otherwise).
+ */
+public class CommanderDGun extends Ability {
+    public static final int CD_SECONDS = 20;
+    public static final int RANGE = 14;
+    public static final float HALF_WIDTH = 1.5f;
+    public static final float DAMAGE = 80f;
+    public static final float COMMANDER_DAMAGE = 25f;
+    public static final int ENERGY_COST = 150;
+    /** Thornburst (Verdant Court): reach and half-angle of the cone, and the root on whatever it hits. */
+    public static final float CONE_RANGE = 10f;
+### mana/ManaServerEvents.java (473 lines)
+/**
+ * The Stormcallers' Mana core (design/stormcallers_plan.md section 3). <b>Energy is mana</b>: there is no second
+ * resource, every spell is paid from the existing energy pool, and every Stormcaller ability pays through this class
+ * so the cost, Overcharge and Mana Well rules are never re-implemented per ability. Server side only.
+ *
+ * <h2>API for spell / unit code</h2>
+ * <pre>
+ *   // one-shot spell (Heaven's Judgement, Blink, Seal, ...): pays cost x costMult at once, or refuses
+ *   float power = ManaServerEvents.tryCast(caster, owner, 150);      // 0 = refused, nothing paid
+ *   if (power &lt;= 0) return;                                          // HUD "not enough energy" already shown;
+ *                                                                    // do NOT start the cooldown
+ *   damage *= power;                                                 // x1.5 while overcharged
+ *   ManaServerEvents.tryCastQuiet(caster, owner, 25);                // same, no HUD warning (autocasts, bots)
+ *   ManaServerEvents.lastRefusal();                                  // why the last call refused (Refusal.langKey)
+ *
+ *   // caster attacks (Fire Adept, Wind Monk, ...): pays what the pool has, never refuses
+ *   float paid = ManaServerEvents.channelShot(attacker, owner, 2);   // fraction 0-1 of the shot's cost
+ *   cooldown = Math.round(baseCooldown * ManaServerEvents.shotCooldownScale(paid)); // starved = half rate
+ *   damage *= ManaServerEvents.spellPowerMultiplier(owner);
+ *
+ *   // sustained spells (Ward, Lantern Dome, Tempest's drain)
+ *   ManaServerEvents.Channel ch = ManaServerEvents.openChannel(caster, owner, 12); // pays the first second
+ *   if (ch == null) return;                                          // refused (lastRefusal)
+ *   ... once per second from the spell's own tick:
+ *   float f = ManaServerEvents.channel(ch);                          // fraction of this second's drain paid
+ *   if (!ch.isActive()) collapse();                                  // stopped itself at 0 energy
+ *   ch.stop();                                                       // spell ended on its own
+ *
+ *   // multipliers (Overcharge; both 1 for non-Stormcallers and for anyone not overcharged)
+ *   ManaServerEvents.spellCostMultiplier(owner);   // 2.0 while overcharged
+ *   ManaServerEvents.spellPowerMultiplier(owner);  // 1.5 while overcharged
+ *   ManaServerEvents.spellPowerAt(owner, pos);     // location factor: 1.25 inside an own/allied Mana Well
+ *   ManaServerEvents.isMana(owner);                // the owner's faction has FactionTraits.mana
+ * </pre>
+ *
+ * <h2>How spells pay</h2>
+ * Every entry point ends in {@link EconomyServerEvents#drawSpell}: energy is taken from the pool <b>at once</b>
+ * (spells are never throttled by the stall, so they are paid before construction asks for its share) and the draw
+ * is added to the player's energy demand, so the next tick's stall drops and construction/production slow evenly -
+ * heavy casting stalls building exactly as BAR stalls. The draw also shows as energy expense and, separately, as
+### ability/abilities/CommanderAbility.java (366 lines)
+/**
+ * Each faction's Commander signature ability (design doc: claude/design-factions.md). One class, one face per faction:
+ * <ul>
+ *   <li><b>Sunforged Kingdom - Rally Standard</b>: allies within 12 blocks gain Resistance I and Speed I for 20 s.</li>
+ *   <li><b>Ironhide Horde - War Horn</b>: allies within 16 blocks gain Speed II and Strength I for 10 s.</li>
+ *   <li><b>Gravebound - Dread</b>: enemies within 12 blocks are Weakened and Slowed for 8 s.</li>
+ *   <li><b>Verdant Court - Wildstride</b>: allies within 14 blocks gain Speed II and Jump Boost for 12 s - the
+ *       Court wins by being somewhere else first.</li>
+ *   <li><b>Tidewrought - Riptide</b>: a {@link #RIPTIDE_RANGE}-block cone of surf ({@link #RIPTIDE_HALF_ANGLE_DEG}
+ *       degrees either side) hits enemies for {@link #RIPTIDE_DAMAGE} and throws them back
+ *       ({@link #RIPTIDE_KNOCKBACK}); an enemy standing in water or on a tidepool is thrown twice as hard. Aimed at
+ *       the spot given (the bot passes the nearest foe), else at the commander's target, else at the nearest enemy in
+ *       reach, else straight ahead - so the instant button always faces the fight.</li>
+ *   <li><b>Stormcallers - Blink</b>: the one aimed signature - a short teleport of up to {@link #BLINK_RANGE} blocks
+ *       to a standable spot in line of sight (mana/Blink, Teleport's rules), {@link #BLINK_ENERGY} energy through the
+ *       Mana core (x2 overcharged; refused with nothing paid when the pool can't pay), {@link #BLINK_CD_SECONDS} s
+ *       cooldown instead of the usual 45.</li>
+ *   <li><b>Brassworks Artificers - Overclock</b>: own machines within {@link #OVERCLOCK_RADIUS} blocks run at
+ *       {@link com.solegendary.reignofnether.brass.Heat#OVERCLOCK_RATE}x fire rate for
+ *       {@link com.solegendary.reignofnether.brass.Heat#OVERCLOCK_TICKS} ticks, building heat half again as fast, and
+ *       take {@link com.solegendary.reignofnether.brass.Heat#OVERCLOCK_AFTER_HEAT} heat when it ends (brass/Heat).</li>
+ * </ul>
+ * Instant cast (Blink: aimed), no resource cost (Blink: energy), 45 s cooldown. Commanders get it in {@code CommanderAbilities}.
+ */
+public class CommanderAbility extends Ability {
+    public static final int CD_SECONDS = 45;
+    public CommanderAbility() {
+        super(UnitAction.COMMANDER_ABILITY, CD_SECONDS * ResourceCost.TICKS_PER_SECOND, 0, 0, false, false);
+        this.autoRule(AutoRule.MANUAL);   // autocast: a commander's signature: the hero's own call
+    }
+    /**
+     * NONE: the faction has no signature designed yet (FactionTraits) - CommanderServerEvents does not grant the
+     * ability, and should one exist anyway its button is hidden and it does nothing (it used to be Rally Standard).
+     */
+    public enum Kind { RALLY, WAR_HORN, DREAD, WILDSTRIDE, RIPTIDE, BLINK, OVERCLOCK, NONE }
+    /** Riptide (Tidewrought): reach and half-angle of the cone, its damage and knockback (doubled on wet targets). */
+    public static final float RIPTIDE_RANGE = 7f;
+    public static final float RIPTIDE_HALF_ANGLE_DEG = 40f;
+    public static final float RIPTIDE_DAMAGE = 4f;
+    public static final double RIPTIDE_KNOCKBACK = 1.4;
+### ability/abilities/SunriseSortie.java (348 lines)
+/**
+ * Sunforged Kingdom (the Lord Marshal commander): <b>Sunrise Sortie</b>. Aim a direction: the Marshal and up to
+ * {@link #MAX_FOLLOWERS} of its owner's melee fighters within {@link #GATHER_RADIUS} blocks charge
+ * {@link #LENGTH} blocks in a straight line over {@link #DURATION_TICKS} ticks, leaving a trail of flame and
+ * sun-motes. Every enemy a charger runs through is flung aside and takes {@link #DAMAGE} (once per charge).
+ *
+ * Movement goes through {@code Entity.move} one small step a tick, so block collision is the vanilla one - a charger
+ * stops at a wall instead of being pushed into it - and a charger whose next step would leave the world border or
+ * walk off a drop of more than {@link #MAX_DROP} blocks simply stops there. Synergy with Formation: a charger that
+ * ends the sortie shoulder to shoulder (formation rule: {@link FormationServerEvents#MIN_GUARDS}+ fellow chargers
+ * within {@link FormationServerEvents#RADIUS}), and every Sunforged shooter already in formation by the Marshal,
+ * gets {@link #FORMATION_SPEED_TICKS} ticks of +{@link #FORMATION_SPEED} speed to press the gap.
+ * {@link #CD_SECONDS} s cooldown. Registered as an event class (the server tick drives the charges).
+ */
+public class SunriseSortie extends Ability {
+    public static final int CD_SECONDS = 50;
+    public static final int LENGTH = 12;
+    public static final int DURATION_TICKS = 30;
+    public static final int MAX_FOLLOWERS = 6;
+    public static final float GATHER_RADIUS = 8f;
+    public static final float DAMAGE = 10f;
+    public static final double HIT_REACH = 1.2;
+    public static final int MAX_DROP = 3;
+    public static final double FORMATION_SPEED = 0.25;
+    public static final int FORMATION_SPEED_TICKS = 20;
+    static final double STEP = LENGTH / (double) DURATION_TICKS;
+    static final UUID SPEED_MOD = UUID.fromString("b7d1c0de-2a5e-4c11-9f0a-7a3d0e1f5b01");
+    static final String KEY_UNTIL = "bt_sortie_speed_until";
+    /** One sortie in flight. Public for the game test. */
+    public static class Charge {
+        final ServerLevel level;
+        final LivingEntity caster;
+        final String owner;
+        final Vec3 dir, side;
+        public final List<LivingEntity> riders = new ArrayList<>();
+        final boolean[] stopped;
+        final Set<Integer> hit = new HashSet<>();
+        int age = 0;
+        Charge(ServerLevel level, LivingEntity caster, String owner, Vec3 dir, List<LivingEntity> riders) {
+            this.level = level;
+### signatures ability/abilities/CommanderDGun.java: public CommanderDGun() { | public static Kind kindFor(Unit unit) { | static String titleFor(Kind kind) { | public AbilityButton getButton(Keybinding hotkey, Unit unit) { | public void use(Level level, Unit unitUsing, LivingEntity targetEntity) { | public void use(Level level, Unit unitUsing, BlockPos targetBp) { | public static void broadside(ServerLevel sl, LivingEntity self, String owner, Vec3 from, Vec3 dir) { | static int broadsideImpact(ServerLevel sl, LivingEntity self, String owner, Vec3 at, java.util.Set<LivingEntity> already | public static List<LivingEntity> broadsideHits(LivingEntity self, String owner, Vec3 at) { | public static boolean judgement(ServerLevel sl, LivingEntity self, String owner, BlockPos aim, boolean quiet) { | static void glyphRing(ServerLevel sl, Vec3 c, float radius) { | static int judgementStrike(ServerLevel sl, LivingEntity self, String owner, Vec3 c, float radius) { | public static List<LivingEntity> judgementHits(LivingEntity self, String owner, Vec3 c, float radius) { | static void coneFx(ServerLevel sl, LivingEntity self, Vec3 from, Vec3 dir) { | public static List<LivingEntity> coneHits(LivingEntity self, String owner, Vec3 from, Vec3 dir) { | public static List<LivingEntity> hits(LivingEntity self, String owner, Vec3 from, Vec3 to) { | public static List<LivingEntity> hits(LivingEntity self, String owner, Vec3 from, Vec3 to, float halfWidth) {
+### signatures mana/ManaServerEvents.java: Refusal(String langKey) { this.langKey = langKey; } | private Channel(LivingEntity source, String owner, float energyPerSecond) { | public boolean isActive() { return active; } | public float fraction() { return active ? fraction : 0f; } | public float power() { return castPower(owner, source == null ? null : source.blockPosition()); } | public void stop() { active = false; fraction = 0f; } | public static FactionTraits traitsOf(String owner) { | public static void bindTraits(String owner, FactionTraits traits) { | public static boolean isMana(String owner) { | public static float spellCostMultiplier(String owner) { | public static float spellPowerMultiplier(String owner) { | public static float spellPowerAt(String owner, BlockPos pos) { | public static float spellCostAt(String owner, BlockPos pos) { | public static float castPower(String owner, BlockPos pos) { | private static float castCost(String owner, BlockPos pos, float baseEnergy) { | public static float shotCooldownScale(float fraction) { | public static Refusal lastRefusal() { | private static boolean hasPool(String owner) { | public static float tryCast(LivingEntity caster, String owner, float energyCost) { | public static float tryCastQuiet(LivingEntity caster, String owner, float energyCost) { | public static float channelShot(LivingEntity attacker, String owner, float energyPerShot) { | public static Channel openChannel(LivingEntity source, String owner, float energyPerSecond) { | public static Channel stoppedChannel(LivingEntity source, String owner, float energyPerSecond) { | public static float channel(Channel ch) { | public static boolean isOvercharged(String owner) { | public static Refusal setOvercharge(String owner, boolean on) { | public static Refusal toggleOvercharge(String owner) { | public static float capBuildSpeed(String owner, float stall) { | public static boolean convertersPaused(String owner) { | public static float converterThreshold(String owner) {
+### signatures ability/abilities/CommanderAbility.java: public CommanderAbility() { | public static Kind kindFor(Unit unit) { | public AbilityButton getButton(Keybinding hotkey, Unit unit) { | public void use(Level level, Unit unitUsing, BlockPos targetBp) { | public static List<LivingEntity> riptide(ServerLevel sl, LivingEntity self, String owner, BlockPos aim) { | public static boolean blink(ServerLevel sl, LivingEntity self, String owner, BlockPos aim, boolean quiet) { | public static int overclock(ServerLevel sl, LivingEntity self, String owner) { | static boolean isEnemy(String owner, Unit u) { | static Vec3 riptideFacing(ServerLevel sl, LivingEntity self, String owner, BlockPos aim) {

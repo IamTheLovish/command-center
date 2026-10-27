@@ -1,0 +1,208 @@
+AREA fogofwar  packages=['fogofwar', 'worldmemory']  files=29 lines=5257
+SUBDIRS (lines): fogofwar/=2825, worldmemory/=2432
+TOP FILES:
+    901 fogofwar/FogOfWarServerEvents.java
+    547 worldmemory/GroundMemoryServer.java
+    509 fogofwar/FogChunkSnapshot.java
+    407 worldmemory/GroundMemoryClient.java
+    377 fogofwar/FogOfWarClientEvents.java
+    341 worldmemory/GroundMemory.java
+    310 worldmemory/ScarRegionMesh.java
+    275 fogofwar/FogRemesh.java
+    210 worldmemory/DecayParams.java
+    129 worldmemory/GroundMemoryClientboundPacket.java
+    118 worldmemory/GroundSurface.java
+     99 worldmemory/GroundMemoryCapability.java
+     89 fogofwar/FogExploration.java
+     85 worldmemory/SyncRules.java
+     82 fogofwar/FogNeutralUnitClientboundPacket.java
+     81 fogofwar/PlayerChunksClientboundPacket.java
+     78 fogofwar/FogChunksClientboundPacket.java
+     72 fogofwar/FogOfWarClientboundPacket.java
+     69 fogofwar/PlayerChunksClientEvents.java
+     62 fogofwar/FrozenChunkClientboundPacket.java
+     60 fogofwar/FogOfWarServerboundPacket.java
+     56 fogofwar/FogTintingBlockColor.java
+     54 fogofwar/FogTintingBakedModel.java
+     54 worldmemory/ScarRenderTypes.java
+     53 fogofwar/FogSurfaceBand.java
+     48 worldmemory/WorldMemoryClientEvents.java
+     46 worldmemory/WorldMemoryConfig.java
+     38 worldmemory/WorldMemoryHooks.java
+      7 fogofwar/FrozenChunkAction.java
+OVER1000: 
+SUBSCRIBEEVENT files: worldmemory/GroundMemoryServer.java(7), fogofwar/FogOfWarServerEvents.java(6), worldmemory/WorldMemoryClientEvents.java(3), fogofwar/FogOfWarClientEvents.java(3), worldmemory/GroundMemoryCapability.java(2), fogofwar/PlayerChunksClientEvents.java(1), fogofwar/FogRemesh.java(1)
+PACKET files: fogofwar/FogChunksClientboundPacket.java, fogofwar/FogNeutralUnitClientboundPacket.java, fogofwar/FogOfWarClientboundPacket.java, fogofwar/FogOfWarServerboundPacket.java, fogofwar/FrozenChunkClientboundPacket.java, fogofwar/PlayerChunksClientboundPacket.java, worldmemory/GroundMemoryClientboundPacket.java
+INSTRUMENTATION ids: FOG_OF_WAR, WORLD_MARKERS
+COMMANDS: disable, enable, rts-fog
+IMPORTS FROM OTHER PKGS: registrars=8, unit=8, building=7, network=3, orthoview=3, worldborder=3, perf=3, alliance=2, player=2, config=2
+IMPORTED BY: unit=48, mixin=19, building=11, gametest=8, barfx=4, match=4, matchstart=4, player=4, hero=3, registrars=3
+GAMETEST classes by import count: WorldMemoryGameTests(6), HeroGameTests(5), SkirmishGameTests(3), AudienceGameTests(1), FogDefaultGameTests(1), FogExplorationGameTests(1), FogHidesEnemiesGameTests(1), FogSnapshotGameTests(1)
+--- HEADS (non-import, first 40 lines) of top files ---
+### fogofwar/FogOfWarServerEvents.java (901 lines)
+public class FogOfWarServerEvents {
+    private static boolean enabled = false; // enforced for all clients
+    private static ServerLevel serverLevel = null;
+    // Per-player vision, recomputed every UPDATE_TICKS ticks. Three tiers:
+    //  - liveChunks: chunks FULLY inside the block-radius circle -> receive all live updates unfiltered.
+    //  - edgeChunks (= live + partially-covered "edge"): chunks the client has data for and renders. Edge
+    //    chunks get per-column gated updates (shouldSendChunkPacket): visible columns update live, fogged
+    //    columns stay frozen so out-of-circle changes don't leak.
+    //  - edgeMasks: 16x16 covered-column bitmask (long[4]) per edge chunk. Authoritative for entity gating,
+    //    update gating AND the client's fog tint (synced via FogChunksClientboundPacket).
+    private static final Map<UUID, Set<ChunkPos>> playerLiveChunks = new ConcurrentHashMap<>();
+    private static final Map<UUID, Set<ChunkPos>> playerEdgeChunks = new ConcurrentHashMap<>();
+    private static final Map<UUID, Map<ChunkPos, long[]>> playerEdgeMasks = new ConcurrentHashMap<>();
+    // (player, chunk) pairs needing a full-chunk resend at the next fog tick: a multi-block section update
+    // straddled the vision circle in an edge chunk, so the packet was dropped for that player but part of
+    // the change IS visible to them. Drained by updatePlayerBrightChunks.
+    private static final Map<UUID, Set<ChunkPos>> pendingResends = new ConcurrentHashMap<>();
+    // players whose units/buildings ignore fog and are visible to everyone
+    private static final Set<String> revealedPlayerNames = ConcurrentHashMap.newKeySet();
+    // <entityId <name of attacked player, ticks to expiry>>.
+    // A unit that attacks out of the fog is revealed to the player it attacked
+    // capped at REVEALED_ATTACKER_SIGHT_BLOCKS
+    private static final Map<Integer, Map<String, Long>> revealedUnitExpiryTick = new ConcurrentHashMap<>();
+    // snapshot of neutral unit starting positions
+    public static final Map<Integer, AABB> neutralFogUnits = new HashMap<>();
+    public static void captureNeutralFogUnits() {
+        neutralFogUnits.clear();
+        for (LivingEntity le : UnitServerEvents.getAllUnits()) {
+            if (le instanceof Unit unit && unit.getOwnerName().isEmpty() && Unit.hasAnchor(unit)) {
+                neutralFogUnits.put(le.getId(), le.getBoundingBox());
+                FogNeutralUnitClientboundPacket.sendNeutralFogUnitToAll(le.getId(), le.getBoundingBox());
+            }
+        }
+    }
+    public static void setPlayerRevealed(String playerName, boolean reveal) {
+        if (reveal) revealedPlayerNames.add(playerName);
+        else revealedPlayerNames.remove(playerName);
+    }
+    public static void revealRangedUnit(int unitId, String targetOwnerName, int durationTicks) {
+        if (serverLevel == null || targetOwnerName == null) return;
+### worldmemory/GroundMemoryServer.java (547 lines)
+/**
+ * The server side of the ground memory (claude/world-that-remembers.md, slice 1): BarFx's blast, heavy-impact,
+ * death and collapse calls stamp scorch and craters into the chunks' fields ({@link GroundMemoryCapability}), and a
+ * pass every {@link #SYNC_TICKS} sends each player the cells they may see - a delta for a chunk they hold, a snapshot
+ * for one they first see (a late joiner, a spectator, a chunk coming into vision), nothing for columns under their fog
+ * (SyncRules). Decay is lazy (GroundMemory.decayTo) and never synced: every client decays its copy the same way.
+ * <p>
+ * Budgets (spec section 5): a stamp is O(cells in the disc) with one heightmap read per cell; the pass walks the
+ * marked chunks once and asks vanilla's chunk map who tracks each (the fog mixin already filters that list), with a
+ * {@link #MAX_BYTES_PER_PASS} cap per player so a player landing on a scarred battlefield gets it over a few passes
+ * rather than one burst. The GameTests measure both against the spec.
+ * <p>
+ * Purely visual: nothing here changes a block, so pathing never sees it (the GameTest holds that as an invariant).
+ */
+@Mod.EventBusSubscriber(modid = ReignOfNether.MOD_ID)
+public final class GroundMemoryServer {
+    private GroundMemoryServer() { }
+    /** Ticks between sync passes: half a second keeps a scar within a blast's own smoke. */
+    public static final int SYNC_TICKS = 10;
+    /** Per player per pass; the spec's 30 KB burst. */
+    public static final int MAX_BYTES_PER_PASS = 30 * 1024;
+    /** A column whose top is further above the blast than this is a roof or a cliff top: untouched. */
+    public static final double MAX_RISE = 3.0;
+    /** ...and one further below is a pit the blast did not reach. */
+    public static final double MAX_DROP = 6.0;
+    /** A blast higher than this above the ground under it (anti-air hits, a shell bursting in flight) leaves no scar. */
+    public static final double AIRBURST = 2.5;
+    /** The decay the server runs and sends (DecayParams.DEFAULT, or the common config's [World memory] block). */
+    private static DecayParams params = DecayParams.DEFAULT;
+    private static int generationCounter = 0;
+    /** Whether scars are stamped at all (the common config's master switch; the GameTests force it on). */
+    public static boolean enabled = true;
+    /** The per-level state: what is marked, what changed since the last pass, what each viewer holds. */
+    static final class LevelState {
+        final LongOpenHashSet marked = new LongOpenHashSet();
+        final Long2ObjectOpenHashMap<long[]> dirty = new Long2ObjectOpenHashMap<>();
+        final Map<UUID, Long2ObjectOpenHashMap<SyncRules.State>> viewers = new HashMap<>();
+        /** Chunk keys whose load event arrived (possibly off-thread); the tick checks them for saved marks. */
+        final ConcurrentLinkedQueue<Long> loaded = new ConcurrentLinkedQueue<>();
+        int tick = 0;
+### fogofwar/FogChunkSnapshot.java (509 lines)
+// Pre-game chunk packets inside the world border; served to dark players by ChunkMapInitialSendMixin so
+// they can't cheat by reconnecting or leaving/re-entering render range.
+//
+// Backed by disk, not memory: each captured chunk is encoded to one file under
+// <world>/reignofnether/fogsnapshot/ (~50-500 KB per chunk). Only a small in-memory index of which chunks
+// exist (plus a bounded LRU of recently-decoded packets) is held on the heap, so even a full 80x80-chunk
+// RTS border costs kilobytes of RAM instead of gigabytes. Fog is gated to RTS-optimised maps
+// (WorldBorderServerEvents.isRtsOptimisedMap), so the bounded border always fits.
+//
+// The capture is spread over server ticks. It used to run in one tick at the first RTS join and froze the server
+// thread 14-23 s (a synchronous chunk load, packet build, encode and file write for each of ~2,000 chunks):
+//  - server thread, at most TICK_BUDGET_NS per tick ({@link #tick}): build the packet of every border chunk that is
+//    loaded (the packet constructor copies the chunk's sections, block entities and light, so the packet IS the
+//    snapshot) once its light has settled (see below); a chunk that is not loaded gets a level-33 region ticket (FULL, not ticking - what
+//    getChunk(x, z, true) asked for) and is built once the chunk system has loaded it on its own workers;
+//  - one background thread: encode each built packet and write its file (bytes only, no world access); a chunk
+//    joins the on-disk index once its file is written, and until then get() serves the in-memory packet;
+//  - a chunk still waiting is captured on the spot, before it can differ from the pre-game state, when one of its
+//    blocks is about to change (LevelChunkMixin -> {@link #beforeBlockChange}) or a dark player is about to be sent
+//    it ({@link #get}), so the snapshot holds what the old one-tick capture held and get() never returns null for a
+//    loaded border chunk while the capture runs.
+// Light settles: light is computed on the light engine's own worker, behind the block changes, so a chunk's light can
+// still be catching up with blocks changed or chunks lit a moment ago (on a busy host for several ticks). A chunk is
+// built only once it is light-correct and a light barrier ({@link #lightBarrier}: a POST_UPDATE task on the light
+// engine queue for it and each loaded neighbour, run after every light update queued before it) has completed; until
+// then it waits, at no budget cost. The two on-the-spot captures cannot wait:
+//  - before a block change: built at once and kept as is. Light computed later would already carry the change (the
+//    change's own light update runs in the same light batch as any later barrier), which is what must not leak.
+//  - before a dark player is sent it: built at once (the player needs it now) and rebuilt when its barrier completes,
+//    unless one of its blocks changes first (then the served build stays, as above).
+public class FogChunkSnapshot {
+    private static final String DIR_NAME = "reignofnether/fogsnapshot";
+    private static final int LRU_CAPACITY = 64; // hot chunks served to multiple players / on relog bursts
+    /** Server-thread time the capture may use per tick. */
+    public static final long TICK_BUDGET_NS = 20_000_000L;
+    /** Chunks taken off the walk (load ticket out or light barrier pending) at once. */
+    private static final int MAX_WAITING = 64;
+    /** How long finishNow waits for light to settle before building what is left anyway (logged as an error). */
+    private static final long FINISH_LIGHT_WAIT_NS = 30_000_000_000L;
+    // ThreadedLevelLightEngine.addTask(int, int, TaskType, Runnable) and TaskType.POST_UPDATE: 1.20.1 has no public
+### worldmemory/GroundMemoryClient.java (407 lines)
+/**
+ * The client side of the ground memory (claude/world-that-remembers.md 3.3): the field copies the server sends
+ * ({@link #ingest}), kept per chunk independently of the chunk cache so a chunk out of view, out of range or under
+ * the fog keeps the scars as last seen; and the decal mesh - one vertex buffer per 64x64-block region per layer,
+ * rebuilt when its field, its ground, its light or its fog changes, drawn with vanilla's entity-translucent state so
+ * it looks the same with or without a shader pack.
+ * <p>
+ * Budgets: at most one region is (re)built per frame and the build is spread over frames in row steps
+ * ({@link #ROWS_PER_STEP}); regions outside the frustum are not drawn; the client holds at most {@link #MAX_CHUNKS}
+ * chunk copies (the oldest go first, like the fog memory). Decay runs on the copies with the server's own parameters
+ * (DecayParams), one step every DecayParams.QUANTUM ticks, after which every region re-meshes over the following
+ * frames. Rendering is called from BarFxClientEvents, under BarFx's own effects (the first seconds' glow and smoke
+ * sit on top of the scar they leave).
+ */
+@OnlyIn(Dist.CLIENT)
+public final class GroundMemoryClient {
+    private GroundMemoryClient() { }
+    static final int MAX_CHUNKS = 8192;
+    /** Rows of a region built per frame: 8 rows x 64 cells = 512 cells, well inside the 0.6 ms build budget. */
+    static final int ROWS_PER_STEP = 8;
+    /** First-person draw range in blocks (the RTS view is bounded by its frustum). */
+    static final double DRAW_RANGE = 160;
+    /** A region whose chunks were missing is checked again this often (a safety net under the chunk load event). */
+    static final int MISSING_RECHECK_TICKS = 40;
+    private static final Minecraft MC = Minecraft.getInstance();
+    private static final Long2ObjectLinkedOpenHashMap<GroundMemory> CHUNKS = new Long2ObjectLinkedOpenHashMap<>();
+    private static final Long2ObjectOpenHashMap<Region> REGIONS = new Long2ObjectOpenHashMap<>();
+    private static DecayParams params = DecayParams.DEFAULT;
+    private static ClientLevel lastLevel = null;
+    private static long lastQuantum = Long.MIN_VALUE;
+    private static long lastMissingCheck = 0;
+    private static final BufferBuilder SCORCH_BUF = new BufferBuilder(256 * 1024), CRATER_BUF = new BufferBuilder(256 * 1024);
+    private static ScarRegionMesh building = null;
+    private static Region buildingRegion = null;
+    private static boolean failedOnce = false;
+    // stats for the eyes log and the frame profile
+    static int quadsDrawn = 0, regionsDrawn = 0, regionsHeld = 0, rebuilds = 0;
+    static double lastBuildMs = 0, lastDrawMs = 0;
+    /** One 64x64 region's geometry. */
+    static final class Region {
+### signatures fogofwar/FogOfWarServerEvents.java: public static void captureNeutralFogUnits() { | public static void setPlayerRevealed(String playerName, boolean reveal) { | public static void revealRangedUnit(int unitId, String targetOwnerName, int durationTicks) { | public static boolean isUnitRevealedTo(int unitId, String targetOwnerName) { | public static void invalidateRtsCache() { | public static boolean isFogActiveFor(ServerPlayer player) { | public static boolean fogAppliesTo(String name) { | public static Set<String> teamOwnersFor(String name, Collection<String> owners) { | public static boolean isChunkLiveFor(ServerPlayer player, ChunkPos pos) { | public static boolean isChunkSentFor(ServerPlayer player, ChunkPos pos) { | public static boolean isBlockVisibleFor(String playerName, int x, int z) { | public static boolean isBlockVisibleFor(ServerPlayer player, int x, int z) { | private static boolean isColumnInVision(UUID uuid, int x, int z) { | public static boolean isEntityVisibleTo(ServerPlayer viewer, Entity entity) { | public static boolean isEntityVisibleUnderFog(ServerPlayer viewer, Entity entity) { | public static boolean sharesVisionWith(String viewerName, String owner) { | private static boolean isColumnSet(long[] mask, int x, int z) { | public static boolean shouldSendChunkPacket(ServerPlayer sp, ChunkPos pos, Packet<?> packet) { | public static void queueResend(UUID playerId, ChunkPos pos) { | public static Set<ChunkPos> getBuildingChunks(BuildingPlacement b) { | public static boolean canPlayerSeeBuilding(ServerPlayer sp, BuildingPlacement b) { | private static void clearPlayerVision(UUID playerId) { | public static void onPlayerDisconnect(UUID playerId) { | public static void onPlayerExitOrthoview(ServerPlayer player) { | public static boolean isForceFog() { | public static void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent evt) { | public static void onServerStarted(ServerStartedEvent evt) { | public static void onServerStopping(net.minecraftforge.event.server.ServerStoppingEvent evt) { | public static boolean isFogByDefault(ServerLevel level) { | public static void enableForNewMatch() {
+### signatures worldmemory/GroundMemoryServer.java: private GroundMemoryServer() { } | static LevelState state(ServerLevel level) { | public static DecayParams params() { | public static void setParams(DecayParams p) { | public static void blast(ServerLevel level, double x, double y, double z, float radius, byte kind) { | public static int craterDepthFor(float radius) { | public static void heavyImpact(ServerLevel level, double x, double y, double z, float radius) { | public static void groundImpact(ServerLevel level, double x, double y, double z, byte kind, float size) { | public static void death(ServerLevel level, double x, double y, double z, byte kind, int tier, float width) { | public static void collapse(ServerLevel level, double x, double y, double z, float halfSize) { | public static int stampScorch(ServerLevel level, double cx, double y, double cz, double radius, int peak) { | public static int stampCrater(ServerLevel level, double cx, double y, double cz, double radius, int depth) { | private static int stamp(ServerLevel level, double cx, double y, double cz, double radius, int peak, boolean crater) { | public static void onLevelTick(TickEvent.LevelTickEvent evt) { | private static void drainLoaded(ServerLevel level, LevelState st) { | public List<ServerPlayer> players(ServerLevel level) { | public List<ServerPlayer> watching(ServerLevel level, ChunkPos pos) { | public long[] visible(ServerPlayer player, ChunkPos pos) { | public void send(ServerPlayer player, GroundMemoryClientboundPacket packet) { | static void syncPass(ServerLevel level, LevelState st, Wire wire) { | static long[] visibleColumns(ServerPlayer sp, ChunkPos cpos) { | public static void onChunkLoad(ChunkEvent.Load evt) { | public static void onChunkUnload(ChunkEvent.Unload evt) { | public static void onLevelUnload(LevelEvent.Unload evt) { | public static void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent evt) { | public static void onServerStarted(ServerStartedEvent evt) { | public static void onServerStopping(ServerStoppingEvent evt) { | public static int markedChunks(ServerLevel level) { | public static long[] dirtyMask(ServerLevel level, int cx, int cz) { | public static void syncNow(ServerLevel level) {
+### signatures fogofwar/FogChunkSnapshot.java: protected boolean removeEldestEntry(Map.Entry<ChunkPos, ClientboundLevelChunkWithLightPacket> eldest) { | public static void captureFogChunks(ServerLevel level) { | public static void beginCapture(ServerLevel level, int minCx, int maxCx, int minCz, int maxCz) { | public static void tick() { | public static void step(long budgetNs) { | public static CompletableFuture<Void> lightBarrier(ServerLevel level, ChunkPos pos) { | public static boolean isCapturing() { | public static long lastCaptureMaxStepNs() { | private static void finishCapture() { | private static ClientboundLevelChunkWithLightPacket captureNow(LevelChunk chunk) { | public static void beforeBlockChange(LevelChunk chunk) { | private static boolean writeChunk(Path d, ChunkPos pos, ClientboundLevelChunkWithLightPacket packet, int gen) { | public static ClientboundLevelChunkWithLightPacket get(ChunkPos pos) { | public static void finishNow() { | public static void awaitWrites() { | public static void rebuildIndex(ServerLevel level) { | private static ChunkPos parseChunkFile(String name) { | public static boolean hasAny() { | public static void clear() { | private static Path resolveDir(ServerLevel level) { | private static Path fileIn(Path d, ChunkPos pos) { | public static Path fileFor(ChunkPos pos) { | private static void deleteDir(Path d) {

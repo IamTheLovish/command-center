@@ -1,0 +1,6 @@
+{
+  "nightly_budget_usd": 5,
+  "hard_stop_usd": 190,
+  "claims_issue": 91,
+  "timeouts_min": { "main-red": 5, "flake-digest": 15, "stale-sweep": 10, "ledger-tally": 10, "auditor": 10 }
+}

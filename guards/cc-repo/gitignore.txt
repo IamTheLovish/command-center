@@ -1,0 +1,16 @@
+# Private command-center repo: allow-list only. Big reference media, kits, usage logs and evidence stay on the PC.
+/*
+!/.gitignore
+!/.github/
+!/tools/
+!/skills/
+!/guards/
+!/command-center/
+!/knowledge/
+!/plans/
+!/briefs/
+!/README.md
+/skills/_backup*/
+**/__pycache__/
+*.zip
+*.bak*

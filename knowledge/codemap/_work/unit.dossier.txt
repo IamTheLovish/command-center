@@ -1,0 +1,209 @@
+AREA unit  packages=['unit']  files=648 lines=106377
+SUBDIRS (lines): unit/units=55313, unit/modelling=24046, unit/=12174, unit/goals=5039, unit/interfaces=2606, unit/pathfinding=2349, unit/support=1747, unit/packets=1611, unit/command=676, unit/reactions=423, unit/controls=393
+TOP FILES:
+   2183 unit/UnitClientEvents.java
+   1344 unit/UnitServerEvents.java
+   1176 unit/interfaces/Unit.java
+    917 unit/modelling/animations/MarauderAnimations.java
+    872 unit/modelling/animations/WildfireAnimations.java
+    847 unit/modelling/animations/PiglinMerchantAnimations.java
+    844 unit/units/monsters/WretchedWraithUnit.java
+    817 unit/modelling/models/gen/WhiteAngelStatueModel.java
+    816 unit/units/villagers/RoyalGuardUnit.java
+    794 unit/modelling/animations/EnchanterAnimations.java
+    768 unit/modelling/models/gen/RadiantPaladinModel.java
+    737 unit/units/monsters/SlimeUnit.java
+    732 unit/units/piglins/WildfireUnit.java
+    728 unit/UnitActionItem.java
+    698 unit/units/piglins/PiglinMerchantUnit.java
+    660 unit/units/villagers/EnchanterUnit.java
+    658 unit/support/SupportBrain.java
+    658 unit/units/monsters/NecromancerUnit.java
+    650 unit/units/tide/LeviathanUnit.java
+    643 unit/modelling/models/gen/BoneDragonModel.java
+    643 unit/units/storm/CelestialDragonUnit.java
+    633 unit/modelling/models/gen/MossbackBisonModel.java
+    631 unit/units/villagers/VillagerUnit.java
+    620 unit/interfaces/AttackerUnit.java
+    617 unit/units/villagers/WindcallerUnit.java
+    597 unit/modelling/animations/Dragon.java
+    596 unit/goals/GatherResourcesGoal.java
+    579 unit/modelling/animations/WindcallerAnimations.java
+    570 unit/modelling/animations/NecromancerAnimations.java
+    570 unit/units/brass/IronLeviathanEngineUnit.java
+OVER1000: unit/UnitClientEvents.java(2183), unit/UnitServerEvents.java(1344), unit/interfaces/Unit.java(1176)
+SUBSCRIBEEVENT files: unit/UnitClientEvents.java(21), unit/UnitServerEvents.java(20), unit/UnitKills.java(4), unit/pathfinding/PathfinderWorkerPool.java(3), unit/UnitQueueSync.java(3), unit/MomentumServerEvents.java(3), unit/DragonRaiseServerEvents.java(3), unit/modelling/renderers/UnitLod.java(2), unit/modelling/mesh/MeshEyes.java(2), unit/VeterancyServerEvents.java(2), unit/TargetScan.java(2), unit/T3ServerEvents.java(2), unit/PatrolServerEvents.java(2), unit/NonUnitServerEvents.java(2)
+PACKET files: unit/packets/AreaCommandServerboundPacket.java, unit/packets/BeaconSyncClientboundPacket.java, unit/packets/UnitActionServerboundPacket.java, unit/packets/UnitAnimationClientboundPacket.java, unit/packets/UnitBatchSyncClientboundPacket.java, unit/packets/UnitConvertClientboundPacket.java, unit/packets/UnitIdleWorkerClientBoundPacket.java, unit/packets/UnitKillsClientboundPacket.java, unit/packets/UnitPathClientboundPacket.java, unit/packets/UnitQueueClientboundPacket.java, unit/packets/UnitSyncAbilityClientboundPacket.java, unit/packets/UnitSyncClientboundPacket.java, unit/packets/UnitSyncMobEffectsClientboundPacket.java, unit/packets/UnitSyncServerboundPacket.java, unit/packets/UnitSyncWorkerClientBoundPacket.java, unit/reactions/ReactionClientboundPacket.java
+INSTRUMENTATION ids: ATTACKER, ATTACK_MOVE, AUTO_CASTER, BUILDING_SCAN, CHUNK_LOADER, COMMAND_QUEUES, ENTITY_SCAN, IDLE_AGGRO, MOUNT_SCAN, NEUTRAL_AGGRO, PATHFINDER, PUSH_SCAN, REACTIONS, RETARGET, SEPARATION, STUCK_NUDGE, TARGET_GRID, UNIT, UNIT_GRID, UNIT_OVERLAYS, UNIT_SYNC, UNIT_TICK, UNSTICK
+COMMANDS: rts-veteran
+IMPORTS FROM OTHER PKGS: building=622, resources=597, ability=396, registrars=367, keybinds=144, hud=131, util=82, research=49, fogofwar=48, alliance=40
+IMPORTED BY: ability=154, gametest=72, building=56, mixin=34, hud=24, hero=19, entities=14, items=13, research=12, blocks=10
+GAMETEST classes by import count: SkirmishGameTests(387), BigUnitGameTests(35), BrassworksGameTests(32), OrdersObeyGameTests(17), T3RoleGameTests(16), CommandQueueGameTests(15), CombatEngineerGameTests(14), BigUnitFeelGameTests(11)
+--- HEADS (non-import, first 40 lines) of top files ---
+### unit/UnitClientEvents.java (2183 lines)
+public class UnitClientEvents {
+    private static final Minecraft MC = Minecraft.getInstance();
+    // list of vecs used in RenderChunkRegionMixin to replace leaf rendering
+    private static final int WINDOW_RADIUS = 5; // size of area to hide leaves
+    public static final int WINDOW_UPDATE_TICKS_MAX = 5; // size of area to hide leaves
+    public static final List<ArrayList<Vec3>> unitWindowVecs = Collections.synchronizedList(new ArrayList<>());
+    public static final List<BlockPos> windowPositions = Collections.synchronizedList(new ArrayList<>());
+    public static int windowUpdateTicks = UnitClientEvents.WINDOW_UPDATE_TICKS_MAX;
+    // command lines for big selections (see the checkpoint loop in onRenderLevel and UnitQueueLinesClient):
+    // past GROUP_LINES_FROM units the per-unit lines fade to GROUP_LINE_ALPHA, past GROUP_LINES_NONE they go
+    public static final int GROUP_LINES_FROM = 8, GROUP_LINES_NONE = 40;
+    public static final float GROUP_LINE_ALPHA = 0.2f;
+    // list of ids that correspond to idle workers - should only be updated from server side
+    public static final ArrayList<Integer> idleWorkerIds = new ArrayList<>();
+    // units moused over or inside a box select
+    private static final ArrayList<LivingEntity> preselectedUnits = new ArrayList<>();
+    // units selected by click or box select
+    private static final ArrayList<LivingEntity> selectedUnits = new ArrayList<>();
+    private static ArrayList<LivingEntity> sortedSelectedUnits = new ArrayList<>();
+    private static boolean sortedSelectedUnitsChanged = true;
+    // tracking of all existing units
+    private static final ArrayList<LivingEntity> allUnits = new ArrayList<>();
+    public static final Map<Integer, HashMap<MobEffect, MobEffectIcon>> mobEffectIcons = new ConcurrentHashMap<>();
+    @Nullable
+    private static UnitActionItem lastClientUAIActioned = null;
+    public static ArrayList<LivingEntity> getPreselectedUnits() {
+        return preselectedUnits;
+    }
+    public static ArrayList<LivingEntity> getSelectedUnits() {
+        return selectedUnits;
+    }
+    private static void markSelectedUnitsChanged() {
+        sortedSelectedUnitsChanged = true;
+    }
+    /** Drops every selected unit matching the test and refreshes the sorted view (selection summary Ctrl-click). */
+    public static void removeSelectedUnits(Predicate<LivingEntity> test) {
+        if (selectedUnits.removeIf(test))
+            markSelectedUnitsChanged();
+    }
+    public static ArrayList<LivingEntity> getSortedSelectedUnits() {
+### unit/UnitServerEvents.java (1344 lines)
+public class UnitServerEvents {
+    private static final int UNIT_SYNC_TICKS_MAX = 20; // how often we send out unit syncing packets
+    private static int unitSyncTicks = UNIT_SYNC_TICKS_MAX;
+    // max possible pop you can have regardless of buildings, adjustable via /gamerule maxPopulation
+    public static int maxPopulation = ResourceCosts.DEFAULT_MAX_POPULATION;
+    // server-side mirror of the rtsPathfinding gamerule: when true, units route through the RTS
+    // grid A* pathfinder (with walkability caching + worker pool); when false they use vanilla
+    // pathfinding and the caching/worker work is skipped. Kept in sync by GameruleServerEvents.
+    public static boolean rtsPathfinding = false;
+    // Orders live in each unit's own command queue (unit/command/CommandQueues, rewrite 2 of design/ron_rewrite_plan.md)
+    // instead of RoN's two global lists; the methods below are the old entry points, kept as thin adapters so every
+    // caller (bots, production rally, heroes, area commands, other branches) compiles and behaves unchanged.
+    /** Shift-queued orders one unit may hold; past it "Queue full" and the order is dropped (addActionItem). */
+    public static final int MAX_QUEUED_ACTIONS = CommandQueues.MAX_QUEUED;
+    /**
+     * A read-only snapshot of every unit's queued orders, one single-unit item each. The global slow list it used to
+     * return is gone; queue per unit with {@link #addActionItem} and read with {@link #getQueuedActions}. Adding to the
+     * snapshot throws instead of silently dropping the order.
+     */
+    @Deprecated
+    public static List<UnitActionItem> getUnitActionSlowQueue() {
+        List<UnitActionItem> out = new ArrayList<>();
+        for (CommandQueue q : CommandQueues.all())
+            for (int i = 0; i < q.size(); i++)
+                out.add(asItem(q.unit().getId(), q.get(i)));
+        return Collections.unmodifiableList(out);
+    }
+    /** True if this unit has shift-queued orders still waiting. */
+    public static boolean hasQueuedActions(int unitId) {
+        return CommandQueues.hasQueued(unitId);
+    }
+    /** Snapshot of this unit's queued orders, oldest first (the one it is carrying out not included). */
+    public static List<UnitActionItem> getQueuedActions(int unitId) {
+        List<UnitActionItem> out = new ArrayList<>();
+        for (UnitCommand c : CommandQueues.queued(unitId))
+            out.add(asItem(unitId, c));
+        return out;
+    }
+    public static void clearQueuedActions(int unitId) {
+        CommandQueues.clear(unitId);
+### unit/interfaces/Unit.java (1176 lines)
+// Defines method bodies for Units
+// workaround for trying to have units inherit from both their base vanilla Mob class and a Unit class
+// Note that we can't write any default methods if they need to use Unit fields without a getter/setter
+// (including getters/setters themselves)
+public interface Unit {
+    int DEFAULT_SIGHT_RANGE = 16;
+    int ANCHOR_RETREAT_RANGE = 30;
+    int PIGLIN_HEALING_TICKS = 8 * ResourceCost.TICKS_PER_SECOND;
+    int MONSTER_HEALING_TICKS = 8 * ResourceCost.TICKS_PER_SECOND;
+    // used for increasing pathfinding calculation range, default is 16 for most mobs
+    int FOLLOW_RANGE_IMPROVED = 64;
+    int FOLLOW_RANGE = 16;
+    public static AttributeSupplier.Builder createDefaultAttributes() {
+        return Mob.createMobAttributes()
+                .add(Attributes.ATTACK_DAMAGE, 0)
+                .add(Attributes.MOVEMENT_SPEED, 0.25)
+                .add(Attributes.MAX_HEALTH, 1)
+                .add(Attributes.FOLLOW_RANGE, Unit.getFollowRange())
+                .add(Attributes.ARMOR, 0)
+                .add(Attributes.KNOCKBACK_RESISTANCE, 0)
+                .add(AttributeRegistrar.ATTACK_DAMAGE.get(), 0)
+                .add(AttributeRegistrar.ATTACKS_PER_SECOND.get(), 0)
+                .add(AttributeRegistrar.ATTACK_RANGE.get(), 0)
+                .add(AttributeRegistrar.AGGRO_RANGE.get(), 10)
+                .add(AttributeRegistrar.SIGHT_RANGE.get(), Unit.DEFAULT_SIGHT_RANGE)
+                .add(AttributeRegistrar.RANGED_DAMAGE_RESIST.get(), 0)
+                .add(AttributeRegistrar.MAGIC_DAMAGE_RESIST.get(), 0)
+                .add(AttributeRegistrar.EVASION_CHANCE.get(), 0)
+                .add(AttributeRegistrar.CRITICAL_HIT_CHANCE.get(), 0)
+                .add(AttributeRegistrar.EXPLOSIVE_HIT_CHANCE.get(), 0)
+                .add(AttributeRegistrar.BUILDING_DAMAGE_BONUS.get(), 0)
+                .add(AttributeRegistrar.LIFESTEAL.get(), 0)
+                .add(AttributeRegistrar.MANA_ON_HIT.get(), 0)
+                .add(AttributeRegistrar.SCALE.get(), 1.0f);
+    }
+    static Object2ObjectArrayMap<Ability, Float> createCooldownMap() {
+        Object2ObjectArrayMap<Ability, Float> map = new Object2ObjectArrayMap<>();
+        map.defaultReturnValue(0F);
+        return map;
+    }
+### unit/modelling/animations/MarauderAnimations.java (917 lines)
+public class MarauderAnimations {
+	public static final AnimationDefinition IDLE = AnimationDefinition.Builder.withLength(5.0F).looping()
+		.addAnimation("chest", new AnimationChannel(AnimationChannel.Targets.ROTATION,
+			new Keyframe(0.0F, KeyframeAnimations.degreeVec(0.0F, 0.0F, 0.0F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(0.4167F, KeyframeAnimations.degreeVec(0.53F, -0.09F, 0.83F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(0.8333F, KeyframeAnimations.degreeVec(2.68F, -3.25F, 0.44F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(1.6667F, KeyframeAnimations.degreeVec(2.3F, -3.22F, -1.38F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(2.0833F, KeyframeAnimations.degreeVec(2.74F, -3.22F, -1.32F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(2.9167F, KeyframeAnimations.degreeVec(2.12F, -3.67F, 1.49F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(3.75F, KeyframeAnimations.degreeVec(1.98F, -3.14F, 1.65F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(4.5833F, KeyframeAnimations.degreeVec(1.11F, -1.55F, 0.64F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(5.0F, KeyframeAnimations.degreeVec(0.0F, 0.0F, 0.0F), AnimationChannel.Interpolations.CATMULLROM)
+			))
+			.addAnimation("chest", new AnimationChannel(AnimationChannel.Targets.POSITION,
+			new Keyframe(0.0F, KeyframeAnimations.posVec(0.0F, 0.0F, 0.0F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(1.0F, KeyframeAnimations.posVec(-0.2F, -1.0F, 0.0F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(1.75F, KeyframeAnimations.posVec(-0.2F, -0.92F, 0.0F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(2.5F, KeyframeAnimations.posVec(-0.2F, -1.0F, 0.0F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(5.0F, KeyframeAnimations.posVec(0.0F, 0.0F, 0.0F), AnimationChannel.Interpolations.CATMULLROM)
+			))
+			.addAnimation("left_arm", new AnimationChannel(AnimationChannel.Targets.ROTATION,
+			new Keyframe(0.0F, KeyframeAnimations.degreeVec(0.0F, 0.0F, 0.0F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(0.625F, KeyframeAnimations.degreeVec(-3.51F, 1.45F, -1.34F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(1.125F, KeyframeAnimations.degreeVec(7.5F, -5.0F, 0.0F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(1.7917F, KeyframeAnimations.degreeVec(4.92F, -1.92F, 0.48F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(2.5F, KeyframeAnimations.degreeVec(7.5F, -5.0F, 0.0F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(3.625F, KeyframeAnimations.degreeVec(11.78F, -7.87F, 0.26F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(5.0F, KeyframeAnimations.degreeVec(0.0F, 0.0F, 0.0F), AnimationChannel.Interpolations.CATMULLROM)
+			))
+			.addAnimation("left_arm", new AnimationChannel(AnimationChannel.Targets.POSITION,
+			new Keyframe(0.0F, KeyframeAnimations.posVec(0.0F, 0.0F, 0.0F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(0.5417F, KeyframeAnimations.posVec(0.0F, 0.45F, 0.76F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(0.8333F, KeyframeAnimations.posVec(0.0F, -1.07F, 1.05F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(1.2083F, KeyframeAnimations.posVec(0.0F, -1.0F, 1.0F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(2.0F, KeyframeAnimations.posVec(0.0F, -0.82F, 0.55F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(2.5F, KeyframeAnimations.posVec(0.0F, -1.0F, 1.0F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(4.0F, KeyframeAnimations.posVec(0.0F, -0.86F, 0.39F), AnimationChannel.Interpolations.CATMULLROM),
+			new Keyframe(5.0F, KeyframeAnimations.posVec(0.0F, 0.0F, 0.0F), AnimationChannel.Interpolations.CATMULLROM)
+			))
+			.addAnimation("left_leg", new AnimationChannel(AnimationChannel.Targets.ROTATION,
+### signatures unit/UnitClientEvents.java: public static ArrayList<LivingEntity> getPreselectedUnits() { | public static ArrayList<LivingEntity> getSelectedUnits() { | private static void markSelectedUnitsChanged() { | public static void removeSelectedUnits(Predicate<LivingEntity> test) { | public static ArrayList<LivingEntity> getSortedSelectedUnits() { | public static ArrayList<LivingEntity> getAllUnits() { | public static boolean isHiddenFromLocalPlayer(LivingEntity e) { | public static boolean isPreselectable(LivingEntity unit) { | public static void addPreselectedUnit(LivingEntity unit) { | public static void sortedSelectedUnits() { | public static void addSelectedUnitNoSort(LivingEntity unit) { | public static void addSelectedUnit(LivingEntity unit) { | public static void clearPreselectedUnits() { | public static void clearSelectedUnits() { | private static boolean isLeftClickAttack() { | public static void onEntityMount(EntityMountEvent evt) { | private static int getUnitPopulation(String playerName) { | public static int getCurrentPopulation(String playerName) { | public static void sendUnitCommandManual(UnitAction action, int unitId, int[] unitIds) { | public static void sendUnitCommandManual(UnitAction action, int[] unitIds) { | static QueueMode queueModeFromKeys() { | public static void sendUnitCommand(UnitAction action) { | public static void sendUnitCommand(UnitAction action, Predicate<LivingEntity> includeUnit) { | public static void sendUnitCommandAt(UnitAction action, Predicate<LivingEntity> includeUnit, BlockPos bp) { | private static void resolveMoveAction() { | private static void resolveMoveActionDeferred() { | private static void doResolveMoveAction() { | public static ResourceName getSelectedUnitResourceTarget() { | public static void syncOwnerName(int entityId, String ownerName) { | public static void syncScenarioRoleIndex(int entityId, int scenarioRoleIndex) {
+### signatures unit/UnitServerEvents.java: public static List<UnitActionItem> getUnitActionSlowQueue() { | public static boolean hasQueuedActions(int unitId) { | public static List<UnitActionItem> getQueuedActions(int unitId) { | public static void clearQueuedActions(int unitId) { | private static UnitActionItem asItem(int unitId, UnitCommand c) { | private record FormationOrder(LivingEntity unit, BlockPos target) {} | public static void queueFormationMove(List<Pair<LivingEntity, BlockPos>> pairs) { | public static void cancelQueuedFormationMove(int unitId) { | public static boolean hasQueuedFormationMove(int unitId) { | public static ArrayList<LivingEntity> getAllUnits() { | public static int getAllUnitsModCount() { | private static int getUnitPopulation(String ownerName) { | public static void onServerTick(TickEvent.ServerTickEvent evt) { | public static void onServerStopping(ServerStoppingEvent evt) { | public static void addUnitPoofs(Level level, Entity entity) { | public static void saveFallenHeroUnits(ServerLevel level) { | public static void saveFallenHeroUnits(ServerLevel level, boolean flush) { | public static void saveGatherTargets(ServerLevel level) { | public static void onServerStarted(ServerStartedEvent evt) { | public static int getCurrentPopulation(String ownerName) { | public static Relationship getUnitToEntityRelationship(Unit unit, Level level, int unitId) { | public static Relationship getRl(Unit unit, Entity entity) { | public static Relationship getUnitToEntityRelationship(Unit unit, Entity entity) { | public static Relationship getUnitToBuildingRelationship(Unit unit, BuildingPlacement building) { | public static void onEntityJoin(EntityJoinLevelEvent evt) { | public static void onEntityLeave(EntityLeaveLevelEvent evt) { | public static void onLivingDeath(LivingDeathEvent evt) { | getUnitToEntityRelationship(unit1, evt.getEntity()) == Relationship.FRIENDLY && unit1 != unit2) { | public static void onDropItem(LivingDropsEvent evt) { | public static void onFormationDispatchTick(TickEvent.LevelTickEvent evt) {
+### signatures unit/interfaces/Unit.java: static Object2ObjectArrayMap<Ability, Float> createCooldownMap() { | static int getFollowRange() { | default List<Button> getAbilityButtons() { | public default boolean isEatingFood() { return getEatingTicksLeft() > 0; }; | public default boolean isHoldingEdibleFood() { | public default Item getFoodBeingEaten() { | public default float getBaseMovementSpeed() { | public default float getMovementSpeed() { | public default float getUnitMaxHealth() { | public default int getSightRange() { | default double getDamageTakenIncrease() { | default double getUnitPhysicalArmorPercentage() { | default double getUnitRangedArmorPercentage() { | default double getUnitMagicArmorPercentage() { | public default float getEvasionChance() { | public default float getScaleAttribute() { | default double getUnitResistPercentage() { | static void tick(Unit unit) { | private static void tickBody(Unit unit) { | private static void checkAndPickupResources(Unit unit, List<ItemEntity> nearbyItems) { | public default void dropAllResources() { | private static void checkAndPickupEquipment(Unit unit, List<ItemEntity> nearbyItems) { | public static boolean tryPickingUpEquipment(Unit unit, ItemEntity itemEntity) { | default boolean canPickUpEquipment(ItemStack itemStack) { return false; } | default void onPickupEquipment(ItemStack itemStack) { } | private static void checkAndPickupFood(Unit unit, List<ItemEntity> nearbyItems) { | public static void startEatingOrDrinking(Unit unit, ItemEntity itemEntity) { | public default void addUnitSaveData(@NotNull CompoundTag pCompound) { | public default void readUnitSaveData(@NotNull CompoundTag pCompound) { | public default SunlightEffect getSunlightEffect() {

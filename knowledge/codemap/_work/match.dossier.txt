@@ -1,0 +1,209 @@
+AREA match  packages=['match', 'matchstart', 'startpos', 'worldborder', 'gamemode', 'gamerules']  files=68 lines=17834
+SUBDIRS (lines): matchstart/=9687, startpos/=3630, match/=2921, gamerules/=920, gamemode/=351, worldborder/=325
+TOP FILES:
+   2288 matchstart/EyesDirector.java
+    984 matchstart/MatchStartScreen.java
+    912 matchstart/MultiplayerLobby.java
+    673 matchstart/MultiplayerLobbyScreen.java
+    668 match/MatchState.java
+    659 startpos/CapturePointServerEvents.java
+    640 matchstart/MatchLoadingScreen.java
+    615 matchstart/SkirmishSetupScreen.java
+    514 matchstart/MatchEndScreen.java
+    499 match/MatchPrep.java
+    468 startpos/BattlefieldWall.java
+    464 matchstart/EyesOverlaysScene.java
+    399 startpos/StartAreaClearing.java
+    398 startpos/ArenaStructureClearing.java
+    356 matchstart/SkirmishServerboundPacket.java
+    350 match/MatchOutcome.java
+    346 matchstart/EyesFogScene.java
+    328 match/MatchSetup.java
+    326 matchstart/FactionPicker.java
+    316 gamerules/GameruleClient.java
+    309 startpos/StartPosServerEvents.java
+    290 match/BattlefieldJournal.java
+    261 matchstart/MatchMenuScreen.java
+    229 startpos/StartPosClientEvents.java
+    208 gamerules/GameruleServerboundPacket.java
+    201 gamerules/GameruleServerEvents.java
+    200 matchstart/QuickBattle.java
+    191 startpos/ArenaPregen.java
+    190 gamemode/ClientGameModeHelper.java
+    184 startpos/BaseWildlifeControl.java
+OVER1000: matchstart/EyesDirector.java(2288)
+SUBSCRIBEEVENT files: startpos/StartPosServerEvents.java(6), matchstart/MatchLoadingScreen.java(6), startpos/ArenaStructureClearing.java(5), matchstart/MultiplayerLobby.java(5), match/MatchServerEvents.java(5), startpos/StartPosClientEvents.java(4), startpos/CapturePointServerEvents.java(3), startpos/BaseWildlifeControl.java(3), matchstart/MatchStartClientEvents.java(3), matchstart/LobbyClientEvents.java(3), gamerules/GameruleServerEvents.java(3), worldborder/ArenaPathing.java(2), startpos/BattlefieldWall.java(2), startpos/BattlefieldSetup.java(2)
+PACKET files: gamemode/GameModeClientboundPacket.java, gamemode/GameModeServerboundPacket.java, gamerules/GameruleClientboundPacket.java, gamerules/GameruleServerboundPacket.java, matchstart/LobbyClientboundPacket.java, matchstart/LobbyServerboundPacket.java, matchstart/SkirmishServerboundPacket.java, startpos/CapturePointsClientboundPacket.java, startpos/StartPosClientboundPacket.java, startpos/StartPosServerboundPacket.java
+INSTRUMENTATION ids: BUILDING_BOXES, BUILDING_DECOR, MARKERS_METAL, MARKERS_RANGE, MINIMAP, STRATEGIC_ICONS, UNIT_BODIES, UNIT_OVERLAYS, UNIT_RINGS, WORLD_MARKERS
+COMMANDS: close, rts-lobby
+IMPORTS FROM OTHER PKGS: player=43, unit=32, faction=27, registrars=21, building=20, maps=17, hud=16, util=12, resources=11, orthoview=11
+IMPORTED BY: gametest=15, building=9, maps=8, hud=5, onboarding=5, player=5, fogofwar=4, mixin=4, registrars=3, alliance=2
+GAMETEST classes by import count: SkirmishGameTests(81), MatchLifecycleCases(9), MatchPrepCases(8), SandboxSecurityGameTests(5), FogDefaultGameTests(4), DayClockGameTests(3), BotGameTests(2), LobbyColorsGameTests(2)
+--- HEADS (non-import, first 40 lines) of top files ---
+### matchstart/EyesDirector.java (2288 lines)
+/**
+ * "Eyes" (lovish, Oct 12: "add yourself some eyes"): a scripted tour that only runs when the client is started with
+ * -Dbat.eyes=true, as .github/workflows/eyes.yml does on a CI runner (real client, Xvfb + Mesa, nothing on anyone's
+ * PC). It photographs the title screen, starts a small Quick Battle against one bot, photographs the RTS view at
+ * three zoom levels and a minute into the match, then (Oct 13, "eyes tour 2") stages what the first tour never
+ * showed - the build menu, an army, a drag box, a fight at both zooms, the capitol at two minutes - and quits. The
+ * workflow publishes the PNGs to the `eyes` branch so the developer AI can look at what a player sees - HUD layout,
+ * icons, skins, terrain, projectile tints, selection rings - instead of guessing.
+ *
+ * Scenes 00-05 are unchanged so old comparisons stay valid. The staged scenes, and how each is driven:
+ * <ul>
+ * <li>06_build_menu: an owned worker is selected the way a click does it (UnitClientEvents.addSelectedUnit +
+ *     HudClientEvents.setHudSelectedEntity); the worker's card IS the build menu (its ability buttons carry the
+ *     faction's building buttons, VillagerUnit.getAbilityButtons).</li>
+ * <li>07_army_close: units are spawned with the game's own op command, /rtsapi-summon &lt;owner&gt; &lt;entity&gt;
+ *     &lt;pos&gt;, sent from the client exactly as a typed chat command is (ClientPacketListener.sendCommand). The
+ *     skirmish world is created with cheats on (QuickBattle: LevelSettings allowCommands = true), so the singleplayer
+ *     player is op and the server runs it. Spawning needs server authority, which is why it is a command and not a
+ *     client call. The enemy owner is the bot's live roster name (PlayerClientEvents.rtsPlayers).</li>
+ * <li>08_box_select: a left drag is replayed through the same Forge screen events a real mouse produces
+ *     (ScreenEvent.MouseButtonPressed / MouseDragged / MouseButtonReleased, Pre then Post, in GUI coordinates), so
+ *     CursorClientEvents runs its box, SmartSelect filters it and the release selects it. If every press is refused
+ *     (a panel under it) or the release selects nothing, SmartSelect.filterBox is applied directly to the owned units
+ *     round the army and the selection set by hand, so the HUD still shows a selected army; the log says which.</li>
+ * <li>09_fight / 10_fight_strategic: attack-move is the packet a right-click with Attack armed sends
+ *     (UnitClientEvents.sendUnitCommandManual(ATTACK_MOVE, ids, target)); the shot waits for contact - a projectile
+ *     in the level, a death on either side, or the armies' centroids within 8 blocks (20 s cap, the log says which) -
+ *     then one more second with the camera centred between the two armies; 10 follows two seconds later.</li>
+ * <li>11_capitol_two_minutes: the capitol (BuildingClientEvents, isCapitol) at the default zoom once the match clock
+ *     (counted from the 02 shot, labelled 0:30) passes 2:00. 11b_capitol_selected (Oct 22, slim HUD): the same
+ *     capitol selected, 30 ticks later - the building's icon block, health bar, Repeat toggle and production queue.</li>
+ * <li>12_river_crossing (Oct 14, terrain_intelligence.md): a pad with a 4-wide, 1-deep water strip is laid with the
+ *     op fill command 30 blocks west of the first fight, a dozen of the player's units are summoned on its west bank
+ *     and eight enemies on its east bank, and the dozen is attack-moved across; photographed at contact and six
+ *     seconds later. The log line counts who stands in the water and on which bank - the army should cross in a
+ *     line and fight on the far bank, not in the river.</li>
+ * <li>17_fog (Oct 21, perf plan R1, EyesFogScene): the last scene - fog of war on, a dozen marching out of our base
+ *     into the dark; the fog re-mesh A/B (surface band vs whole column) and the fog edge before and after a full
+ *     re-mesh.</li>
+ * <li>18_overlays (Oct 21, perf plan R2, EyesOverlaysScene; its own run, eyes.yml input `overlays`): 500 units and
+### matchstart/MatchStartScreen.java (984 lines)
+public class MatchStartScreen extends Screen {
+    private static final ResourceLocation ICON_FRAME      = ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "textures/hud/icon_frame.png")
+    private static final ResourceLocation ICON_FRAME_SEL  = ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "textures/hud/icon_frame_selec
+    private static final ResourceLocation TICK_ICON       = ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "textures/hud/tick.png");
+    private static final ResourceLocation CROSS_ICON      = ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "textures/hud/cross.png");
+    private static final ResourceLocation CLOSE_ICON      = ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "textures/hud/cross_square.png
+    private static final int BG_PANEL     = 0xDC000000;
+    private static final int BG_ICON      = 0x64000000;
+    private static final int ACCENT       = 0xFFE6C76A;
+    private static final int TEXT_DIM     = 0xFFB0B8C0;
+    private static final int TEXT_NORMAL  = 0xFFFFFFFF;
+    private static final int READY_COL    = 0xFF6CE26C;
+    private static final int MARGIN = 12;
+    private static final int HEADER_H = 32;
+    private static final int BOTTOM_H = 28;
+    private static final int FRAME_SIZE = 22;
+    // the faction chip in each slot row (icon + name, opens FactionPicker): replaces one tile per faction, which
+    // stopped fitting at six. Its width follows the roster so names stay readable at GUI scale 3
+    private static final int CHIP_MIN_W = 64;
+    private static final int CHIP_MAX_W = 128;
+    private static final int CHIP_H = 18;
+    private static final int ICON_SIZE = 14;
+    private static final int ROW_H = 26;
+    private final List<RowHit> rowHits = new ArrayList<>();
+    private final List<Button> hudButtons = new ArrayList<>();
+    private int rosX1, rosY1, rosX2, rosY2;
+    private int grBtnX, grBtnY;  // gamerules button position for popover anchor
+    private int spectateBtnX1, spectateBtnY1, spectateBtnX2, spectateBtnY2;
+    private boolean spectateBtnVisible;
+    private EditBox chatInput;
+    private int chatX1, chatY1, chatX2, chatY2;
+    private int chatScroll = 0;
+    private int chatTotalLines = 0;
+    private int chatViewLines = 0;
+    private boolean chatMinimised = false;
+    // Size of the small minimise/maximise toggle button
+    private static final int MINI_BTN = 10;
+    private boolean priorLargeMap;
+    private boolean priorMapLocked;
+    private int rosterScroll = 0;
+### matchstart/MultiplayerLobby.java (912 lines)
+/**
+ * The multiplayer skirmish lobby (design/multiplayer.md): several humans on one server - an integrated server opened
+ * to LAN (with the e4mc tunnel for internet play) or a dedicated one - plus optional bots, in one match.
+ *
+ * Server-authoritative. The host (PacketAuth.isHost: the singleplayer owner, or an op on a dedicated server) opens
+ * it; every connected player gets a seat; the host adds bots to the free seats and sets the map; each human changes
+ * only their own faction, colour, team and Ready; the host presses Start once every other human is ready. Every
+ * change is validated here and the whole lobby is re-sent to everyone (LobbyClientboundPacket, a few hundred bytes,
+ * only when something changed). Start tells every client to enter the RTS view, waits two seconds, then seats
+ * everyone on one fair ring ({@link #startMatch}): capitol, commander, resources, fog, team alliances. Anyone who
+ * joins after that is a spectator.
+ */
+public class MultiplayerLobby {
+    public static final int MAX_HUMANS = 8;
+    public static final int MAX_SEATS = 16;
+    public static final int MAX_PER_TEAM = 8;
+    public static final int TEAMS = 4;
+    /** A seat's team when that human watches instead of playing. */
+    public static final int SPECTATE = -1;
+    /** Ticks between Start and the bases appearing: every client turns on the RTS view in between. */
+    static final int START_DELAY_TICKS = 40;
+    /** One row of the lobby. Shared by server and client (the snapshot carries these). */
+    public static class Seat {
+        public final int id;
+        public final boolean bot;
+        public String name = "";
+        public UUID uuid = null;   // humans only (never sent to clients)
+        public int faction = SkirmishServerboundPacket.RANDOM_CODE;
+        public int colorMapId = 0; // PlayerPalette map colour id, 0 = any free colour
+        public int team = 0;
+        public boolean ready = false;
+        public int difficulty = 1; // bots: 0 easy, 1 medium, 2 hard
+        // hero mode (design/hero_mode.md): a human on a team with no base of their own, who plays the team's hero
+        // (possession) instead of commanding - HeroRoles attaches them to their team at the start
+        public boolean heroRole = false;
+        public Seat(int id, boolean bot) {
+            this.id = id;
+            this.bot = bot;
+        }
+        public boolean spectating() {
+### matchstart/MultiplayerLobbyScreen.java (673 lines)
+/**
+ * The multiplayer lobby screen (MultiplayerLobby on the server, design/multiplayer.md). It only shows the lobby the
+ * server last sent (LobbyClientEvents.latest) and sends clicks back; the server decides. Rows are grouped by team:
+ * a colour swatch (click: the colour palette, BAR's colour box - colours another side holds are crossed out;
+ * right-click: automatic; the host also sets the bots'), the name, the faction (a button on your own row and,
+ * for the host, on bot rows), the team, and Ready / the bot's skill. On the right: the map settings and Add AI (the
+ * host's), your Ready toggle, Spectate / Play, Start (the host's, once everyone is ready) and Close. Both panels scroll
+ * with the mouse wheel when they hold more than fits (LobbyLayout); Start / Close / Hide stay pinned below.
+ */
+public class MultiplayerLobbyScreen extends Screen {
+    static final int BG = 0xE0101216, PANEL = 0xC0181B20, EDGE = 0xFF3A3F46, GOLD = 0xFFD27A, DIM = 0x9A9A9A;
+    static final int ROW_H = 18, SWATCH = 10, RIGHT_W = 150;
+    int left, top, bottom, listW, rightX;
+    int builtVersion = -1;
+    final FactionPicker picker = new FactionPicker();
+    /** Swatches drawn this layout: x, y, seat id. */
+    final List<int[]> swatches = new ArrayList<>();
+    /** The colour palette popup and the seat id it picks for (-1 when closed); kept across lobby updates. */
+    final ColourPalette palette = new ColourPalette();
+    int paletteSeat = -1;
+    /** Faction icons beside the faction buttons/labels: x, y, faction, editable, label width. */
+    final List<Object[]> factionIcons = new ArrayList<>();
+    /** Rows to draw: y, seat (null for a header), header text and the room left for the name. */
+    final List<Object[]> rows = new ArrayList<>();
+    /** The scrolling widgets of each panel with their unscrolled y; the y values above are unscrolled too. */
+    final Map<AbstractWidget, Integer> colWidgets = new IdentityHashMap<>(), listWidgets = new IdentityHashMap<>();
+    /** Kept across rebuilds (every lobby update rebuilds the layout), clamped after each one. */
+    int colScroll, listScroll;
+    int colContentH, listContentH, colViewTop, colViewBottom, listViewTop, listViewBottom;
+    public MultiplayerLobbyScreen() {
+        super(Component.literal("Multiplayer Lobby"));
+    }
+    static String myName() {
+        Minecraft mc = Minecraft.getInstance();
+        return mc.player != null ? mc.player.getName().getString() : "";
+    }
+    static boolean amHost(LobbyClientboundPacket l) {
+        return l != null && l.hostName.equals(myName());
+    }
+    static MultiplayerLobby.Seat mySeat(LobbyClientboundPacket l) {
+### signatures matchstart/EyesDirector.java: private EyesDirector() { } | public static void onClientTick(TickEvent.ClientTickEvent evt) { | private static void sceneStartBoxes(Minecraft mc) { | private static void boxesShot(Minecraft mc, String name) { | private static void lookAtStart(Minecraft mc) { | private static void endStartBoxes(Minecraft mc) { | private static void standBefore(Minecraft mc, int sx, int sz) { | private static void firstPerson(Minecraft mc) { | private static void logPacks(Minecraft mc) { | private static void staged(Minecraft mc) { | private static double scarsSeconds() { | private static void scarsNext(int phase) { | private static void scarsEnd(String why) { | private static void afterScars() { | private static BlockPos scarsSite(Minecraft mc) { | private static BlockPos scarsAt(int dx, int y, int dz) { | private static void layScarsPad(Minecraft mc) { | private static void stampScarsBattle(Minecraft mc) { | private static void probeScars(Minecraft mc) { | private static void scarsStand(Minecraft mc, double dx, double dz, double aimX, double aimY, double aimZ) { | private static void sceneScars(Minecraft mc) { | static List<String> parseStructures(String raw) { | static String structureLabel(String entry) { | private static double phaseSeconds() { | private static void nextPhase(int phase) { | private static void sceneStructures(Minecraft mc) { | private static void nextStructure(Minecraft mc) { | private static Vec3 structureMiddle(double heightFraction) { | private static void standThreeQuarter(Minecraft mc) { | private static BlockPos structureSite(Minecraft mc) {
+### signatures matchstart/MatchStartScreen.java: private record RowHit(StartPos pos, int x1, int y1, int x2, int y2) {} | public MatchStartScreen() { | protected void init() { | private void recentreMapOnStartPoses() { | public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) { | private void hoverTick(int mx, int my) { | public void tick() { | private void soundSlotChanges() { | private StartPos pickerSlot() { | private void validatePicker() { | private void openPicker(StartPos sp, int x1, int y1, int x2, int y2) { | private RowHit ownChip() { | private boolean isMouseOverOverlay(int mx, int my) { | private void renderHeader(GuiGraphics g, int lastMouseX, int lastMouseY) { | private void renderMap(GuiGraphics g, int x1, int y1, int x2, int y2, int mx, int my) { | private void renderRoster(GuiGraphics g, int x1, int y1, int x2, int y2, int mx, int my, boolean overlayActive) { | private void renderGamerulesPopover(GuiGraphics g, int mx, int my) { | private void renderChatCard(GuiGraphics g, int x1, int y1, int x2, int y2, int mx, int my) { | private void sendChatFromInput() { | private void renderInstructions(GuiGraphics g, int x1, int y1, int x2, int y2) { | private String countdownLabel() { | public boolean mouseScrolled(double mouseX, double mouseY, double delta) { | public boolean mouseClicked(double mouseX, double mouseY, int button) { | private void leaveOwnSlot() { | private void pickFaction(StartPos pos, Faction faction) { | private void claimDot(StartPos pos) { | private void toggleReady(StartPos pos) { | public boolean shouldCloseOnEsc() { | public boolean keyPressed(int keyCode, int scanCode, int modifiers) { | public boolean isPauseScreen() {
+### signatures matchstart/MultiplayerLobby.java: public Seat(int id, boolean bot) { | public boolean spectating() { | public static boolean isOpen() { | public static boolean isMatchLive() { | public static boolean refusesLateStart(String name) { | public static void onMatchDecided(MultiplayerMatch m) { | public static void onReset() { | static Seat seat(int id) { | static Seat seatOf(ServerPlayer sp) { | static boolean isLobbyHost(ServerPlayer sp) { | static Seat editable(ServerPlayer sp, int seatId) { | public static boolean mayEdit(Seat s, UUID editor, boolean editorIsHost) { | public static boolean colourTakenIn(List<Seat> lineup, int mapColorId, Seat except) { | public static boolean colourChangeAllowed(List<Seat> lineup, Seat s, UUID editor, boolean editorIsHost, int value) { | static int teamSize(int team, Seat except) { | static boolean colourTaken(int mapColorId, Seat except) { | public static void handle(ServerPlayer sp, Action action, int seatId, int value) { | static boolean edit(ServerPlayer sp, Action action, int seatId, int value) { | static String whyNotStartable(ServerPlayer host) { | static void open(ServerPlayer sp) { | static void addHuman(ServerPlayer sp) { | static void close(String why) { | static String backToLobby(ServerPlayer sp) { | static void reopen(ServerPlayer host, MinecraftServer server) { | public static List<Seat> keptSeats(List<Seat> last, Set<UUID> online, int firstId) { | static void say(String msg) { | public static void onServerTick(TickEvent.ServerTickEvent evt) { | public static void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent evt) { | public static void onPlayerLeave(PlayerEvent.PlayerLoggedOutEvent evt) { | public static void onServerStopping(ServerStoppingEvent evt) {

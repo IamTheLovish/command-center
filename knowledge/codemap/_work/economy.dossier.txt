@@ -1,0 +1,209 @@
+AREA economy  packages=['resources', 'items']  files=62 lines=10012
+SUBDIRS (lines): resources/=6682, items/=3115, items/unititems=215
+TOP FILES:
+    703 items/UnitItems.java
+    669 resources/ResourceCosts.java
+    645 resources/EconomyServerEvents.java
+    516 resources/ResourcesServerEvents.java
+    491 items/ItemClientEvents.java
+    482 resources/WreckServerEvents.java
+    475 resources/ResourceSources.java
+    398 resources/TreeClearing.java
+    341 resources/MetalPatches.java
+    311 items/UnitItemBuilder.java
+    274 resources/WreckClientEvents.java
+    260 resources/ResourcesClientEvents.java
+    241 items/ItemServerEvents.java
+    229 resources/ResourcesClientboundPacket.java
+    227 resources/MetalPatchMarkerClientEvents.java
+    218 items/ItemUtil.java
+    207 items/ItemServerboundPacket.java
+    206 items/UnitItem.java
+    206 resources/TierGate.java
+    196 resources/ResourceIndex.java
+    176 items/ItemShopMenu.java
+    170 resources/EconomyClientboundPacket.java
+    135 resources/Resources.java
+    125 resources/EconomyMath.java
+    113 resources/EconomyPace.java
+    112 items/ItemShopClientboundPacket.java
+    104 resources/EconomySliderClientEvents.java
+     95 items/ItemClientboundPacket.java
+     93 resources/WreckMarkerRules.java
+     92 resources/WreckSyncServerEvents.java
+OVER1000: 
+SUBSCRIBEEVENT files: resources/ResourcesServerEvents.java(8), items/ItemClientEvents.java(7), resources/WreckServerEvents.java(4), resources/WreckSyncServerEvents.java(3), resources/ResourcesClientEvents.java(3), resources/EconomySliderClientEvents.java(3), resources/WreckClientEvents.java(2), resources/TreeClearing.java(2), resources/MetalPatchesServerEvents.java(2), resources/MetalPatchMarkerClientEvents.java(2), items/ItemServerEvents.java(2), resources/TreeClearingClientEvents.java(1), resources/ResourceIndexEvents.java(1)
+PACKET files: items/ItemClientboundPacket.java, items/ItemServerboundPacket.java, items/ItemShopClientboundPacket.java, resources/EconomyClientboundPacket.java, resources/EconomySliderServerboundPacket.java, resources/MetalPatchesClientboundPacket.java, resources/ResourcesClientboundPacket.java, resources/ResourcesServerboundPacket.java, resources/WreckSyncClientboundPacket.java
+INSTRUMENTATION ids: ECONOMY, MARKERS_METAL, WORLD_MARKERS
+COMMANDS: sendemerald, sendfood, sendore, sendwood
+IMPORTS FROM OTHER PKGS: unit=43, building=42, registrars=17, hud=15, player=10, util=9, sounds=8, orthoview=6, keybinds=5, faction=5
+IMPORTED BY: unit=315, building=126, ability=106, research=57, gametest=34, hud=11, bot=6, hero=6, matchstart=6, mixin=6
+GAMETEST classes by import count: SkirmishGameTests(173), BigUnitGameTests(16), BotGameTests(10), CombatEngineerGameTests(6), TierGateGameTests(6), WinPaysGameTests(4), BranchWindGameTests(3), EconomySliderGameTests(3)
+--- HEADS (non-import, first 40 lines) of top files ---
+### items/UnitItems.java (703 lines)
+public class UnitItems {
+    public static final UnitItem EMPTY = new EmptyUnitItem();
+    public static final UnitItem MERCHANT_TRIDENT = new MerchantEquipmentItem(UnitItemBuilder.of(Items.TRIDENT)
+            .descId("merchant_trident")
+            .type(UnitItemType.UPGRADE)
+            .icon(ResourceLocation.fromNamespaceAndPath("minecraft", "textures/item/trident.png"))
+            .enchant(Enchantments.FLAMING_ARROWS, 1)
+            .enchant(Enchantments.MOB_LOOTING, 1),
+            le -> le instanceof HeadhunterUnit headhunterUnit && !headhunterUnit.hasFlameTrident());
+    public static final UnitItem MERCHANT_SWORD = new MerchantEquipmentItem(UnitItemBuilder.of(Items.NETHERITE_SWORD)
+            .descId("merchant_sword")
+            .type(UnitItemType.UPGRADE)
+            .icon(ResourceLocation.fromNamespaceAndPath("minecraft", "textures/item/netherite_sword.png"))
+            .enchant(Enchantments.FIRE_ASPECT, 1),
+            le -> le instanceof BruteUnit bruteUnit && !bruteUnit.hasEnchantedNetheriteSword());
+    public static final UnitItem MERCHANT_CHESTPLATE = new MerchantEquipmentItem(UnitItemBuilder.of(Items.NETHERITE_CHESTPLATE)
+            .descId("merchant_chestplate")
+            .type(UnitItemType.UPGRADE)
+            .icon(ResourceLocation.fromNamespaceAndPath("minecraft", "textures/item/netherite_chestplate.png")),
+            le -> (le instanceof BruteUnit bruteUnit && !bruteUnit.hasNetheriteChestplate()) ||
+                    (le instanceof HeadhunterUnit headhunterUnit && !headhunterUnit.hasNetheriteChestplate()) ||
+                    (le instanceof MarauderUnit marauderUnit && !marauderUnit.hasNetheriteChestplate()) ||
+                    (le instanceof HoglinUnit && !(le instanceof ArmouredHoglinUnit)));
+    private static final int EXPERIENCE_BOTTLE_EXP_VALUE = 100;
+    public static final UnitItem HERO_EXPERIENCE_BOTTLE = UnitItemBuilder.of(ItemRegistrar.THROWN_HERO_EXPERIENCE_BOTTLE.get())
+            .descId("hero_experience_bottle")
+            .type(UnitItemType.CONSUMABLE)
+            .maxStackSize(64)
+            .pointDesc("item.reignofnether.hero_experience_bottle.point1", EXPERIENCE_BOTTLE_EXP_VALUE)
+            .buyCost(100)
+            .sellValue(50)
+            .noRandomDrop()
+            .icon(ResourceLocation.fromNamespaceAndPath("minecraft","textures/item/experience_bottle.png"))
+            .onUse(unit -> {
+                Level level = ((Entity) unit).level();
+                ThrownHeroExperienceBottle bottle = new ThrownHeroExperienceBottle(level, ((LivingEntity) unit));
+                //$$4.setItem();
+                level.addFreshEntity(bottle);
+                return true;
+            })
+### resources/ResourceCosts.java (669 lines)
+// defined here because we need to be able to access in both
+// static (for ProductionItems) and nonstatic (for getCurrentPopulation) contexts
+// and we can't declare static getters in the Unit interface
+public class ResourceCosts {
+    private static final String ID = ReignOfNether.MOD_ID;
+    public static final ResourceCost ZOMBIE_VILLAGER = new ResourceCost(ID, "ZOMBIE_VILLAGER");
+    public static final ResourceCost BAT = new ResourceCost(ID, "BAT");
+    public static final ResourceCost CREEPER = new ResourceCost(ID, "CREEPER");
+    public static final ResourceCost ZOMBIE = new ResourceCost(ID, "ZOMBIE");
+    public static final ResourceCost SKELETON = new ResourceCost(ID, "SKELETON");
+    public static final ResourceCost STRAY = new ResourceCost(ID, "STRAY");
+    public static final ResourceCost BOGGED = new ResourceCost(ID, "BOGGED");
+    public static final ResourceCost HUSK = new ResourceCost(ID, "HUSK");
+    public static final ResourceCost DROWNED = new ResourceCost(ID, "DROWNED");
+    public static final ResourceCost SPIDER = new ResourceCost(ID, "SPIDER");
+    public static final ResourceCost POISON_SPIDER = new ResourceCost(ID, "POISON_SPIDER");
+    public static final ResourceCost WRAITH = new ResourceCost(ID, "WRAITH");
+    public static final ResourceCost SLIME = new ResourceCost(ID, "SLIME");
+    public static final ResourceCost WARDEN = new ResourceCost(ID, "WARDEN");
+    public static final ResourceCost ZOMBIE_PIGLIN = new ResourceCost(ID, "ZOMBIE_PIGLIN");
+    public static final ResourceCost ZOGLIN = new ResourceCost(ID, "ZOGLIN");
+    public static final ResourceCost VILLAGER = new ResourceCost(ID, "VILLAGER");
+    public static final ResourceCost SCOUT_DOG = new ResourceCost(ID, "SCOUT_DOG");
+    public static final ResourceCost SCOUT_CAT = new ResourceCost(ID, "SCOUT_CAT");
+    public static final ResourceCost MILITIA = new ResourceCost(ID, "MILITIA");
+    public static final ResourceCost IRON_GOLEM = new ResourceCost(ID, "IRON_GOLEM");
+    public static final ResourceCost PILLAGER = new ResourceCost(ID, "PILLAGER");
+    public static final ResourceCost WINDCALLER = new ResourceCost(ID, "WINDCALLER");
+    public static final ResourceCost VINDICATOR = new ResourceCost(ID, "VINDICATOR");
+    public static final ResourceCost WITCH = new ResourceCost(ID, "WITCH");
+    public static final ResourceCost EVOKER = new ResourceCost(ID, "EVOKER");
+    public static final ResourceCost RAVAGER = new ResourceCost(ID, "RAVAGER");
+    public static final ResourceCost WAR_MAMMOTH = new ResourceCost(ID, "WAR_MAMMOTH");
+    public static final ResourceCost BONEWRIGHT = new ResourceCost(ID, "BONEWRIGHT");
+    public static final ResourceCost EMBALMER = new ResourceCost(ID, "EMBALMER");
+    public static final ResourceCost ROYAL_ARCHITECT = new ResourceCost(ID, "ROYAL_ARCHITECT");
+    // Verdant Court T2
+    public static final ResourceCost ELDER_DRUID = new ResourceCost(ID, "ELDER_DRUID");
+    public static final ResourceCost STAG_LANCER = new ResourceCost(ID, "STAG_LANCER");
+    public static final ResourceCost SHADE_RANGER = new ResourceCost(ID, "SHADE_RANGER");
+### resources/EconomyServerEvents.java (645 lines)
+/**
+ * BAR-style flow economy (serverside).
+ *
+ * Resources: METAL (stored in Resources.ore) and ENERGY (stored in Resources.wood).
+ *
+ * Nothing is paid upfront. Every "consumer" (a building under construction, a unit being trained, a research in
+ * progress) calls {@link #requestFlow} each tick with its full cost and the fraction of progress df it wants to make.
+ * The consumer may advance by df * granted and has already paid cost * df * granted when the call returns.
+ *
+ * Stall: per player we sum the demand of all consumers during a tick. At the end of the tick (after income) we
+ * compute stall = min(1, metal / metalDemand, energy / energyDemand) and every consumer is throttled by it during the
+ * next tick, so when a player overspends ALL of their production slows down evenly, exactly like BAR. A consumer is
+ * additionally clamped to what is really left in the pool, so resources never go negative even in the tick
+ * where demand first appears.
+ *
+ * Income: +2 metal/s and +20 energy/s while the player owns at least one completed capitol (commander-style income),
+ * plus whatever every completed building returns from Building.getMetalIncome()/getEnergyIncome().
+ * Income is capped by storage: 1000 metal / 1000 energy base, +500/+500 while a completed capitol stands (BAR's
+ * start storage + commander storage = 1500/1500), more from storage buildings (vaults +2000/+3000, stockpiles).
+ * Overflow (BAR): income that doesn't fit is split evenly among allies with room; only what nobody on the team
+ * can hold is wasted. When storage shrinks (a vault or capitol dies) whatever was held in the lost storage is lost.
+ *
+ * Building income mapping (workers no longer gather, so the old resource buildings became passive income):
+ *   - Capitols (Town Centre, Mausoleum, Central Portal): the base +2 metal/s +20 energy/s (once per player)
+ *   - Farms (Wheat Farm, Pumpkin Farm, Netherwart Farm - food was RoN's main resource): +1.5 metal/s, +5 energy/s
+ *   - Stockpiles (Oak/Spruce stockpile - resource drop-offs): +0.5 metal/s, +500 metal and +500 energy storage
+ *   - Civilian Portal (piglin resource drop-off): +1 metal/s, +10 energy/s
+ *   - Population buildings (Villager House, Haunted House, Sculk Catalyst, Pocket Portal): +5 energy/s
+ * New extractor/generator buildings only need to set Building.metalIncome/energyIncome (or override the getters).
+ *
+ * Spells (Stormcallers Mana, mana/ManaServerEvents) pay through {@link #drawSpell}: taken at once, never throttled by
+ * the stall, and counted as energy demand - so heavy casting stalls the caster's construction like BAR stalls.
+ * Overcharge caps the player's stall at 50% and pauses their converters ({@link #updateStall}, {@link #convertEnergy}).
+ */
+public class EconomyServerEvents {
+    public static final float BASE_METAL_INCOME = 2f;    // per second, while a completed capitol is owned
+    public static final float BASE_ENERGY_INCOME = 20f;  // per second, while a completed capitol is owned
+    public static final float DEFAULT_METAL_STORAGE = 1000f;
+    public static final float DEFAULT_ENERGY_STORAGE = 1000f;
+    // playtest (lovish, Verdant vs 3 bots): both bars pinned at 1000 within a minute. Storage only - income is left
+### resources/ResourcesServerEvents.java (516 lines)
+public class ResourcesServerEvents {
+    // tracks all players' resources
+    public static ArrayList<Resources> resourcesList = new ArrayList<>();
+    // BAR economy: only Metal (the 'ore' field) and Energy (the 'wood' field) are used; food is always 0.
+    // Every mode starts with 1000 metal and 1000 energy, except sandbox. Storage starts at 1500/1500 with the capitol
+    // (EconomyServerEvents), so there is room to bank income before the first spend - like BAR.
+    public static final int STARTING_METAL = 1000;
+    public static final int STARTING_ENERGY = 1000;
+    public static final int STARTING_FOOD_TUTORIAL = 0;
+    public static final int STARTING_WOOD_TUTORIAL = STARTING_ENERGY;
+    public static final int STARTING_ORE_TUTORIAL = STARTING_METAL;
+    public static final int STARTING_FOOD_SANDBOX = 999999;
+    public static final int STARTING_WOOD_SANDBOX = 999999;
+    public static final int STARTING_ORE_SANDBOX = 999999;
+    public static final int STARTING_EMERALD_SANDBOX = 999999;
+    public static final int STARTING_FOOD = 0;
+    public static final int STARTING_WOOD = STARTING_ENERGY;
+    public static final int STARTING_ORE = STARTING_METAL;
+    public static final int STARTING_FOOD_READIED = 0;
+    public static final int STARTING_WOOD_READIED = STARTING_ENERGY;
+    public static final int STARTING_ORE_READIED = STARTING_METAL;
+    public static final float UNIT_BOUNTY_PERCENT_PER_LOOTING_LEVEL = 0.25f;
+    public static final float NEUTRAL_UNIT_BOUNTY_PERCENT = 0.25f;
+    public static final float NEUTRAL_BUILDING_BOUNTY_PERCENT = 0.25f;
+    // to avoid having to save units too often add on all unit resources here too and just add directly on load
+    public static void saveResources(ServerLevel serverLevel) {
+        if (serverLevel == null) {
+            return;
+        }
+        ResourcesSaveData data = ResourcesSaveData.getInstance(serverLevel);
+        data.resources.clear();
+        resourcesList.forEach(r -> {
+            // add all unit held resources to resources so we don't have to save unit items
+            int unitFood = 0;
+            int unitWood = 0;
+            int unitOre = 0;
+            int unitEmerald = 0;
+            for (LivingEntity le : UnitServerEvents.getAllUnits()) {
+                if (le instanceof Unit u && u.getOwnerName().equals(r.ownerName)) {
+                    Resources unitRes = Resources.getTotalResourcesFromItems(u.getItems());
+### signatures items/UnitItems.java: 
+### signatures resources/ResourceCosts.java: public static FormattedCharSequence getFormattedCost(ResourceCost resCost) { | public static FormattedCharSequence getFormattedPopAndTime(ResourceCost resCost) { | public static FormattedCharSequence getFormattedPop(ResourceCost resCost) { | public static FormattedCharSequence getFormattedTime(ResourceCost resCost) { | public static void deferredLoadResourceCosts() {
+### signatures resources/EconomyServerEvents.java: public PlayerEconomy(String ownerName) { | public float effectiveMetalIncome() { | public static PlayerEconomy getEconomy(String ownerName) { | public static float addReclaimedMetal(String ownerName, float amount) { | public static float addReclaimedEnergy(String ownerName, float amount) { | public static void convertEnergy(Resources res, PlayerEconomy eco) {   // the threshold is the player's slider (converte | public static float payExtractorUpkeep(Resources res, PlayerEconomy eco) { | public static float getStall(String ownerName) { | private static Resources getResources(String ownerName) { | public static float requestFlow(String ownerName, float metalCost, float energyCost, float df) { | public static float drawSpell(String ownerName, float energy, boolean allOrNothing) { | public static void updateStall(Resources res, PlayerEconomy eco) { | public static void refund(String ownerName, float metal, float energy) { | public static void recalculateIncomeAndStorage() { | private static void setStorage(Resources res, PlayerEconomy eco, float metalStorage, float energyStorage) { | public static float[] onStorageLost(String ownerName, float metalStorage, float energyStorage) { | private static float room(String ownerName, boolean metal) { | public static void clearSliderLimit(String owner) { | public static float converterLevel(String owner, PlayerEconomy eco) { | public static float setSlider(String owner, boolean energy, float level) { | public static float shareAboveLevel(String ownerName) { | private static float shareRoom(String ally) { | public static float shareOverflow(String ownerName, float amount, boolean metal) { | private static float giveToAllies(List<String> names, float[] gives, boolean metal) { | public static void onServerTickEnd() { | public static void syncAll() { | public static void reset() {

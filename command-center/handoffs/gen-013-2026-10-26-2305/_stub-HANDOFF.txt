@@ -1,0 +1,75 @@
+# Handoff - gen-013 to gen-014
+Date/time: 2026-10-26 23:05 -04:00 | Account: B | Estimated context used at handoff: ~TODO%
+
+## Goal lovish is driving toward
+TODO
+## Done this generation
+Computed: assignments 26, redos 1, escalations 0, unclosed 12
+By model: haiku 1 / sonnet 13 / opus 11 / fable 0
+Tokens: haiku 7951 / sonnet 697000 / opus 651000 / fable 0
+- [no-id] 2026-10-26 22:04 opus/low -> pass: boot (partial) + save hero AI brief for Oct 27 (briefs/hero-ai-QUEUED-2026-10-27.md) + quick review
+- [no-id] 2026-10-26 22:08 opus/low -> pass (api $0.0000): apply auditor advice 2026-10-22-2238-b (5/5 applied) + announce 14 changes + off-load health ping
+- [no-id] 2026-10-26 22:20 (none)/- -> running: BOOT ROW overnight review (lovish 22:15 "use all our usage... check code + design... tools/autonomy... opti...
+- [no-id] 2026-10-26 22:20 opus/xhigh -> running: audit: code + architecture + security + fog leaks
+- [no-id] 2026-10-26 22:20 opus/xhigh -> running: audit: performance server + client
+- [no-id] 2026-10-26 22:20 sonnet/high -> running: review: design plan + ideas + roadmap
+- [no-id] 2026-10-26 22:20 sonnet/high -> running: audit: tools, CI, autonomy, missed tools
+- [no-id] 2026-10-26 22:20 sonnet/high -> running: review: Command Center itself
+- [no-id] 2026-10-26 22:35 sonnet/high -> pass (186k): CLOSE review: Command Center itself (+ learning-loop goal 5)
+- [no-id] 2026-10-26 22:36 sonnet/high -> running: build: cc.ps1 + knowledge store + kb.ps1 + metrics.ps1 (E1-E3/E5/E6 + learning loop)
+- [no-id] 2026-10-26 22:40 sonnet/high -> pass (177k): CLOSE review: design plan + ideas + roadmap
+- [no-id] 2026-10-26 22:45 sonnet/high -> running: build: stale docs refresh PR (AGENTS s8, NOTES, economy/ai json, progress files, LANES GeckoLib note)
+- [no-id] 2026-10-26 22:55 sonnet/high -> pass (190k): CLOSE audit: tools, CI, autonomy
+- [no-id] 2026-10-26 22:56 sonnet/high -> running: build: CI self-heal PR (autorerun known flakes, job timeouts, mirror cron, flake-stress summary fails, evid...
+- [no-id] 2026-10-26 23:00 sonnet/high -> pass (144k): CLOSE build: stale docs refresh -> PR #246 (6 md files, +27/-5, open, not merged)
+- [no-id] 2026-10-26 23:10 opus/xhigh -> pass (294k): CLOSE audit: performance server + client
+- [no-id] 2026-10-26 23:11 opus/xhigh -> running: build: perf quick wins PR (NightUtils cache, knockback leak, minimap array reuse, item-query skip, populati...
+- [no-id] 2026-10-26 23:20 opus/xhigh -> pass (357k): CLOSE audit: code + architecture + security + fog
+- [no-id] 2026-10-26 23:21 opus/xhigh -> running: build: security + state-leak PR (F1,F2,F3,F4,F5,F8,F20 + command-permission walker test)
+- [no-id] 2026-10-26 23:30 opus/low -> pass: write overnight report draft (briefs/overnight-review-2026-10-26.md)
+- [no-id] 2026-10-26 23:35 sonnet/high -> running: plans 011-017 (lifecycle registry, authority module, tick spikes, save hitch, flake roots, HUD panels, stra...
+- [no-id] 2026-10-26 23:50 sonnet/high -> redo (blocked): CLOSE build: CI self-heal (5 commits local in D:\btc)
+- [b843] 2026-10-26 22:37 haiku/low -> pass (6445 in / 1506 out, $0.0014): kb learn 2026-10-26 (2 rows, 7 handoffs)
+- [b81e] 2026-10-26 22:37 opus/low -> pass: CORRECTION: gen-013 rows stamped 22:35-23:50 were hand-typed and run ~1h ahead of the clock (real ~21:5x-22...
+- [297e] 2026-10-26 22:37 opus/low -> pass: wire cc.ps1/kb.ps1 into COMMANDER.md (s0 scripts, boot, ledger, handoff-verify, s8 learning loop) + kb lear...
+- [38e2] 2026-10-26 22:38 sonnet/high -> pass: research: hero AI architectures, shipped bots, Lanchester, human-like play, prediction, blocking, harness/t...
+TODO: condense the list above into what was achieved
+## In flight (agents running, half-finished work, where the files are)
+Unclosed rows:
+- [] 22:20 running: BOOT ROW overnight review (lovish 22:15 "use all our usage... check code + design... tools/autonomy... opti...
+- [] 22:20 running: audit: code + architecture + security + fog leaks
+- [] 22:20 running: audit: performance server + client
+- [] 22:20 running: review: design plan + ideas + roadmap
+- [] 22:20 running: audit: tools, CI, autonomy, missed tools
+- [] 22:20 running: review: Command Center itself
+- [] 22:36 running: build: cc.ps1 + knowledge store + kb.ps1 + metrics.ps1 (E1-E3/E5/E6 + learning loop)
+- [] 22:45 running: build: stale docs refresh PR (AGENTS s8, NOTES, economy/ai json, progress files, LANES GeckoLib note)
+- [] 22:56 running: build: CI self-heal PR (autorerun known flakes, job timeouts, mirror cron, flake-stress summary fails, evid...
+- [] 23:11 running: build: perf quick wins PR (NightUtils cache, knockback leak, minimap array reuse, item-query skip, populati...
+- [] 23:21 running: build: security + state-leak PR (F1,F2,F3,F4,F5,F8,F20 + command-permission walker test)
+- [] 23:35 running: plans 011-017 (lifecycle registry, authority module, tick spikes, save hitch, flake roots, HUD panels, stra...
+TODO: agents running and where their files are
+## Decisions made (and by whom - lovish or commander)
+TODO
+## Open questions for lovish
+TODO
+## Repo / worktree / branch
+git worktree list:
+```
+D:/BeyondAndTabs-Repo                 f3b3008d [main]
+D:/BeyondAndTabs-Fix                  c433f3d2 [claude/fix-extractor-footprint]
+D:/BeyondAndTabs-Worktrees/markers2   f7a0de03 [claude/perf-world-markers-2]
+D:/BeyondAndTabs-Worktrees/target-acq 558d44dc [claude/perf-target-acquisition-revive]
+D:/btc                                1c3b1ec5 [claude/ci-self-heal]
+D:/btd                                f5b91825 [claude/docs-refresh-oct26]
+D:/btp                                70c1dfb2 [claude/perf-quick-wins]
+D:/btp-main                           bbbdac21 (detached HEAD)
+D:/btr                                bbbdac21 (detached HEAD)
+D:/bts                                cf51473e [claude/security-state-fixes]
+```
+TODO: this gen branch and any claims
+## Next 3 actions (in order)
+1. TODO
+2. TODO
+3. TODO
+

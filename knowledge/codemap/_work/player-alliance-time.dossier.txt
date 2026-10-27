@@ -1,0 +1,209 @@
+AREA player-alliance-time  packages=['player', 'alliance', 'faction', 'time', 'tide', 'environment']  files=49 lines=9492
+SUBDIRS (lines): player/=5447, faction/=1196, tide/=942, alliance/=680, environment/wind=654, time/=573
+TOP FILES:
+   1467 player/PlayerServerEvents.java
+    641 faction/Factions.java
+    640 tide/TidepoolServerEvents.java
+    577 player/PlayerClientEvents.java
+    391 player/PlayerServerboundPacket.java
+    370 faction/FactionTraits.java
+    321 player/PlayerPanelServerEvents.java
+    310 player/CommanderServerEvents.java
+    267 time/TimeClientEvents.java
+    261 player/CommanderAntiAir.java
+    255 player/PlayerColors.java
+    225 player/ResignVoteServerEvents.java
+    219 alliance/AllyCommand.java
+    215 player/PlayerClientboundPacket.java
+    186 player/DefeatCleanupServerEvents.java
+    185 faction/Faction.java
+    177 player/RTSPlayer.java
+    154 player/MatchStatsClientboundPacket.java
+    153 alliance/AlliancesServerEvents.java
+    149 tide/TidesServerEvents.java
+    145 time/TimeServerEvents.java
+    144 player/MatchHistory.java
+    141 player/RTSPlayerSaveData.java
+    135 player/PlayerPanelClientboundPacket.java
+    123 tide/FogBankServerEvents.java
+    120 alliance/AllianceClientboundPacket.java
+    118 player/ResignVoteClientEvents.java
+    117 environment/wind/BranchWindClient.java
+    100 alliance/AlliancesClient.java
+    100 environment/wind/SwayBlocks.java
+OVER1000: player/PlayerServerEvents.java(1467)
+SUBSCRIBEEVENT files: player/PlayerClientEvents.java(11), player/PlayerServerEvents.java(8), time/TimeClientEvents.java(5), tide/TidesServerEvents.java(3), tide/TidepoolServerEvents.java(3), player/ResignVoteClientEvents.java(3), tide/FogBankServerEvents.java(2), player/DefeatCleanupServerEvents.java(2), player/CommanderServerEvents.java(2), environment/wind/BranchWindModEvents.java(2), time/TimeServerEvents.java(1), player/ResignVoteServerEvents.java(1), player/PlayerPanelServerEvents.java(1), player/CommanderClientEvents.java(1)
+PACKET files: alliance/AllianceClientboundPacket.java, alliance/AllianceServerboundPacket.java, player/MatchStatsClientboundPacket.java, player/PlayerClientboundPacket.java, player/PlayerPanelClientboundPacket.java, player/PlayerServerboundPacket.java
+INSTRUMENTATION ids: 
+COMMANDS: ally, allycancelrequest, allyconfirm, allycontrol, disable, disband, enable, rts-camera, rts-controls, rts-help, rts-lock, rts-scores, rts-surrender, rts-syncing, rts-tidepool
+IMPORTS FROM OTHER PKGS: building=34, unit=32, registrars=20, resources=14, ability=13, hud=12, survival=12, scenario=8, gamemode=7, sounds=7
+IMPORTED BY: unit=99, building=42, gametest=40, ability=28, hud=22, matchstart=18, mixin=11, bot=9, hero=8, mana=8
+GAMETEST classes by import count: SkirmishGameTests(266), MatchLifecycleCases(14), BigUnitGameTests(9), CommanderAntiAirGameTests(5), RegressionGameTests(5), SandboxSecurityGameTests(5), TierGateGameTests(5), BranchWindGameTests(4)
+--- HEADS (non-import, first 40 lines) of top files ---
+### player/PlayerServerEvents.java (1467 lines)
+// this class tracks all available players so that any serverside functions that need to affect the player can be
+// performed here by sending a client->server packet containing MC.player.getId()
+//
+// Rewrite 5 (design/ron_rewrite_plan.md): the match lifecycle - who is in play, defeat, victory, spectating, the
+// match clock and its phases - lives in the match package now (MatchState, MatchRoster, MatchOutcome, Spectators).
+// The public methods and fields below that belonged to it stay as thin delegates, so callers elsewhere are unchanged.
+public class PlayerServerEvents {
+    // list of what gamemode these players should be in when outside of RTS cam
+    private static final Map<String, GameType> playerDefaultGameModes = new HashMap<>();
+    private static final Map<String, Boolean> playerGuiOpenStatus = new HashMap<>();
+    public static final ArrayList<ServerPlayer> players = new ArrayList<>();
+    public static final ArrayList<ServerPlayer> orthoviewPlayers = new ArrayList<>();
+    // players that are currently playing a match: match.MatchRoster's copy-on-write list (game thread only; a walk is
+    // a snapshot, so a side may be beaten in the middle of one). The synchronized blocks some callers still put
+    // around it are harmless and no longer needed.
+    public static final List<RTSPlayer> rtsPlayers = MatchRoster.LIVE;
+    // list of players after a match ends (beaten, or winners) - MatchRoster.FINISHED
+    public static final List<RTSPlayer> postGameRtsPlayers = MatchRoster.FINISHED;
+    public static boolean rtsLocked = false; // can players join as RTS players or not?
+    public static boolean rtsSyncingEnabled = true; // will logging in players sync units and buildings?
+    private static final int MONSTER_START_TIME_OF_DAY = 500; // 500 = dawn, 6500 = noon, 12500 = dusk
+    public static final int TICKS_TO_REVEAL = 60 * ResourceCost.TICKS_PER_SECOND;
+    /**
+     * The name every skirmish world is created with (matchstart.QuickBattle.WORLD_NAME_PREFIX, kept in step by hand:
+     * that class is client-only). In such a world the login chat lesson is skipped - the launch's loading screen and
+     * hint bar carry the controls and the /rts-help line (inbox/spec-3, section 2.2; rover run 1, finding 8).
+     */
+    static final String SKIRMISH_WORLD_NAME_PREFIX = "Beyond and Tabs - Skirmish ";
+    /** A world the skirmish screen made (Start Battle / Host Online), by its level name. */
+    public static boolean isSkirmishWorld(@Nullable MinecraftServer server) {
+        try {
+            return server != null && server.getWorldData().getLevelName().startsWith(SKIRMISH_WORLD_NAME_PREFIX);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+    /**
+     * The match clock in ticks: runs while at least one side is in play. A mirror for older callers, written every
+     * tick by match.MatchServerEvents - the clock itself is MatchState.live().clock(), saved with the world.
+     */
+### faction/Factions.java (641 lines)
+public class Factions {
+	public static final ArrayList<ResourceLocation> CLASSIC_FACTIONS = new ArrayList<>();
+	public static final ArrayList<ResourceLocation> SURVIVAL_FACTIONS = new ArrayList<>();
+	public static final ArrayList<ResourceLocation> PLAYABLE_FACTIONS = new ArrayList<>();
+	public static final HashMap<ResourceLocation, ResourceLocation> ENTITY_FACTION = new HashMap<>();
+	// entity type -> faction, filled on first use. getFaction(Unit) was three hash lookups (registry key, ENTITY_FACTION,
+	// FACTIONS) and runs per unit in the momentum / formation / trait passes, targeting and the HUD (CR-10). Cleared
+	// whenever an entity is (re)registered, so it can never disagree with ENTITY_FACTION.
+	private static final java.util.Map<EntityType<?>, Faction> FACTION_BY_TYPE = new java.util.concurrent.ConcurrentHashMap<>();
+	public static Faction VILLAGERS;
+	public static Faction MONSTERS;
+	public static Faction PIGLINS;
+	public static Faction NEUTRAL;
+	public static Faction RANDOM;
+	public static Faction NONE;
+	// faction 4 of claude/design-factions.md (design/verdant_court_plan.md): playable from slice 1 (T1 only)
+	public static Faction VERDANT_COURT;
+	// faction 5 (design/tidewrought_plan.md): playable from slice 1 (T1 only, plus the Tides core)
+	public static Faction TIDEWROUGHT;
+	// faction 6 (design/stormcallers_plan.md): playable from slice 1 (T1 only, plus the Mana core)
+	public static Faction STORMCALLERS;
+	// faction 7 (design/brassworks_plan.md): playable from slice 1 (T1 only, plus Heat and the Field Upgrade)
+	public static Faction BRASSWORKS;
+	public static void register() {
+		VILLAGERS = register("villagers", new Faction()
+			.setWorkerIcon(ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "textures/mobheads/villager.png"))
+			.setIcon(ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "textures/mobheads/villager.png"))
+			.setSound(SoundRegistrar.VILLAGER_CALM_THEME_SONG.get())
+			.setSpawnWave(IllagerWaveSpawner::spawnIllagerWave)
+			.setCustomBuildingCondition((cb) -> cb.buildableByVillagers)
+			.setTraits(FactionTraits.SUNFORGED)
+		);
+		MONSTERS = register("monsters", new Faction()
+			.setWorkerIcon(ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "textures/mobheads/zombie_villager.png"))
+			.setIcon(ResourceLocation.fromNamespaceAndPath(ReignOfNether.MOD_ID, "textures/mobheads/creeper.png"))
+			.setSound(SoundRegistrar.MONSTER_CALM_THEME_SONG.get())
+			.setSpawnWave(MonsterWaveSpawner::spawnMonsterWave)
+			.setCustomBuildingCondition((cb) -> cb.buildableByMonsters)
+			.setTraits(FactionTraits.GRAVEBOUND)
+		);
+### tide/TidepoolServerEvents.java (640 lines)
+/**
+ * Tidewrought <b>tidepools</b> - the registry, caps and counterplay of the Tides core (design/tidewrought_plan.md
+ * section 3). A tidepool is a disc of {@link TidepoolBlock} cells (temporary shallow "water" with no fluid physics)
+ * that lives for a fixed time and then dries up. Units and buildings that use pools build on this API; nothing here
+ * knows about Tide Priests, the Harbourmaster or the Leviathan.
+ *
+ * <h2>API (server thread only)</h2>
+ * <pre>
+ *   Pool p = TidepoolServerEvents.raise(level, owner, centre, radius, lifetimeTicks);   // null = refused
+ *   Pool t = TidepoolServerEvents.raiseTrail(level, owner, leviathan, centre, 1, 200);  // trail pools, own cap
+ *   p.isActive(); p.cellCount(); p.ticksLeft(); p.positions();                           // read-only handle
+ *   TidepoolServerEvents.drain(p);                    // dries in DRAIN_TICKS (constructor reclaim does this)
+ *   TidepoolServerEvents.evaporate(level, at, r);     // fire attacks: removes the cells they hit, returns count
+ *   TidepoolServerEvents.poolAt(level, pos);          // the live pool owning that cell (or null)
+ *   TidepoolServerEvents.isTidepool(level, pos);      // cell check (also TidesServerEvents.isWet for units)
+ *   TidepoolServerEvents.clearOwner(owner) / clearAll();
+ *   TidepoolServerEvents.lastRefusal();               // lang key why the last raise returned null (HUD message)
+ * </pre>
+ * <ul>
+ *   <li><b>Placement</b> ({@link #raise}): a disc of radius 0-{@link #MAX_RADIUS} (r1 = 5 cells, r2 = 13, r3 = 29).
+ *       Per column the cell is the first <b>air</b> block, scanning down from centre.y+2 to centre.y-2, that sits on
+ *       a floor with a sturdy top face. It never replaces anything (grass, flowers, snow, crops, another pool), never
+ *       goes on a metal patch, and never inside a building's bounding box. A raise that finds no valid cell, or would
+ *       push the level over {@link #MAX_CELLS_PER_LEVEL}, is refused (null + {@link #lastRefusal()}).</li>
+ *   <li><b>Caps</b>: {@link #POOLS_PER_PLAYER} live pools per owner (all raisers share it) - raising one more evicts
+ *       the owner's oldest at once. Trail pools ({@link #raiseTrail}) are counted per source entity
+ *       ({@link #TRAIL_POOLS_PER_SOURCE}) and never evict an owner's normal pools. {@link #MAX_CELLS_PER_LEVEL} cells
+ *       per level in total (eviction frees cells first, so a capped player can always re-raise).</li>
+ *   <li><b>Expiry</b>: checked once a second ({@link #EXPIRY_PASS_TICKS}), not per tick. A cell is only removed while
+ *       it is still a tidepool (a building or block may have replaced it). Each cell also carries a scheduled block
+ *       tick at lifetime + {@link #FAILSAFE_MARGIN_TICKS}; block ticks are saved with the chunk, so a cell whose pool
+ *       the registry forgot - chunk unloaded at expiry - still dries up.</li>
+ *   <li><b>Counterplay</b>: a constructor's RECLAIM order on a pool (single or area reclaim) walks it there and
+ *       {@link #drain}s the whole pool in {@link #DRAIN_TICKS} once within {@link #DRAIN_REACH} blocks. Fire or lava
+ *       next to a cell evaporates it (TidepoolBlock), fire abilities call {@link #evaporate}. Placing any building or
+ *       block over a pool fills it (cells are replaceable / soft for building validation).</li>
+ *   <li><b>Match lifecycle</b>: {@link #clearOwner} on defeat, {@link #clearAll} on /rts-reset. Saved: the registry
+ *       (owner, centre, radius, cells, ticks left, draining) is written by MatchStateSaveData ({@link #saveTag}) and
+ *       {@link #restore}d at server start, so a pool keeps its owner, its cap slot, its reclaim/evaporate handle and
+ *       the rest of its lifetime across a reload instead of becoming anonymous water until its fail-safe tick. Trail
+### player/PlayerClientEvents.java (577 lines)
+public class PlayerClientEvents {
+    public static long rtsGameTicks = 0;
+    private static final Minecraft MC = Minecraft.getInstance();
+    public static boolean rtsLocked = false;
+    public static boolean canStartRTS = true;
+    public static final List<RTSPlayer> rtsPlayers = Collections.synchronizedList(new ArrayList<>());
+    public static BlockState lastUsedBlockState = null;
+    public static boolean isRTSPlayer() {
+        for (RTSPlayer rtsPlayer : rtsPlayers)
+            if (MC.player != null && rtsPlayer.name.equals(MC.player.getName().getString()))
+                return true;
+        return false;
+    }
+    /**
+     * Watching a live match with no side in it: Watch Battle (bots only), a joiner who wasn't seated, a defeated
+     * player. BAR's spectator: always the RTS view, never the Minecraft body (lovish's Oct 12 clips dropped into a
+     * dark first-person view and the vanilla Game Menu while watching bots). Sandbox and tutorial worlds are not
+     * matches; a lobby Hero-role seat plays through its hero, not as a spectator.
+     */
+    public static boolean isMatchSpectator() {
+        return MC.player != null && !rtsPlayers.isEmpty() && !isRTSPlayer()
+            && !SandboxClientEvents.isSandboxPlayer()
+            && !com.solegendary.reignofnether.hero.PossessionClientEvents.isHeroRole()
+            && !com.solegendary.reignofnether.tutorial.TutorialClientEvents.isEnabled();
+    }
+    public static boolean isRTSPlayer(String playerName) {
+        for (RTSPlayer rtsPlayer : rtsPlayers)
+            if (rtsPlayer.name.equals(playerName))
+                return true;
+        return false;
+    }
+    @Nullable
+    public static RTSPlayer getRTSPlayer() {
+        for (RTSPlayer rtsPlayer : rtsPlayers)
+            if (MC.player != null && rtsPlayer.name.equals(MC.player.getName().getString()))
+                return rtsPlayer;
+        return null;
+    }
+    @Nullable
+    public static RTSPlayer getRTSPlayer(String playerName) {
+### signatures player/PlayerServerEvents.java: public static boolean isSkirmishWorld(@Nullable MinecraftServer server) { | public static void saveRTSPlayers() { | public static void onServerStarted(ServerStartedEvent evt) { | public static void onServerStopping(ServerStoppingEvent evt) { | public static boolean isRTSPlayer(String playerName) { | public static RTSPlayer getRTSPlayer(String playerName) { | public static boolean isRTSPlayer(int id) { | public static boolean isBot(String playerName) { | public static boolean isBot(int id) { | public static boolean isGameActive() { | public static void onServerTick(TickEvent.ServerTickEvent evt) { | private static void syncUnits(ServerPlayer joiner) { | public static void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent evt) { | public static void onPlayerLeave(PlayerEvent.PlayerLoggedOutEvent evt) { | public static void startRTS(int playerId, Vec3 pos, Faction faction) { | public static boolean inStartGrace(String playerName) { | public static void leavePeaceful(ServerLevel level) { | public static boolean ensureCommanderGameMode(net.minecraft.server.level.ServerPlayer sp) { | public static void startRTS(int playerId, Vec3 pos, Faction faction, int startPosColorId) { | public static BlockPos getBuildingOriginPos(BlockPos bp, ArrayList<BuildingBlock> blocks) { | public static void startRTSBot(String name, Vec3 pos, Faction faction) { | public static void startRTSBot(String name, Vec3 pos, Faction faction, int colorMapId) { | public static void startRTSBot(ServerLevel level, String name, Vec3 pos, Faction faction, int colorMapId) { | public static int spawnBotStartUnits(ServerLevel level, String owner, Faction faction, Vec3 pos, boolean withCommander)  | public static void startRTSScenario(int playerId, int roleIndex) { | public static void onPlayerChat(ServerChatEvent evt) { | public static void enableAllCheats(String playerName) { | public static void enableOrthoview(int id) { | public static void disableOrthoview(int id) { | private static ServerPlayer getPlayerById(int playerId) {
+### signatures faction/Factions.java: 
+### signatures tide/TidepoolServerEvents.java: Pool(int id, String owner, ServerLevel level, BlockPos centre, int radius, int trailSource, long[] cells, long expireTic | public boolean isActive() { return !removed; } | public boolean isDraining() { return draining && !removed; } | public boolean isTrail() { return trailSource >= 0; } | public int cellCount() { return cells.length; } | public long expireTick() { return expireTick; } | public long ticksLeft() { return removed ? 0 : Math.max(0, expireTick - level.getGameTime()); } | public List<BlockPos> positions() { | private record DrainOrder(Pool pool, long deadline) { } | public static Pool raise(ServerLevel level, String owner, BlockPos centre, int radius, int lifetimeTicks) { | public static Pool raiseTrail(ServerLevel level, String owner, Entity source, BlockPos centre, int radius, int lifetimeT | public static Pool raiseForBuilding(ServerLevel level, String owner, BlockPos buildingKey, BlockPos centre, int radius,  | static Pool raise(ServerLevel level, String owner, BlockPos centre, int radius, int lifetimeTicks, int trailSource) { | public static LongArrayList collectCells(ServerLevel level, BlockPos centre, int radius) { | static void remove(Pool pool) { | public static boolean drain(Pool pool) { | public static void evaporateCell(ServerLevel level, BlockPos pos) { | public static int evaporate(ServerLevel level, BlockPos at, int radius) { | public static void clearOwner(String owner) { | public static void clearAll() { | public static Pool poolAt(Level level, BlockPos pos) { | public static Pool poolNear(Level level, BlockPos pos) { | public static boolean isTidepool(Level level, BlockPos pos) { | public static List<Pool> poolsOf(String owner) { | public static List<Pool> poolsIn(Level level, BlockPos centre, int radius, int maxDy) { | public static int cellsIn(Level level) { | public static String lastRefusal() { | public static long ticksLeftForCell(ServerLevel level, BlockPos pos) { | static int liveCellsOf(Pool pool) { | private static Long2ObjectOpenHashMap<Pool> cellMap(Level level) {

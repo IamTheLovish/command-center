@@ -1,0 +1,208 @@
+AREA gametest  packages=['gametest']  files=121 lines=49376
+SUBDIRS (lines): gametest/=49376
+TOP FILES:
+  15358 gametest/SkirmishGameTests.java
+   1233 gametest/CommandQueueGameTests.java
+   1228 gametest/BigUnitGameTests.java
+   1088 gametest/HeroGameTests.java
+   1062 gametest/MatchLifecycleCases.java
+   1055 gametest/DuelGameTests.java
+   1012 gametest/CombatEngineerGameTests.java
+    956 gametest/TargetScanGameTests.java
+    833 gametest/WorldMemoryGameTests.java
+    817 gametest/MergedBuildingGameTests.java
+    813 gametest/BiomeBaseGameTests.java
+    799 gametest/BrassworksGameTests.java
+    790 gametest/RealmMapGameTests.java
+    743 gametest/BuildingGridGameTests.java
+    722 gametest/BlueprintGameTests.java
+    663 gametest/T3RoleGameTests.java
+    628 gametest/BotGameTests.java
+    617 gametest/SupportAiGameTests.java
+    616 gametest/MatchPrepCases.java
+    597 gametest/TerrainGameTests.java
+    555 gametest/TierGateGameTests.java
+    530 gametest/AudienceGameTests.java
+    453 gametest/GameTestChunks.java
+    449 gametest/SandboxSecurityGameTests.java
+    446 gametest/DefenceGameTests.java
+    441 gametest/RegressionGameTests.java
+    430 gametest/H13GameTests.java
+    425 gametest/OnboardingGameTests.java
+    411 gametest/OrdersObeyGameTests.java
+    374 gametest/WinPaysGameTests.java
+OVER1000: gametest/SkirmishGameTests.java(15358), gametest/CommandQueueGameTests.java(1233), gametest/BigUnitGameTests.java(1228), gametest/HeroGameTests.java(1088), gametest/MatchLifecycleCases.java(1062), gametest/DuelGameTests.java(1055), gametest/CombatEngineerGameTests.java(1012)
+SUBSCRIBEEVENT files: gametest/GameTestShards.java(1)
+PACKET files: 
+INSTRUMENTATION ids: ATTACKER, ATTACK_MOVE, BUILDING_SCAN, ENTITY_SCAN, IDLE_AGGRO, PUSH_SCAN, RETARGET, TARGET_GRID, UNIT_GRID
+COMMANDS: 
+IMPORTS FROM OTHER PKGS: unit=248, building=241, registrars=67, resources=59, ability=39, faction=37, hero=30, player=29, maps=28, match=17
+IMPORTED BY: mixin=1
+--- HEADS (non-import, first 40 lines) of top files ---
+### gametest/SkirmishGameTests.java (15358 lines)
+/**
+ * Headless smoke tests that CI runs on a real dedicated server ({@code ./gradlew runGameTestServer}). They cover the
+ * class of bug that only shows up in-game: a building the server cannot load, a validator that refuses a freshly
+ * stamped metal patch, state leaking between matches. Each test runs inside the {@code gametest_arena} template
+ * (a 16x16 grass pad); template coordinates are relative to the arena's corner.
+ */
+@GameTestHolder(ReignOfNether.MOD_ID)
+@PrefixGameTestTemplate(false)
+public class SkirmishGameTests {
+    static final String ARENA = "gametest_arena";
+    /** Every registered building's blueprint must load on the SERVER (data/), not only on the client (assets/). */
+    @GameTest(template = ARENA)
+    public static void every_building_blueprint_loads_on_the_server(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        List<String> missing = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (Building b : ReignOfNetherRegistries.BUILDING) {
+            if (b instanceof AbstractBridge || b.structureName == null || !seen.add(b.structureName))
+                continue;
+            if (BuildingBlockData.getBuildingNbt(b.structureName, level.getServer().getResourceManager()) == null)
+                missing.add(b.structureName);
+        }
+        if (!missing.isEmpty())
+            helper.fail("blueprints missing from data/reignofnether/structures: " + missing);
+        helper.succeed();
+    }
+    /**
+     * Stamping a patch must leave ground an extractor can sit on, for every faction's extractor and windmill.
+     * The game-test arena is carved out of generated terrain, so the test builds its own grass platform high
+     * above the terrain (y=200) where the heightmaps and the real ground agree, just like an open field.
+     */
+    @GameTest(template = ARENA)
+    public static void extractor_and_windmill_fit_on_a_stamped_patch(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        BlockPos base = helper.absolutePos(new BlockPos(8, 1, 8));
+        final int y = 200;
+        int cx = base.getX(), cz = base.getZ();
+        for (int dx = -8; dx <= 8; dx++)
+            for (int dz = -8; dz <= 8; dz++) {
+                level.setBlock(new BlockPos(cx + dx, y - 1, cz + dz), Blocks.DIRT.defaultBlockState(), 3);
+### gametest/CommandQueueGameTests.java (1233 lines)
+/**
+ * Rewrite 2 of design/ron_rewrite_plan.md: the command pipeline (BAR's per-unit command queue in place of Reign of
+ * Nether's two global action lists). Its own holder, so the feature branches merging into SkirmishGameTests don't
+ * collide with it.
+ * <p>
+ * The tests in the first section pin what players see from the queue today and were written to pass on the old
+ * pipeline as well (rule 1 of the rewrite plan: behaviour first, then structure). They avoid depending on
+ * pathfinding: a unit is made to finish its current order by stopping it ({@link #finish}), which is exactly what
+ * reaching the destination does to its move goal, and the test then watches which order the unit takes next.
+ * Every unit holds fire, so a fight in a neighbouring arena can't pull it off its orders. Same rules as every other
+ * holder: own owners, own arena, no global counts.
+ */
+@GameTestHolder(ReignOfNether.MOD_ID)
+@PrefixGameTestTemplate(false)
+public class CommandQueueGameTests {
+    static final String ARENA = SkirmishGameTests.ARENA;
+    // ------------------------------------------------------------------ behaviour pins (old and new pipeline)
+    /**
+     * BAR-style shift-queue depth: a unit holds at most UnitServerEvents.MAX_QUEUED_ACTIONS queued orders. Past the
+     * cap an order is refused for that unit ("Queue full"); what was already queued is kept, oldest first.
+     */
+    @GameTest(template = ARENA, timeoutTicks = 40)
+    public static void shift_queue_holds_at_most_the_cap_per_unit(GameTestHelper helper) {
+        String owner = owner(helper, "cap");
+        Mob unit = fighter(helper, owner, 2, 2);
+        if (unit == null) {
+            helper.fail("could not create the unit");
+            return;
+        }
+        helper.runAfterDelay(2, () -> {
+            try {
+                int[] ids = { unit.getId() };
+                UnitServerEvents.addActionItem(owner, UnitAction.MOVE, -1, ids, at(helper, 13, 13), BlockPos.ZERO);
+                int cap = UnitServerEvents.MAX_QUEUED_ACTIONS;
+                for (int i = 0; i < cap + 8; i++)
+                    UnitServerEvents.addActionItem(owner, UnitAction.MOVE, -1, ids, waypoint(helper, i), BlockPos.ZERO, true);
+                List<UnitActionItem> queue = UnitServerEvents.getQueuedActions(unit.getId());
+                if (queue.size() != cap) {
+                    helper.fail("expected " + cap + " queued orders after " + (cap + 8) + " shift orders, got " + queue.size());
+                    return;
+### gametest/BigUnitGameTests.java (1228 lines)
+/**
+ * Headless tests of the big units and game enders (design/big_units.md). Their own holder next to SkirmishGameTests
+ * (same arena template, unique owners, no global counts); every test runs in parallel with the rest. Game-ender
+ * placements are never put in the world: each test hands them its own building pool, so no other test's buildings
+ * can be aimed at or intercept for them.
+ */
+@GameTestHolder(ReignOfNether.MOD_ID)
+@PrefixGameTestTemplate(false)
+public class BigUnitGameTests {
+    static final String ARENA = SkirmishGameTests.ARENA;
+    static String owner(GameTestHelper helper, String tag) {
+        return "gametest_" + tag + "_" + helper.absolutePos(BlockPos.ZERO).asLong();
+    }
+    // ---- game enders -------------------------------------------------------------------------------------------------
+    /**
+     * A game ender is announced on its first server tick, before it is built; once built it charges through its three
+     * stages (and not at all while its owner lacks Tier 3); raids knock charge off a stage per 10% of max HP; with
+     * nobody to hit it waits at full charge. Also: both game enders are T2-builder-only, belong to their factions and
+     * ship their structures in data/, and every faction has a Ward Spire.
+     */
+    @GameTest(template = ARENA, timeoutTicks = 60)
+    public static void game_ender_announces_on_start_charges_through_stages_and_loses_charge_to_raids(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        String owner = owner(helper, "ender_stages");
+        List<String> problems = new ArrayList<>();
+        if (!com.solegendary.reignofnether.unit.T2Workers.needsT2Builder(Buildings.SUN_SPIRE)
+                || !com.solegendary.reignofnether.unit.T2Workers.needsT2Builder(Buildings.NECROPOLIS))
+            problems.add("game enders must need a T2 constructor");
+        if (!Factions.VILLAGERS.equals(Buildings.SUN_SPIRE.getFaction()) || !Factions.MONSTERS.equals(Buildings.NECROPOLIS.getFaction()))
+            problems.add("the Sun Spire is Sunforged and the Necropolis Gravebound");
+        var wards = List.of(Buildings.WARD_SPIRE_VILLAGERS, Buildings.WARD_SPIRE_MONSTERS, Buildings.WARD_SPIRE_PIGLINS,
+            Buildings.WARD_SPIRE_VERDANT, Buildings.WARD_SPIRE_TIDE, Buildings.WARD_SPIRE_STORM, Buildings.WARD_SPIRE_BRASS);
+        var factions = List.of(Factions.VILLAGERS, Factions.MONSTERS, Factions.PIGLINS, Factions.VERDANT_COURT,
+            Factions.TIDEWROUGHT, Factions.STORMCALLERS, Factions.BRASSWORKS);
+        for (int i = 0; i < wards.size(); i++)
+            if (!factions.get(i).equals(wards.get(i).getFaction()))
+                problems.add("Ward Spire " + i + " is not registered to " + factions.get(i).getName());
+        for (String nbt : List.of("sun_spire", "necropolis", "ward_spire"))
+            if (com.solegendary.reignofnether.building.BuildingBlockData.getBuildingNbt(nbt, level.getServer().getResourceManager()) == null)
+                problems.add("the structure " + nbt + " is missing from data/");
+### gametest/HeroGameTests.java (1088 lines)
+/**
+ * Headless tests of hero slice 2 (design/hero_mode.md): the seven faction heroes train at their labs, gain XP from kills
+ * and capture points, get a boon at the level threshold, rank their abilities, cast them, and the XP curve tapers
+ * (the tier-2.5 dip). Their own holder beside SkirmishGameTests (same arena template, unique owners per test, no
+ * global counts) - every test runs in parallel with the rest.
+ */
+@GameTestHolder(ReignOfNether.MOD_ID)
+@PrefixGameTestTemplate(false)
+public class HeroGameTests {
+    static final String ARENA = SkirmishGameTests.ARENA;
+    /** Where each faction trains its hero (the T1 army lab; the Horde's is the Military Portal its bot refits to). */
+    static final Map<String, Building> LABS = Map.of(
+        "villagers", Buildings.BARRACKS,
+        "monsters", Buildings.GRAVEYARD,
+        "piglins", Buildings.PORTAL_MILITARY,
+        "verdant_court", Buildings.GROVE,
+        "tidewrought", Buildings.SLIPWAY,
+        "stormcallers", Buildings.LOTUS_ACADEMY,
+        "brassworks", Buildings.MACHINE_SHOP);
+    static String owner(GameTestHelper helper, String what) {
+        return "gametest_hero_" + what + "_" + helper.absolutePos(BlockPos.ZERO).asLong();
+    }
+    static Mob spawnHero(GameTestHelper helper, HeroKit kit, String owner, int x, int z) {
+        ServerLevel level = helper.getLevel();
+        EntityType<? extends Mob> type = HeroTypes.typeOf(kit);
+        Mob m = type == null ? null : type.create(level);
+        if (m == null)
+            return null;
+        BlockPos at = helper.absolutePos(new BlockPos(x, 2, z));
+        m.moveTo(at.getX() + 0.5, at.getY(), at.getZ() + 0.5, 0, 0);
+        ((Unit) m).setOwnerName(owner);
+        level.addFreshEntity(m);
+        return m;
+    }
+    static Mob spawnUnit(GameTestHelper helper, EntityType<? extends Mob> type, String owner, int x, int z) {
+        Mob m = type.create(helper.getLevel());
+        if (m == null)
+            return null;
+        BlockPos at = helper.absolutePos(new BlockPos(x, 2, z));
+        m.moveTo(at.getX() + 0.5, at.getY(), at.getZ() + 0.5, 0, 0);
+### signatures gametest/SkirmishGameTests.java: public static void every_building_blueprint_loads_on_the_server(GameTestHelper helper) { | public static void extractor_and_windmill_fit_on_a_stamped_patch(GameTestHelper helper) { | public static void patch_stamped_on_a_river_bank_moves_to_dry_ground(GameTestHelper helper) { | public static void home_patches_accept_every_factions_extractor(GameTestHelper helper) { | public static void wildlife_is_cleared_from_bases_but_pigs_stay(GameTestHelper helper) { | public static void placed_extractor_and_windmill_survive_as_sites(GameTestHelper helper) { | public static void commander_war_horn_buffs_allies(GameTestHelper helper) { | public static void liveries_give_zero_armour(GameTestHelper helper) { | public static void colour_palette_is_consistent(GameTestHelper helper) { | public static void wrecks_drop_and_workers_reclaim_metal(GameTestHelper helper) { | public static void area_reclaim_splits_wrecks_between_workers(GameTestHelper helper) { | public static void area_attack_splits_enemies_between_fighters(GameTestHelper helper) { | public static void player_panel_hides_enemy_economy(GameTestHelper helper) { | public static void builders_send_nano_beams(GameTestHelper helper) { | public static void commander_dgun_hits_the_line_only(GameTestHelper helper) { | public static void horde_momentum_builds_on_a_straight_charge(GameTestHelper helper) { | public static void sunforged_formation_needs_two_guards(GameTestHelper helper) { | public static void raise_dead_turns_wrecks_into_ghouls(GameTestHelper helper) { | public static void energy_converter_turns_spare_energy_into_metal(GameTestHelper helper) { | public static void storage_vault_raises_cap_and_its_loss_trims_excess(GameTestHelper helper) { | public static void overflow_goes_to_allies_with_room_not_enemies(GameTestHelper helper) { | public static void overflow_is_wasted_only_when_every_ally_is_full(GameTestHelper helper) { | public static void veterans_rank_up_on_kills(GameTestHelper helper) { | public static void war_mammoth_is_a_proper_t3(GameTestHelper helper) { | public static void sun_colossus_lance_hits_its_lane(GameTestHelper helper) { | public static void bone_dragon_is_a_proper_t3(GameTestHelper helper) { | public static void dragon_risen_skeletons_are_free_and_temporary(GameTestHelper helper) { | public static void t2_constructors_build_faster(GameTestHelper helper) { | public static void capture_point_is_taken_and_pays(GameTestHelper helper) { | public static void bots_play_each_other_without_errors(GameTestHelper helper) {
+### signatures gametest/CommandQueueGameTests.java: public static void shift_queue_holds_at_most_the_cap_per_unit(GameTestHelper helper) { | public static void shift_orders_run_in_order_and_a_plain_order_replaces_them(GameTestHelper helper) { | public static void queued_order_on_a_removed_target_is_skipped(GameTestHelper helper) { | public static void orders_from_a_player_who_does_not_own_the_unit_are_refused(GameTestHelper helper) { | public static void production_rally_points_still_run_in_order(GameTestHelper helper) { | public static void fire_state_toggle_keeps_the_queue_and_the_current_order(GameTestHelper helper) { | public static void orders_take_effect_the_tick_the_packet_is_handled(GameTestHelper helper) { | public static void ctrl_order_interrupts_and_the_interrupted_order_resumes(GameTestHelper helper) { | public static void dying_target_order_is_skipped_in_the_same_pass(GameTestHelper helper) { | public static void shift_order_on_idle_units_starts_them_together(GameTestHelper helper) { | public static void state_commands_leave_the_queue_and_a_patrol_alone(GameTestHelper helper) { | public static void queue_lines_are_read_from_the_units_own_queue(GameTestHelper helper) { | public static void order_item_equality_and_packet_queue_mode_round_trip(GameTestHelper helper) { | public static void stress_command_queue_executor_stays_in_budget(GameTestHelper helper) { | static int oldSlowListScan(ServerLevel level, List<UnitActionItem> slow) { | static Map<String, IntArrayList> oldQueueLines(List<UnitActionItem> slow) { | static void oldCollect(net.minecraft.world.entity.LivingEntity le, Unit unit, List<UnitActionItem> queue, IntArrayList o | static void oldPut(IntArrayList out, int type, BlockPos pos, int eid) { | static boolean oldIsIdle(Mob mob) { | static long allocatedBytes() { | static QueueMode roundTrip(UnitActionServerboundPacket packet, int lastByte) { | static List<int[]> lines(String owner, int unitId) { | static boolean isLine(int[] line, int type, BlockPos pos, int entityId) { | static String describe(List<int[]> lines) { | static String owner(GameTestHelper helper, String tag) { | static BlockPos at(GameTestHelper helper, int x, int z) { | static BlockPos waypoint(GameTestHelper helper, int i) { | static Mob fighter(GameTestHelper helper, String owner, int x, int z) { | static FakePlayer fakePlayer(ServerLevel level, String name) { | static BlockPos moveTarget(Mob unit) {
+### signatures gametest/BigUnitGameTests.java: static String owner(GameTestHelper helper, String tag) { | public static void game_ender_announces_on_start_charges_through_stages_and_loses_charge_to_raids(GameTestHelper helper) | public static void sun_spire_strike_lands_unless_a_charged_ward_spire_intercepts_it(GameTestHelper helper) { | public static void necropolis_raises_a_host_at_the_target_unless_a_ward_spire_intercepts(GameTestHelper helper) { | static Mob spawn(GameTestHelper helper, net.minecraft.world.entity.EntityType<? extends Mob> type, String owner, double  | public static void t2_beasts_are_trained_at_the_t2_labs_and_priced_like_beasts(GameTestHelper helper) { | public static void ossuary_behemoth_eats_wrecks_and_grows(GameTestHelper helper) { | public static void gorehorn_rhino_breach_charge_hits_the_lane_and_stops_at_a_wall(GameTestHelper helper) { | public static void mossback_bison_carries_four_infantry_that_take_half_damage(GameTestHelper helper) { | public static void oriflamme_elephant_aura_buffs_friends_near_it(GameTestHelper helper) { | public static void bots_answer_game_enders_with_wards_and_only_hard_bots_build_them(GameTestHelper helper) { | static void finish(GameTestHelper helper, List<String> problems) { | static WardSpirePlacement chargedWard(ServerLevel level, BlockPos at, String owner) { | public static void round2_beasts_and_game_enders_are_registered_priced_and_known_to_bots(GameTestHelper helper) { | record Ender(com.solegendary.reignofnether.building.Building b, com.solegendary.reignofnether.faction.Faction f, String  | public static void shellback_turtle_moors_into_a_fort_with_a_pool_and_a_deck_battery(GameTestHelper helper) { | public static void jade_qilin_is_a_walking_mana_well_and_a_seal_silences_it(GameTestHelper helper) { | public static void steam_hauler_mends_every_machine_round_it_and_drops_turrets_until_it_vents(GameTestHelper helper) { | public static void doom_forge_waits_for_metal_then_its_meteor_lands_unless_a_ward_intercepts(GameTestHelper helper) { | public static void world_seed_grows_a_grove_round_a_heartroot_until_the_heartroot_dies(GameTestHelper helper) { | public static void maelstrom_engine_charges_off_its_flood_ring_and_its_whirlpool_drags_enemies_in(GameTestHelper helper) | public static void heavens_bell_waits_for_energy_then_its_storm_strikes_enemy_units(GameTestHelper helper) { | public static void earthcracker_vents_between_stages_and_its_fault_line_hits_only_the_line(GameTestHelper helper) {

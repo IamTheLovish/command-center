@@ -1,0 +1,30 @@
+# cc-tests.yml - runs the Command Center tests on a GitHub Windows runner (Windows PowerShell 5.1, same as lovish's PC).
+# Every push to the private command-center repo re-tests the gates, so a change that breaks them shows red at once.
+name: cc-tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: ctx, question-guard, handoff-lint tests
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools\test-ctx-qguard.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: gate-selftest (every recorded mistake replayed)
+        if: always()
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools\cc.ps1 gate-selftest
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: ASCII-only check on scripts (PowerShell 5.1 reads BOM-less files as ANSI)
+        if: always()
+        shell: powershell
+        run: |
+          $bad = Get-ChildItem tools -Recurse -Include *.ps1 | Where-Object { [IO.File]::ReadAllBytes($_.FullName) | Where-Object { $_ -gt 127 } | Select-Object -First 1 }
+          if ($bad) { $bad | ForEach-Object { Write-Host ('non-ASCII: ' + $_.FullName) }; exit 1 }

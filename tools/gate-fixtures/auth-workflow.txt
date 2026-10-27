@@ -1,0 +1,2 @@
+github.com (SYNTHETIC control: real output plus the workflow scope)
+  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'

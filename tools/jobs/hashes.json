@@ -1,0 +1,13 @@
+{
+    "rehashed":  "2026-10-27T00:44:26",
+    "by":  "owner",
+    "files":  {
+                  "job-lib.ps1":  "dba60513c5dbe38429a65ce16b6ca3fa3f164dbe15184d6f5c947033ea1950b3",
+                  "config.json":  "eb5ef55dc3b327225fbfe70a0005336678473d42f4dfec539e18873a70862305",
+                  "main-red.ps1":  "f3c83cbc87c9bfa87bd84efe7c7b672d30077385b947852a7c5c4906c566d123",
+                  "flake-digest.ps1":  "4816988c3f7909956f82244b22199916a9de174ce6284963195adc2b3f9fbc41",
+                  "stale-sweep.ps1":  "2cd75c13848a5c1973e1d9a1b0fa0ea569a136599d7a816c4de4a85227375446",
+                  "ledger-tally.ps1":  "23e386c5bb4ef7c227a1f3e0f4e2143efa0ff701ee68a48a65c948aeb845f1d7",
+                  "auditor.ps1":  "816648cc424cd055f66a4dc461b3aa38ccb60786acb0de61b6838c3420c5cf90"
+              }
+}

@@ -1,0 +1,209 @@
+AREA minimap-orthoview  packages=['minimap', 'orthoview', 'maps', 'rtsmap']  files=35 lines=10914
+SUBDIRS (lines): maps/=5042, orthoview/=2746, minimap/=2740, rtsmap/=386
+TOP FILES:
+   1729 minimap/MinimapClientEvents.java
+   1404 orthoview/OrthoviewClientEvents.java
+   1369 maps/MapLayout.java
+   1034 orthoview/StrategicViewClientEvents.java
+    758 maps/MapClient.java
+    750 maps/MapBuilder.java
+    572 maps/StartPhase.java
+    518 maps/StartMarkers.java
+    441 minimap/MapDrawClientEvents.java
+    295 maps/MapMatch.java
+    179 maps/ExtractorClearance.java
+    167 maps/MapStateClientboundPacket.java
+    148 orthoview/CameraFadeClientEvents.java
+    146 maps/MapPreview.java
+    125 minimap/MinimapViewQuadRenderer.java
+    112 minimap/MapDrawServerboundPacket.java
+    101 minimap/MapDrawRules.java
+     92 maps/MetalOptions.java
+     91 maps/MapPreset.java
+     83 rtsmap/RTSMapInfoServerEvents.java
+     82 minimap/MapMarkerServerboundPacket.java
+     71 maps/StartPhaseServerboundPacket.java
+     70 orthoview/CameraClientboundPacket.java
+     69 orthoview/CameraFadeClientboundPacket.java
+     68 rtsmap/RTSMapInfo.java
+     68 rtsmap/RTSMapInfoServerboundPacket.java
+     63 rtsmap/RTSMapInfoClientEvents.java
+     57 minimap/MapDrawClientboundPacket.java
+     57 rtsmap/RTSMapInfoClientboundPacket.java
+     47 minimap/MapMarkerClientboundPacket.java
+OVER1000: minimap/MinimapClientEvents.java(1729), orthoview/OrthoviewClientEvents.java(1404), maps/MapLayout.java(1369), orthoview/StrategicViewClientEvents.java(1034)
+SUBSCRIBEEVENT files: orthoview/OrthoviewClientEvents.java(13), minimap/MinimapClientEvents.java(7), minimap/MapDrawClientEvents.java(7), maps/MapClient.java(5), orthoview/StrategicViewClientEvents.java(4), maps/StartPhase.java(4), orthoview/CameraFadeClientEvents.java(3), rtsmap/RTSMapInfoServerEvents.java(2), maps/MapMatch.java(2), maps/MapBuilder.java(2)
+PACKET files: maps/MapStateClientboundPacket.java, maps/StartPhaseServerboundPacket.java, minimap/MapDrawClientboundPacket.java, minimap/MapDrawServerboundPacket.java, minimap/MapMarkerClientboundPacket.java, minimap/MapMarkerServerboundPacket.java, orthoview/CameraClientboundPacket.java, orthoview/CameraFadeClientboundPacket.java, rtsmap/RTSMapInfoClientboundPacket.java, rtsmap/RTSMapInfoServerboundPacket.java
+INSTRUMENTATION ids: MINIMAP, STRATEGIC_ICONS, UNIT_RINGS, WORLD_MARKERS
+COMMANDS: 
+IMPORTS FROM OTHER PKGS: building=37, startpos=16, hud=15, player=11, util=11, registrars=10, matchstart=8, unit=8, match=7, sounds=6
+IMPORTED BY: hud=17, mixin=17, gametest=13, matchstart=13, building=12, match=6, unit=6, commands=4, player=4, resources=4
+GAMETEST classes by import count: SkirmishGameTests(44), MapExtraMetalGameTests(4), MapMetalGameTests(4), MatchLifecycleCases(4), SpawnReadyGameTests(4), BotGameTests(3), MapRimGameTests(3), RealmMapGameTests(3)
+--- HEADS (non-import, first 40 lines) of top files ---
+### minimap/MinimapClientEvents.java (1729 lines)
+public class MinimapClientEvents {
+    private static final Minecraft MC = Minecraft.getInstance();
+    private static int worldRadius = 100; // how many world blocks should be mapped
+    private static int mapGuiRadius = 50; // actual size on the screen
+    public static final int CORNER_OFFSET = 10;
+    public static final int BG_OFFSET = 6;
+    private static boolean largeMap = false;
+    public static boolean isLargeMap() { return largeMap; }
+    private static boolean expandedMap = false;
+    public static boolean isExpandedMap() { return expandedMap; }
+    public static int getSizeLevel() { return expandedMap ? MinimapSize.EXPANDED : largeMap ? MinimapSize.LARGE : MinimapSize.SMALL; }
+    private static boolean shouldToggleSize = false;
+    private static boolean markerMode = false;
+    private static final int UNIT_RADIUS = 3;
+    private static final int UNIT_THICKNESS = 1;
+    private static final int PLAYER_RADIUS = 5;
+    private static final int PLAYER_THICKNESS = 1;
+    private static final int START_POS_RADIUS = 7;
+    private static final int START_POS_THICKNESS = 2;
+    private static final int MARKER_RADIUS = 16;
+    private static final int MARKER_THICKNESS = 3;
+    private static final int MARKER_PIXEL_OFFSET = 4; // shift rendered marker to better align with cursor
+    // rate-limit teleporting from dragging the minimap to prevent being kicked from packet spamming
+    private static long lastDragTeleportTimestamp = System.currentTimeMillis();
+    private static BlockPos minimapDragStartBp = null;
+	public static boolean minimapRightClickDown = false;
+    private static DynamicTexture mapTexture = new DynamicTexture(worldRadius * 2, worldRadius * 2, true);
+    private static ResourceLocation mapTexLoc = Minecraft.getInstance().textureManager.register(
+        ReignOfNether.MOD_ID + "_" + "minimap",
+        mapTexture
+    );
+    private static RenderType mapRenderType = RenderType.textSeeThrough(mapTexLoc);
+    private static int[][] mapColoursTerrain = new int[worldRadius * 2][worldRadius * 2];
+    private static int[][] mapColoursOverlays = new int[worldRadius * 2][worldRadius * 2]; // view quad, units, buildings
+    private static int terrainPartition = 1;
+    private static final int TERRAIN_PARTITIONS_MAX = 10;
+    private static int darkTerrainPartition = 1;
+    private static final int DARK_TERRAIN_PARTITIONS_MAX = 5; // sub-partitions of terrain_partitions - so there will
+    // be 5*10 total
+    private static boolean forceUpdateAllPartitions = true;
+### orthoview/OrthoviewClientEvents.java (1404 lines)
+/**
+ * The RTS camera: Beyond All Reason's Spring camera, as far as an orthographic Minecraft view allows
+ * (lovish: "feels weird and isn't as smooth as BAR"). Bindings and config keys: design/camera.md.
+ *
+ * <ul>
+ *   <li><b>Wheel</b> zooms toward the ground under the cursor (zooming out is from the screen centre, as Spring does,
+ *       unless camera_zoom_out_from_cursor). The camera always owns the wheel over the map - a selection, a build
+ *       ghost or Shift never re-route it. <b>Ctrl+wheel</b> tilts.</li>
+ *   <li><b>Tilt follows zoom</b>: angled close up, near top-down zoomed out (camera_pitch_close / _far); Ctrl+wheel,
+ *       Alt+middle-drag and Alt+pan keys add a tilt offset on top.</li>
+ *   <li><b>Middle-drag</b> grabs the map; <b>Alt+middle-drag</b> rotates (yaw) and tilts around the screen centre.</li>
+ *   <li>Keyboard pan (WASD / arrows), screen-edge pan with a short acceleration; pan speed scales with zoom.</li>
+ *   <li><b>Tab</b> overview, camera anchors, and every "look at" (Space alert, portraits, control groups) glide.</li>
+ *   <li><b>Shift never moves the camera</b> - in BAR it only queues orders. It used to tilt / swing the view, and a
+ *       Shift+drag building line that reached a screen edge swung the camera side to side.</li>
+ * </ul>
+ *
+ * All motion runs in one per-frame integrator ({@link #updateCamera}) on real frame time: zoom, yaw and tilt are
+ * critically damped springs (exact solution, so 30 and 300 fps settle identically), panning is velocity-smoothed,
+ * and glides are a 2D spring on the camera position. No allocations per frame. Everything is client-side camera
+ * movement, so it behaves the same for a remote multiplayer client as for the host (the server accepts orthoview
+ * movement from any client - ServerGamePacketListenerImplMixin).
+ *
+ * @author SoLegendary, adapted from Mineshot by Nico Bergemann <barracuda415 at yahoo.de>
+ */
+public class OrthoviewClientEvents {
+    public static final int CHAT_Y_OFFSET = -55; // shift chat up by this much when in RTS cam to make room for the
+    public enum LeafHideMethod {
+        NONE, AROUND_UNITS_AND_CURSOR, // requires threaded video option
+        ALL
+    }
+    public static boolean shouldHideLeaves() {
+        return hideLeavesMethod != LeafHideMethod.NONE;
+    }
+    // Default NONE (lovish Oct 22 17:52): the old default swapped every leaf near the cursor/units for green stained
+    // glass, so trees turned see-through as the cursor moved, and each swap re-meshed the chunk. Trees stay solid;
+    // units under canopies get silhouettes instead (planned). The HUD leaves button still cycles the other modes.
+    public static LeafHideMethod hideLeavesMethod = LeafHideMethod.NONE;
+    public static int enabledCount = 0;
+    public static boolean enabled = false;
+### maps/MapLayout.java (1369 lines)
+/**
+ * The deterministic spec of one battlefield for {@code n} start slots (design/maps.md). Pure maths, no world access,
+ * so the lobby preview, the builder and the fairness game test all read the same thing.
+ *
+ * Fairness by construction: slot i sits at angle {@code pi + 2*pi*i/n} on a ring of radius {@link #ring}. Every
+ * terrain query is folded into the frame of its nearest slot - {@code u} along that slot's axis (centre outwards),
+ * {@code v = |lateral offset|} - and the terrain is a function of (u, v) only, so the map is n-fold rotationally
+ * symmetric with a mirror line through every slot. Mexes, capture sites, vents and pillars are listed once in slot
+ * frame and rotated to every slot. Coordinates in the records are relative to the map centre.
+ */
+public final class MapLayout {
+    public enum Surface { LAND, SAND, GRASS, CLIFF, MESA, WATER, LAVA, VOID, BRIDGE }
+    /** One terrain sample, reused by the builder (no allocation per column). Heights are relative to the base. */
+    public static final class Sample {
+        public int height;
+        public Surface surface = Surface.LAND;
+        /** Fluid surface for WATER / LAVA columns (relative), filled from height+1 up to it. */
+        public int fluidTop;
+        /** May carry a tree (reclaim lane), never near a start. */
+        public boolean forest;
+        /** Folded slot-frame coordinates of the sample, for symmetric decoration hashes. */
+        public double u, v;
+    }
+    public record Slot(int index, int team, int dx, int dz, double angle) { }
+    /** A team's start box: an annular sector [a0, a1] x [r0, r1] about the centre (angles in radians). */
+    public record Box(int team, double a0, double a1, double r0, double r1) {
+        public boolean contains(double dx, double dz) {
+            double r = Math.sqrt(dx * dx + dz * dz);
+            if (r < r0 || r > r1)
+                return false;
+            double d = Math.atan2(dz, dx) - a0;
+            d = ((d % TAU) + TAU) % TAU;
+            return d <= a1 - a0;
+        }
+    }
+    public record Mex(int dx, int dz, float value, int slot) { }
+    public record Site(int dx, int dz, Kind kind) { }
+    public record Spot(int dx, int dz, int size) { }
+    static final double TAU = Math.PI * 2;
+    /** Slot 0 sits due west (-x); the rest follow counter-clockwise on the map. */
+### orthoview/StrategicViewClientEvents.java (1034 lines)
+/**
+ * BAR-style strategic zoom (Beyond and Tabs).
+ *
+ * Past STRATEGIC_ZOOM_ENTER every visible unit is drawn as a team-coloured icon whose shape shows its role
+ * (circle = worker/builder, square = melee, triangle = ranged, diamond = hero, star = commander) and buildings as
+ * team-coloured footprint plates. Unit models (and with them their per-unit health bars, which are drawn from
+ * RenderLivingEvent.Post) are skipped, which is what makes huge battles cheap to look at.
+ *
+ * As in BAR (Spring icontypes) the icon's size follows the unit's tier (UnitIconTier: workers 0.9x, T1 1x,
+ * T2 1.25x, T3 and heroes 1.6x, then the player's Icon size setting), and big units - T3, heroes, the commander,
+ * anything 1.5+ blocks wide - keep their model until BIG_UNIT_ZOOM_MULT times further out, so a Colossus doesn't
+ * pop into a dot at the same zoom as the chaff round it. Every icon sits on a 1 px dark outline so it stays
+ * readable on snow and bright grass; selected units carry a white ring outside that, preselected a grey one.
+ *
+ * Each plate also carries a small role glyph (factory, T2/T3 lab, mex with its tier, wind, converter, defence,
+ * capitol, capture site) so a base doesn't read as a sheet of identical tiles; see drawGlyph.
+ *
+ * Also draws, at any zoom: an attack range ring for the HUD card unit and the hovered unit (never one per unit of
+ * a group), and team-coloured selection rings under selected units (normal zoom only; the icons replace them in
+ * strategic zoom).
+ */
+public class StrategicViewClientEvents {
+    private static final Minecraft MC = Minecraft.getInstance();
+    // icons must take over BEFORE vanilla entity culling starts hiding far mobs, or there's a dead zoom window
+    // where units are invisible but icons haven't kicked in yet (the "units going invisible" bug)
+    public static final float STRATEGIC_ZOOM_ENTER = 70f;
+    public static final float STRATEGIC_ZOOM_EXIT = 62f; // hysteresis so it doesn't flicker at the threshold
+    /**
+     * Big units (UnitIconTier.isBig) switch to icons this much further out than the rest: 70 -> 94.5 at the
+     * default threshold, with the same 8-zoom hysteresis. Safe because EntityMixin.shouldRenderAtSqrDistance
+     * disables vanilla's distance cull in orthoview (and a 1.5-wide unit's own cull would be 96+ blocks anyway),
+     * so there is no window where a big unit is neither model nor icon; and the big switch never arms before the
+     * small one (see updateState), so the two never cross.
+     */
+    public static final float BIG_UNIT_ZOOM_MULT = 1.35f;
+    private static final int RING_SEGMENTS = 48;
+    public static boolean rangeRingsEnabled = true;
+    public static boolean selectionPlatesEnabled = true;
+    private static boolean strategic = false;
+    private static boolean strategicBig = false;   // the big units' own, later switch; implies strategic
+### signatures minimap/MinimapClientEvents.java: public static boolean isLargeMap() { return largeMap; } | public static boolean isExpandedMap() { return expandedMap; } | public static int getSizeLevel() { return expandedMap ? MinimapSize.EXPANDED : largeMap ? MinimapSize.LARGE : MinimapSiz | public static void forceFullRedraw() { | public static boolean shouldHighlightAnimals() { | public static boolean shouldUnderline() { | public static void addNeutralFogUnit(int id, Vector3f vec3fMin, Vector3f vec3fMax) { | public static void removeNeutralFogUnit(int id) { | public static void highlightNeutralFogUnits(PoseStack pose, VertexConsumer vertexConsumer) { | public static void clearVirtualUnits() { | public MapMarker(int x, int z, String playerName) { | public MapMarker(int x, int z, String playerName, int ticks, int pingRgb) { | public boolean tick() { | public static void addMapMarker(int x, int z, String playerName) { | public static void addCombatPing(int x, int z, int rgb) { | public static void addMapMarkerForSelfAndAllies(int mouseX, int mouseY) { | public static void removeVirtualUnit(int id) { | public static void syncVirtualUnits(BlockPos pos, int id, String ownerName, int population) { | public static void setMapCentre(double x, double z) { | public static int getMapGuiRadius() { | public static int getWorldRadius() { | public static int getMapCentreWorldX() { | public static int getMapCentreWorldZ() { | public static boolean isMapReady() { | public static void renderMapInto(GuiGraphics g, int x, int y, int w, int h) { | public static void setLargeMap(boolean large) { | public static void forceMapCentre(int x, int z) { | public static void setMapLocked(boolean locked) { | public static boolean isMapLocked() { | private static void saveSizeConfig() {
+### signatures orthoview/OrthoviewClientEvents.java: public static boolean shouldHideLeaves() { | public static void setMinOrthoviewY(double value) { | public static float getPanSensitivityMult() { | public static void adjustPanSensitivityMult(boolean increase) { | public static void updateOrthoviewY() { | public static boolean isEnabled() { | public static boolean isCameraMovingByMouse() { | public static float getZoom() { | public static float getGroundY() { | public static float getCamRotX() { | public static float getCamRotY() { | public static boolean isOverviewActive() { | public static boolean isCameraLocked() { | public static void lockCam() { | public static void unlockCam() { | private static void reset() { | public static void rotateCam(float x, float y) { | private static void normaliseYaw() { | public static void zoomCam(float zoomAdj) { | public static void setScriptedZoom(float zoomBlocks) { | public static float getZoomMax() { | public static void panCam(float x, float y, float z) { // pan camera relative to rotation | private static void moveCamera(double dx, double dy, double dz) { | private static void moveInViewPlane(double right, double up) { | private static void moveVerticalKeepingView(double dy) { | private static float springStep(float x, float v, float target, float omega, float dt) { | private static double springStepD(double x, double v, double target, double omega, double dt) { | private static float springOmega() { | private static float basePitchDeg(float z) { | private static float clampPitchOffset(float off, float z) {
+### signatures maps/MapLayout.java: public record Slot(int index, int team, int dx, int dz, double angle) { } | public record Box(int team, double a0, double a1, double r0, double r1) { | public boolean contains(double dx, double dz) { | public record Mex(int dx, int dz, float value, int slot) { } | public record Site(int dx, int dz, Kind kind) { } | public record Spot(int dx, int dz, int size) { } | public double slotAngle(int i) { | public static int ringFor(MapPreset preset, int n) { | public static MapLayout build(MapPreset preset, int[] slotTeams) { | public static MapLayout build(MapPreset preset, int[] slotTeams, long seed) { | public static MapLayout build(MapPreset preset, int[] slotTeams, long seed, MetalOptions metal) { | public static MapLayout ring(int[] slotTeams, List<int[]> slotOffsets, int ringRadius, int arenaRadius) { | private List<Box> buildBoxes(int[] slotTeams) { | public Box boxOf(int team) { | private void mex(double u, double v, float value) { | private void mex(double u, double v, float value, boolean nudge) { | private boolean placeMex(double u, double v, float value, boolean nudged, Sample s) { | private boolean copiesPadOk(double u, double v, Sample s) { | private void mexPair(double u, double v, float value) { | private void mexPair(double u, double v, float value, boolean nudge) { | private boolean patchGroundOk(int x, int z, Sample s) { | private static boolean padGround(Sample s) { | private void homeSet() { | private boolean tryHome(double r, double b, Sample s, boolean spaced) { | private void centreRing() { | double centreMexRadius() { | private void boundarySite(double r, Kind kind) { | private void boundaryVent(double r) { | private void ventPair(double u, double v) { | private void pillarPair(double u, double v, int height) {

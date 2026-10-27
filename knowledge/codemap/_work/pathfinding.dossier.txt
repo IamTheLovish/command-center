@@ -1,0 +1,193 @@
+AREA pathfinding  packages=['unit/pathfinding']  files=14 lines=2349
+SUBDIRS (lines): unit/pathfinding=2349
+TOP FILES:
+    385 unit/pathfinding/PathfinderWorkerPool.java
+    273 unit/pathfinding/GridNeighbors.java
+    251 unit/pathfinding/PathConverter.java
+    245 unit/pathfinding/GridAStar.java
+    210 unit/pathfinding/WalkabilityGrid.java
+    197 unit/pathfinding/RtsPathfinder.java
+    196 unit/pathfinding/WalkabilityGridChunk.java
+    192 unit/pathfinding/WalkabilityBuilder.java
+    107 unit/pathfinding/ChunkSnapshot.java
+    106 unit/pathfinding/PathfinderConfig.java
+     73 unit/pathfinding/VanillaPathBudget.java
+     68 unit/pathfinding/MobilityClass.java
+     29 unit/pathfinding/WalkabilityView.java
+     17 unit/pathfinding/PathCallback.java
+OVER1000: 
+SUBSCRIBEEVENT files: unit/pathfinding/PathfinderWorkerPool.java(3)
+PACKET files: 
+INSTRUMENTATION ids: PATHFINDER
+COMMANDS: 
+IMPORTS FROM OTHER PKGS: unit=7, items=2, blocks=2, util=2, tide=1, debug=1, perf=1, registrars=1, resources=1
+IMPORTED BY: 
+GAMETEST classes by import count: 
+--- HEADS (non-import, first 40 lines) of top files ---
+### unit/pathfinding/PathfinderWorkerPool.java (385 lines)
+@Mod.EventBusSubscriber(modid = ReignOfNether.MOD_ID)
+public final class PathfinderWorkerPool {
+    private PathfinderWorkerPool() {}
+    private static volatile ExecutorService POOL;
+    private static final ConcurrentLinkedQueue<Runnable> RESULTS = new ConcurrentLinkedQueue<>();
+    private static final AtomicInteger INFLIGHT = new AtomicInteger(0);
+    // Worker-thread count is the live `pathfindingThreads` gamerule. currentThreads is the size the
+    // running POOL was built with (main-thread only); desiredThreads is the latest requested size
+    // (written from the gamerule command, applied at the next tick START). Hard-capped so a stray
+    // value can't spawn a runaway pool.
+    private static final int MAX_THREAD_CAP = 32;
+    private static int currentThreads = 0;
+    private static volatile int desiredThreads = 0;
+    // Building a request's walkability grid (getBlockState/getCollisionShape) MUST happen on the main thread,
+    // so classifying a whole corridor at once spikes the tick. Each request parks here and its cold chunks are
+    // classified a budget at a time across ticks; once warm it dispatches to the pool. Main-thread-only.
+    private static final ArrayDeque<PendingBuild> BUILD_QUEUE = new ArrayDeque<>();
+    public static boolean isInitialised() {
+        return POOL != null;
+    }
+    @SubscribeEvent
+    public static void onServerStart(ServerStartingEvent evt) {
+        if (POOL != null) return;
+        int n = clampThreads(configuredThreads(evt.getServer()));
+        POOL = newPool(n);
+        currentThreads = n;
+        desiredThreads = n;
+        if (evt.getServer() != null && GameRuleRegistrar.PATHFINDING_CHUNK_BUILDS != null)
+            setChunkBuildsPerTick(evt.getServer().getGameRules().getInt(GameRuleRegistrar.PATHFINDING_CHUNK_BUILDS));
+        INFLIGHT.set(0);
+        RESULTS.clear();
+        BUILD_QUEUE.clear();
+        ReignOfNether.LOGGER.info("RTS pathfinder pool started ({} thread{})", n, n == 1 ? "" : "s");
+    }
+    private static ExecutorService newPool(int n) {
+        return Executors.newFixedThreadPool(n, r -> {
+            Thread t = new Thread(r, "RtsPathfinderPool");
+            t.setDaemon(true);
+            t.setPriority(Thread.NORM_PRIORITY - 1);
+            return t;
+### unit/pathfinding/GridNeighbors.java (273 lines)
+// Shared movement model for grid A* and flow fields, so they can't diverge.
+// 20 neighbours: 8 XZ at same Y, 4 cardinal at Y+1 and Y-1, 4 diagonal at Y-1
+// (diagonal descents let wide units take corner staircases without zig-zagging down one cell at a time).
+public final class GridNeighbors {
+    private GridNeighbors() {}
+    public static final float SQRT2 = 1.41421356f;
+    public static final int[] DX = { 1, -1, 0, 0,   1, -1, 1, -1,   1, -1, 0, 0,   1, -1, 0, 0,   1, -1, 1, -1 };
+    public static final int[] DZ = { 0, 0, 1, -1,   1, -1, -1, 1,   0, 0, 1, -1,   0, 0, 1, -1,   1, -1, -1, 1 };
+    public static final int[] DY = { 0, 0, 0, 0,    0, 0, 0, 0,     1, 1, 1, 1,   -1, -1, -1, -1,  -1, -1, -1, -1 };
+    public static final int COUNT = 20;
+    // Cost of stepping along neighbour d (before terrain cost multiplier).
+    public static float stepCost(int d) {
+        float c;
+        if (DX[d] != 0 && DZ[d] != 0) c = SQRT2;
+        else if (DX[d] != 0 || DZ[d] != 0) c = 1f;
+        else c = 0f;
+        if (DY[d] != 0) c = Math.max(c, 1f) + 0.2f;
+        return c;
+    }
+    // Wide-unit footprint test: a 2x2 body fits if the node cell plus at least one touching 2x2 quadrant is
+    // standable. So it can hug a wall or take a 2-wide gap, but a 1-wide pinch (no clear quadrant) is refused.
+    // Deliberately permissive about being near a wall - crowdingMalus does the steering away from walls when
+    // there's room, rather than a hard 3x3 clearance that refused everything. Cells may straddle a single stair step.
+    // Bodies wider than two blocks (radius 2+) need a bigger box: see footprintBox.
+    public static boolean wideFits(WalkabilityView view, int x, int y, int z) {
+        int r = view.footprintRadius();
+        if (r <= 0) return true;
+        MobilityClass mob = view.mobility();
+        int clearance = view.clearanceCells();
+        float fireCost = view.fireCost();
+        if (!cellStandable(view, mob, x, z, y, clearance, fireCost)) return false;
+        if (r >= 2) return footprintBox(view, mob, x, y, z, r + 1, clearance, fireCost, 0, 0) != NO_BOX;
+        for (int sx = -1; sx <= 1; sx += 2)
+            for (int sz = -1; sz <= 1; sz += 2)
+                if (cellStandable(view, mob, x + sx, z, y, clearance, fireCost)
+                 && cellStandable(view, mob, x, z + sz, y, clearance, fireCost)
+                 && cellStandable(view, mob, x + sx, z + sz, y, clearance, fireCost))
+                    return true;
+        return false;
+    }
+### unit/pathfinding/PathConverter.java (251 lines)
+public final class PathConverter {
+    private PathConverter() {}
+    // How far past the cell centre to aim a climbing unit, into the adjacent wall. A straight-up climb waypoint
+    // shares its XZ with the node below, so without this bias there's no horizontal push - and a spider only
+    // climbs while pressing a wall (vanilla gives +0.2 Y only on horizontalCollision && onClimbable). 0.55 lands
+    // the target just inside the wall cell, forcing the collision, without shoving the body through a diagonal gap.
+    private static final double WALL_PRESS = 0.55;
+    // Going down, the opposite: nudge slightly off the wall. A spider pressing a wall is forced upward (+0.2/tick)
+    // and can't descend; pushed clear, its body no longer collides so it free-falls straight down (no fall damage).
+    private static final double WALL_PUSH_OFF = 0.5;
+    // Extra push past the lip at a descent node, on top of the body's half-width. A wide body stays "on ground"
+    // while any of its base overhangs the lip, so quadrant-centring alone leaves it perched in a deadlock (won't
+    // fall until it moves forward, won't move forward until it falls). The target is pushed forward by bbWidth/2
+    // (to carry the trailing edge past the lip) plus this margin so it fully clears support and commits to the
+    // fall. Width-scaled per-entity in getEntityPosAtNode; separate from and added on top of the quadrant offset.
+    private static final double DROP_CLEAR_MARGIN = 0.5;
+    public static Path toMcPath(List<BlockPos> waypoints, BlockPos target, boolean reached, WalkabilityView view) {
+        ArrayList<Node> nodes = new ArrayList<>(waypoints.size());
+        for (BlockPos bp : waypoints) {
+            Node n = new Node(bp.getX(), bp.getY(), bp.getZ());
+            n.type = typeFor(view, bp);
+            n.costMalus = 0f;
+            nodes.add(n);
+        }
+        if (nodes.isEmpty()) {
+            Node fallback = new Node(target.getX(), target.getY(), target.getZ());
+            fallback.type = BlockPathTypes.WALKABLE;
+            nodes.add(fallback);
+        }
+        // A climb node shares XZ with its predecessor and differs by 1 in Y (a vertical wall move). A node is
+        // "climb-aimed" when it is a climb node or its successor is one, so the unit is already pressing the wall
+        // on the transition cell before it rises or steps off the lip. For those we aim the target into the wall
+        // (see getEntityPosAtNode) and force WALKABLE so navigation doesn't refuse the mid-air cell.
+        boolean[] climbAim = new boolean[nodes.size()];
+        boolean[] descending = new boolean[nodes.size()];
+        Vec3[] wallDir = new Vec3[nodes.size()];
+        for (int i = 0; view != null && i < nodes.size(); i++) {
+            int dir = climbDir(nodes, i); // +1 up, -1 down, 0 not a vertical wall move
+            if (dir == 0) continue;
+            Node n = nodes.get(i);
+### unit/pathfinding/GridAStar.java (245 lines)
+// 3D A* over the shared GridNeighbors movement model.
+public final class GridAStar {
+    private static final float SQRT2 = GridNeighbors.SQRT2;
+    private static final int[] DX = GridNeighbors.DX;
+    private static final int[] DZ = GridNeighbors.DZ;
+    private static final int[] DY = GridNeighbors.DY;
+    // Climb moves for climber units (wall-cling cells only). Strictly straight: vertical up/down the same
+    // column (the climb itself) plus the 4 cardinals to step onto/off a wall and traverse a face. No diagonals
+    // (they'd zig-zag the climb). Stepping onto a cliff lip is a flat horizontal move since the lip counts as a
+    // climb cell (wall one block below, see adjacentToClimbWall). All bypass the footprint/floor gates.
+    private static final int[] CLIMB_DX = { 0,  0,   1, -1,  0,  0 };
+    private static final int[] CLIMB_DY = { 1, -1,   0,  0,  0,  0 };
+    private static final int[] CLIMB_DZ = { 0,  0,   0,  0,  1, -1 };
+    public static final class Result {
+        public final List<BlockPos> waypoints;
+        public final boolean reached;
+        public final int nodesExpanded;
+        public Result(List<BlockPos> waypoints, boolean reached, int nodesExpanded) {
+            this.waypoints = waypoints;
+            this.reached = reached;
+            this.nodesExpanded = nodesExpanded;
+        }
+    }
+    private GridAStar() {}
+    private static long key(int x, int y, int z) {
+        return (((long) (x & 0x1FFFFFF)) << 39)
+             | (((long) (z & 0x1FFFFFF)) << 14)
+             | ((y + 2048) & 0x3FFF);
+    }
+    private static float heuristic(int dx, int dy, int dz) {
+        int ax = Math.abs(dx), az = Math.abs(dz);
+        int min = Math.min(ax, az), max = Math.max(ax, az);
+        return (max - min) + SQRT2 * min + Math.abs(dy);
+    }
+    public static Result search(WalkabilityView view, BlockPos start, BlockPos goal, int reach, int maxRadius, int maxNodes) {
+        int sx = start.getX(), sy = start.getY(), sz = start.getZ();
+        int gx = goal.getX(),  gy = goal.getY(),  gz = goal.getZ();
+        Long2ObjectOpenHashMap<NodeRec> all = new Long2ObjectOpenHashMap<>(1024);
+        PriorityQueue<NodeRec> open = new PriorityQueue<>(256, (a, b) -> Float.compare(a.f, b.f));
+        NodeRec startRec = new NodeRec(sx, sy, sz, 0f, heuristic(gx - sx, gy - sy, gz - sz), null);
+### signatures unit/pathfinding/PathfinderWorkerPool.java: private PathfinderWorkerPool() {} | public static boolean isInitialised() { | public static void onServerStart(ServerStartingEvent evt) { | private static ExecutorService newPool(int n) { | private static int clampThreads(int n) { | private static int configuredThreads(MinecraftServer server) { | public static void requestResize(int n) { | public static void setChunkBuildsPerTick(int n) { | public static int queueDepth() { | public static String debugState() { | private static void applyPendingResize() { | public static void onServerStop(ServerStoppingEvent evt) { | public static void onServerTick(TickEvent.ServerTickEvent evt) { | private static void serverTick(TickEvent.ServerTickEvent evt) { | public static void submit(Level level, BlockPos start, BlockPos target, int reach, MobilityClass mobility, int clearance | private static void processBuildQueue() { | private static void dispatchToPool(PendingBuild pb) {
+### signatures unit/pathfinding/GridNeighbors.java: private GridNeighbors() {} | public static float stepCost(int d) { | public static boolean wideFits(WalkabilityView view, int x, int y, int z) { | public static int boxA(int box) { return box & 0xFF; } | public static int boxB(int box) { return (box >> 8) & 0xFF; } | public static boolean cellStandable(WalkabilityView view, MobilityClass mob, int cx, int cz, int y, int clearance, float | private static boolean headClear(WalkabilityView view, int cx, int fy, int cz, int clearance) { | public static float crowdingMalus(WalkabilityView view, int x, int y, int z) { | public static float crowdingMalus(SolidProbe probe, int clearance, int x, int y, int z) { | private static boolean wallBeside(SolidProbe probe, int cx, int cz, int y, int clearance) { | private static boolean raisedBeside(SolidProbe probe, int cx, int cz, int y) { | public static boolean climbColumnClear(WalkabilityView view, int x, int y, int z) { | public static boolean adjacentToClimbWall(WalkabilityView view, int x, int y, int z) { | private static boolean climbWallColumn(WalkabilityView view, int x, int y, int z) { | public static boolean diagonalBlocked(WalkabilityView view, MobilityClass mob, int fromX, int toY, int fromZ, int dx, in
+### signatures unit/pathfinding/PathConverter.java: private PathConverter() {} | public static Path toMcPath(List<BlockPos> waypoints, BlockPos target, boolean reached, WalkabilityView view) { | private static int footprintBox(WalkabilityView view, Node n, double travelX, double travelZ) { | private static int climbDir(List<Node> nodes, int i) { | private static boolean isClimbNode(List<Node> nodes, int index) { | private static Vec3 footprintOffset(WalkabilityView view, Node n, double travelX, double travelZ) { | private static Vec3 wallDirAt(WalkabilityView view, int x, int y, int z) { | private static boolean columnSolid(WalkabilityView view, int x, int y, int z) { | private Vec3 boxPosition(Entity entity, Node n, int b) { | public Vec3 getEntityPosAtNode(Entity entity, int index) { | private static BlockPathTypes typeFor(WalkabilityView view, BlockPos bp) {

@@ -1,0 +1,29 @@
+﻿diff --git a/bar/src/main/java/com/solegendary/reignofnether/building/buildings/placements/ProductionPlacement.java b/bar/src/main/java/com/solegendary/reignofnether/building/buildings/placements/ProductionPlacement.java
++++ b/bar/src/main/java/com/solegendary/reignofnether/building/buildings/placements/ProductionPlacement.java
+diff --git a/bar/src/main/java/com/solegendary/reignofnether/building/production/ProductionQueueList.java b/bar/src/main/java/com/solegendary/reignofnether/building/production/ProductionQueueList.java
++++ b/bar/src/main/java/com/solegendary/reignofnether/building/production/ProductionQueueList.java
+diff --git a/bar/src/main/java/com/solegendary/reignofnether/building/production/QueuePopulation.java b/bar/src/main/java/com/solegendary/reignofnether/building/production/QueuePopulation.java
++++ b/bar/src/main/java/com/solegendary/reignofnether/building/production/QueuePopulation.java
+diff --git a/bar/src/main/java/com/solegendary/reignofnether/gametest/PerfQuickWinsGameTests.java b/bar/src/main/java/com/solegendary/reignofnether/gametest/PerfQuickWinsGameTests.java
++++ b/bar/src/main/java/com/solegendary/reignofnether/gametest/PerfQuickWinsGameTests.java
++@GameTestHolder(ReignOfNether.MOD_ID)
++    @GameTest(template = ARENA, timeoutTicks = 60)
++    @GameTest(template = ARENA, timeoutTicks = 40)
++    @GameTest(template = ARENA, timeoutTicks = 40)
++    @GameTest(template = ARENA, timeoutTicks = 40)
++    @GameTest(template = ARENA, timeoutTicks = 120)
++    @GameTest(template = ARENA, timeoutTicks = 40)
+diff --git a/bar/src/main/java/com/solegendary/reignofnether/minimap/MinimapClientEvents.java b/bar/src/main/java/com/solegendary/reignofnether/minimap/MinimapClientEvents.java
++++ b/bar/src/main/java/com/solegendary/reignofnether/minimap/MinimapClientEvents.java
+diff --git a/bar/src/main/java/com/solegendary/reignofnether/time/NightUtils.java b/bar/src/main/java/com/solegendary/reignofnether/time/NightUtils.java
++++ b/bar/src/main/java/com/solegendary/reignofnether/time/NightUtils.java
+diff --git a/bar/src/main/java/com/solegendary/reignofnether/unit/ItemPresence.java b/bar/src/main/java/com/solegendary/reignofnether/unit/ItemPresence.java
++++ b/bar/src/main/java/com/solegendary/reignofnether/unit/ItemPresence.java
+diff --git a/bar/src/main/java/com/solegendary/reignofnether/unit/UnitClientEvents.java b/bar/src/main/java/com/solegendary/reignofnether/unit/UnitClientEvents.java
++++ b/bar/src/main/java/com/solegendary/reignofnether/unit/UnitClientEvents.java
+diff --git a/bar/src/main/java/com/solegendary/reignofnether/unit/UnitServerEvents.java b/bar/src/main/java/com/solegendary/reignofnether/unit/UnitServerEvents.java
++++ b/bar/src/main/java/com/solegendary/reignofnether/unit/UnitServerEvents.java
+diff --git a/bar/src/main/java/com/solegendary/reignofnether/unit/interfaces/Unit.java b/bar/src/main/java/com/solegendary/reignofnether/unit/interfaces/Unit.java
++++ b/bar/src/main/java/com/solegendary/reignofnether/unit/interfaces/Unit.java
+diff --git a/bar/src/test/java/com/solegendary/reignofnether/building/production/ProductionQueueListTest.java b/bar/src/test/java/com/solegendary/reignofnether/building/production/ProductionQueueListTest.java
++++ b/bar/src/test/java/com/solegendary/reignofnether/building/production/ProductionQueueListTest.java

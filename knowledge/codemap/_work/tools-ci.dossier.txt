@@ -1,0 +1,470 @@
+﻿AREA tools-ci: tools/ (python+sh) and .github/workflows
+tools files: 156; lines of tools/*.py total: 63485
+TOP tools by lines:
+4110 tools/gen_lobby_art.py
+2900 tools/gen_structures.py
+2679 tools/gen_blocks.py
+1998 tools/gen_hd_skins.py
+1385 tools/gen_storm_skins.py
+1351 tools/lobby_depth.py
+1227 tools/gothic_parts.py
+1191 tools/gen_trees.py
+1159 tools/gen_verdant_skins.py
+1155 tools/gen_sfx.py
+1149 tools/materials.py
+1146 tools/gen_paladin.py
+1115 tools/gen_brass_skins.py
+1073 tools/gen_models.py
+1046 tools/gen_tide_skins.py
+1032 tools/gen_t2t3_skins.py
+994 tools/dsl_to_game.py
+904 tools/capitol_white_angel.py
+820 tools/gen_hud_icons.py
+810 tools/grip_keys.py
+773 tools/lab_graveyard.py
+732 tools/gen_squire.py
+717 tools/gen_levy.py
+716 tools/lab_grove.py
+709 tools/gothic_towers.py
+WORKFLOWS (name / triggers / first comment lines):
+### .github/workflows/build.yml (401 lines)
+name: build
+on:
+  # Runners (lovish Oct 21 02:16: "run multiple runners"): pull-request builds run on GitHub's own runners (free for
+  # this public repo, many at once); pushes to main and manual runs stay on vars.RUNNER (the self-hosted pc-1), so
+  # bar-dev is still published from the same machine. Before, every build queued on pc-1 alone.
+  # push only on main: a PR branch builds once through pull_request (with one self-hosted runner, pc-1, the extra
+  # push run doubled the queue - Oct 18). Other branches can still be built by hand with workflow_dispatch.
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  # pull requests: a newer push to a PR replaces that PR's older queued or running build.
+  # main pushes share ONE group without cancel-in-progress (lovish Oct 21): at most one main build runs and ONE waits;
+### .github/workflows/ci-mirror-report.yml (48 lines)
+name: ci-mirror-report
+# Brings the mirror's results back (see ci-mirror.yml): every 5 minutes, for each open PR labelled `ci-mirror`, read the
+# mirror's newest build.yml run on that PR's head commit and set the commit status `ci-mirror` here to pending /
+# success / failure, linked to the mirror run. The mirror is public, so reading it needs no token. One short job.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+concurrency:
+  group: ci-mirror-report
+  cancel-in-progress: false
+permissions:
+  statuses: write
+  pull-requests: read
+### .github/workflows/ci-mirror.yml (21 lines)
+name: ci-mirror
+# Adding the label `ci-mirror` to a PR sends its GameTests to the org's runners right away (normally build.yml's router
+# decides per build: tools/ci_route.py). Sending = the commit status `ci-mirror` "Queued for the mirror"; the org repo
+# ILovishThe/beyond-and-tabs-ci (mirror-tests.yml) polls for it every 5 min, reads the PR from this PUBLIC repo and
+# runs the tests - no secrets anywhere. ci-mirror-report.yml brings the result back.
+on:
+  pull_request:
+    types: [labeled]
+permissions:
+  statuses: write
+jobs:
+  queue:
+    if: ${{ github.event.label.name == 'ci-mirror' }}
+    runs-on: ubuntu-latest
+### .github/workflows/concepts.yml (141 lines)
+# "Concepts": renders the box models in design/models/ (DSL in design/models/README.md) into concept sheets with
+# Blender 4.2 LTS on a plain CI runner - no GPU anywhere: Cycles on the CPU for the stills, Workbench for the black
+# silhouette, EEVEE under Xvfb + Mesa llvmpipe for the turntable with Workbench as the fallback. The results go to
+# the `concepts` branch (same orphan-branch pattern as eyes.yml) so the developer AI can read them with the Read
+# tool. Blender is GPL and only runs here as a tool: nothing from it ships in the jar, nothing runs on anyone's PC.
+# workflow_dispatch only works once this file is on the default branch.
+name: concepts
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: Space-separated model JSON paths (empty = every file under design/models/)
+        default: ''
+      samples:
+### .github/workflows/ears.yml (144 lines)
+# "Ears": lets the developer AI judge sound it cannot hear. For every audio file matched by the glob it produces a
+# spectrogram picture (pitch, harshness, hiss, clipping are visible), a speech-to-text transcript (open-source Whisper,
+# so intelligibility and pronunciation can be checked) and measurements (loudness LUFS, peak, length, median pitch,
+# words per second). Results go to the `ears` branch as report.md + PNGs. Runs only on demand; touches nobody's PC.
+name: ears
+on:
+  workflow_dispatch:
+    inputs:
+      glob:
+        description: Files to analyse (glob, relative to the repo root)
+        required: true
+        default: 'bar/src/main/resources/assets/reignofnether/sounds/announcer/*.ogg'
+      transcribe:
+        description: Run speech-to-text (true for voice lines, false for sound effects)
+### .github/workflows/eyes-approve.yml (35 lines)
+# Approves an eyes run's stills as the baseline for picture regression (R6, tools/eyes_diff.py): copies the stills of
+# branch `eyes` (or `eyes-shaders`) to `<lane>-approved`. Run it after a run whose look lovish or the art review signed
+# off: `gh workflow run eyes-approve.yml --ref main -f lane=eyes`.
+name: eyes-approve
+on:
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: Which tour lane to approve - eyes or eyes-shaders
+        default: eyes
+permissions:
+  contents: write
+jobs:
+  approve:
+### .github/workflows/eyes.yml (554 lines)
+# "Eyes": runs the REAL game client on a CI runner (Xvfb + Mesa software rendering, HeadlessMC via the MIT-licensed
+# headlesshq/mc-runtime-test action), lets matchstart/EyesDirector play a scripted tour (-Dbat.eyes=true) and publishes
+# the screenshots to the `eyes` branch, so the developer AI can see what a player sees. Since Oct 13 the display is also
+# recorded (tools/eyes_record.sh, ffmpeg x11grab) and cut into a ten-second clip per still (tools/eyes_cut.py), so motion -
+# camera glides, animation, fights - can be studied frame by frame like a playtest clip. Nothing here touches anyone's PC.
+#
+# Structure photos (input `structure`, Oct 20 2026): instead of the tour, stamp each named structure on a flat pad and
+# photograph it - RTS view, RTS close, a first-person 3/4 view and the 3/4 view at dusk (EyesDirector scene 15) - with
+# the real textures, the building-block mods and, with `shaders`, the shader lane. Stills land on branch
+# eyes-structures (eyes-structures-shaders with shaders on) as bat_eyes_15_<name>_{rts,rts_close,34,dusk}.png.
+# An entry is a structure name in the jar (data/reignofnether/structures/<name>.nbt) or a .nbt path in the checkout.
+# For a design that only exists on a feature branch, dispatch ON THAT BRANCH (it must contain this workflow, i.e. be
+# based on a main that has it): the run then uses the jar of that branch's newest build run (its PR build) and the
+# branch's own .nbt files, e.g.
+### .github/workflows/face-census.yml (60 lines)
+# "Face census" (tools/face_census.py): which block textures the RTS camera sees on our faction buildings, face by
+# face, and which of them our realistic pack (tools/gen_blocks.py) does not cover yet - the partial blocks (a realistic
+# side under a vanilla 16x top) first. The game's own blockstates and models come from Mojang's client jar (official
+# download, sha1-checked, kept in the runner's temp folder and deleted after the census). Only texture NAMES and face
+# areas leave the run: census.md / census.json on the face-census branch, the job summary and one notice.
+name: face-census
+on:
+  workflow_dispatch:
+    inputs:
+      game_version:
+        description: Minecraft version whose blockstates and models are read
+        default: '1.20.1'
+permissions:
+  contents: write
+### .github/workflows/flake-stress.yml (134 lines)
+name: flake-stress
+# Runs a few chosen GameTests on many runners at once and adds up how often each one fails - so a flaky test gets a
+# real fail rate instead of "it failed once on #55", and a flake fix can be proven (0 of N) rather than hoped for.
+# Costs no Claude usage: public-repo runner minutes only. Manual only (never on push).
+#   gh workflow run flake-stress.yml -f ref=<branch> -f tests="test:six_melee,test:stuck_chaser" -f runners=8
+# Each runner compiles bar/ and runs only BAT_GAMETEST_ONLY (gametest/GameTestShards: batch names or test:<prefix>).
+# A flake that only shows inside a full shard (its neighbours' units, the shard's load and arena layout) is repeated as
+# that whole shard: `-f shard=1 -f focus=tidewrought_t2` runs shard 1 (everything no SHARD_n line names) on every runner,
+# exactly as build.yml cuts it from the SHARD_n lines of the checked-out ref, and the summary then lists only the tests
+# `focus` names (prefixes, comma-separated) plus every failure. With `shard` set, `tests` is ignored.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+### .github/workflows/installer.yml (49 lines)
+# Builds the one-click Windows installer (installer/) and publishes it on the 'installer' release.
+# The .exe downloads Prism Launcher, the current test-pack .mrpack and every mod at install time, so it does not
+# need rebuilding when the modpack changes - only when installer/ changes. The download page lives in docs/
+# (GitHub Pages) and links to the asset on this release.
+name: installer
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['installer/**', '.github/workflows/installer.yml']
+permissions:
+  contents: write
+concurrency:
+  group: installer
+### .github/workflows/macpack.yml (26 lines)
+name: macpack
+# Mac-safe copy of the current tester pack (lovish, Oct 12): the same BeyondAndTabs-test.mrpack on the test-pack
+# release, minus the graphics speed-up mods that sometimes misbehave on macOS drivers (Embeddium,
+# ImmediatelyFast) and the addons that need them (Embeddium Extra; list: build_pack.MAC_SKIP). It reuses the pack
+# already published, so the game jar inside stays exactly the build the host has installed - nothing is rebuilt. Run it from Actions -> macpack -> Run workflow (modpack.y
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [modpack]
+    types: [completed]
+permissions:
+  contents: write
+jobs:
+  mac:
+### .github/workflows/modpack.yml (78 lines)
+# Builds the tester modpack (BeyondAndTabs-test.mrpack) and publishes it on the 'test-pack' pre-release.
+# The Modrinth lookups run here because the dev sandbox can only reach GitHub. Re-run it (Actions -> modpack ->
+# Run workflow) whenever bar-dev has a new jar: it always packs the current bar-dev build.
+name: modpack
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build the pack (and its Mac copy) and keep both as the run's artifact; publish nothing - to prove a pack change from a branch before testers get it"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths: ['pack/**', '.github/workflows/modpack.yml']
+### .github/workflows/pack-study.yml (106 lines)
+# "Pack study": the numbers behind a mature realistic resource pack, to calibrate OUR OWN realistic pack and unit
+# materials (tools/materials.py, tools/gen_blocks.py). lovish, Oct 15 04:13: study the free Patrix 32x for NUMBERS
+# ONLY - Patrix is All Rights Reserved, so nothing of it is kept: the official file is downloaded from Modrinth at run
+# time (sha512-checked), unpacked into the runner's temp folder, measured by tools/pack_study.py, and deleted. Only
+# statistics (study.json / study.md) reach the `pack-study` branch and the job summary - no pixel, crop or image.
+# Our own unit atlases are measured the same way beside it, so every number has its counterpart.
+name: pack-study
+on:
+  workflow_dispatch:
+    inputs:
+      project:
+        description: Modrinth project id or slug of the resource pack to study (default = Patrix 32x), or 'vanilla' for the game's own textures (Mojang's client jar, sha1
+        default: olO1TaXd
+      game_version:
+### .github/workflows/pc-files.yml (50 lines)
+# "PC files": the third-party files for lovish's install, fetched on a runner from their official Modrinth pages with
+# the sha512 Modrinth publishes checked - the workspace cannot reach Modrinth, and nothing here touches anyone's PC.
+# The files ride a short-lived artifact (1 day) that the session downloads, re-checks and puts on his PC only after
+# his OK per file (Pillar Zero: official source, checksum, his yes). Pinned to the exact versions the shader tours
+# run (eyes.yml): Oculus 1.20.1-1.8.0 (needs Embeddium 0.3.31, already in his instance) and Complementary Reimagined
+# r5.9.3. Never committed to the repo (Oculus LGPL-3; Complementary: normal use per its licence).
+name: pc-files
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+### .github/workflows/publish-pack.yml (237 lines)
+# Publishes the AUTO-UPDATING tester pack to the public download repo (PACK_REPO below).
+#
+# Testers import ONE link once (the "install" release of the download repo, Windows or Mac zip) into Prism Launcher.
+# That instance runs packwiz-installer-bootstrap before every launch and pulls whatever this workflow published last,
+# so a new version never needs a new link.
+#
+# AUTOMATIC (lovish, Oct 17 2026: "make this automatic"): runs after every SUCCESSFUL build of main, and publishes
+# only when the bar-dev jar or the realistic resource pack actually changed (same bytes = nothing to download).
+# Manual run: Actions -> publish-pack -> Run workflow (always publishes, with an optional note for testers).
+# Everyone - lovish included - should play from this pack's instance, so all players update together on launch;
+# someone who stays in a game across a publish must restart before joining the others again.
+# To go back to manual-only: delete the `workflow_run` trigger below.
+#
+# Needs the repository secret PACK_TOKEN: a fine-grained token with Contents: Read and write on the download repo
+### .github/workflows/voice-reel.yml (112 lines)
+name: voice-reel
+# The narrator SAMPLE REEL (claude/narrator-voice.md): the six lines of tools/voice_reel_lines.txt in three Kokoro
+# voices (Apache-2.0, see NOTICE.md), each in two treatments - "computer" (today's ship's-computer chain) and
+# "alice" (the Oct 13 direction: pitched down ~2 semitones, no chorus, a short soft room, -18 LUFS). 36 oggs under
+# reel/ on the branch `voice-reel` (rebuilt on origin/main), so a session can fetch them with the API, run ears.yml
+# on that branch (glob reel/*.ogg, deep=true) and send lovish the reel to pick by ear. Never touches main or the jar.
+on:
+  workflow_dispatch:
+    inputs:
+      voices:
+        description: Space-separated Kokoro voice ids
+        default: af_heart bf_emma bf_isabella
+      speed:
+        description: Speaking speed (1.0 = normal)
+### .github/workflows/voice.yml (112 lines)
+name: voice
+# Generates the announcer voice lines (tools/voice_lines.txt) with Kokoro-82M (Apache-2.0, see NOTICE.md), uploads
+# them as the "announcer-voice" artifact and - on workflow_dispatch, or a push that changes the script - commits them
+# to the branch "voice-oggs" (never main) under bar/src/main/resources/assets/reignofnether/sounds/announcer/, so the
+# next session only has to merge that branch: the Claude sandbox can't download an Actions artifact. The game build
+# never needs the model; a missing ogg falls back to the chord (NotificationClientEvents).
+# workflow_dispatch only works once this file is on the default branch, so pushes that change the script also run it.
+on:
+  workflow_dispatch:
+    inputs:
+      voice:
+        description: Kokoro voice id (af_heart, af_bella, bf_emma, ...)
+        default: af_heart
+      speed:
+### .github/workflows/web-eyes.yml (60 lines)
+# "Web eyes": the dev sandbox can't open most websites, so this runner takes screenshots of reference pages
+# (BAR screenshots, art references, docs) with headless Chromium and publishes them to the `web-eyes` branch, where the
+# developer AI can look at them. Read-only browsing: nothing is clicked, submitted or downloaded besides the pages.
+name: web-eyes
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: Space-separated URLs to screenshot (full page, 1600 px wide)
+        required: true
+permissions:
+  contents: write
+jobs:
+  shots:
+### build.yml SHARD lines
+  # ADDING A SHARD = ONE NEW LINE `SHARD_9: "..."` (the `changes` job builds the matrix from these lines, shard 1 skips
+  SHARD_2: "test:production_buildings_place_every_unit_6,test:production_buildings_place_every_unit_3,test:production_buildings_place_every_unit_1"
+  SHARD_3: "test:production_buildings_place_every_unit_0,test:production_buildings_place_every_unit_5,test:production_buildings_place_every_unit_7"
+  SHARD_4: "duel_matrix"
+  SHARD_5: "duel_counters"
+  SHARD_6: "test:bots_pl,test:striker_autocasts_on_an_enemy_in_range"
+  SHARD_7: "test:des,test:ear,test:enhanced_t,test:every_building_b,test:every_building_h,test:every_c,test:exp,test:faction_aura_s,test:fire,test:game_ender_c,test:hero_gains_x,test:hero_ge,test:hero
+  SHARD_8: "test:every_e,test:every_f,test:every_m,test:every_s,test:every_t,test:every_u,test:exi,test:ext,test:faction_aura_r,test:faction_l,test:fie,test:firs,test:fl,test:fo,test:fr,test:game_ende
+  SHARD_9: "test:bots_reach_tier_2"
+### known_flakes.txt
+# GameTests that fail at random on CI. tools/ci_wait.py reruns a run once when every failed test is on this list.
+# A flake is a bug (in the game or the test) - fix it and take its line off. Add a line only after you have seen
+# the same test fail and pass on the same commit, and say where you saw it.
+bots_play_each_other_without_errors          # soak stall; #55, #68 (Oct 21), mirror 39860849689 (Oct 22). Cause found, fix on claude/flake-fixes: the bot laid a site on a tree canopy ~5 blocks over its builders (leaves are solid for getHighestNonAirBlock); 10/10 in stress but it never failed there on the old code either (site depends on the arena layout) - take this line off after a few green main builds
+bots_reach_tier_2_after_fielding_t1_units_and_not_before_minute_5   # "medium (MEDIUM piglins) never finished its T2 lab": flake-stress 40022354822 on main 5ce0ea3 failed 1/5; PR #202 0db999e failed then passed on rerun (Oct 23). Bot economy timing - cause not found
+artillery_fires_over_a_wall_without_walking_in   # "no shell has landed on the target yet": PR #212 0e8a90fb failed then passed on rerun (Oct 23). Cause not found
+attack_move_stops_to_fight_then_carries_on  # "stopped 3 blocks short"; red then green on the same commit, PR #119 run 39704723375 (Oct 22), 6 of 6 alone in flake-stress 39706417949; stop-short family, cause unproven: a red run now names its orders, path and the units round it
+### tools heads
+### tools/ci_plan.py
+#!/usr/bin/env python3
+"""The `changes` job of .github/workflows/build.yml: what does this run need to test? Writes three step outputs.
+
+  matrix  JSON list of the GameTest shard numbers >= 2, from the SHARD_n variables of the workflow's env block
+          (adding a shard = adding a SHARD_9 line there); shards = their count + 1 (shard 1 is job `bar`).
+  code    "true" when anything outside the docs changed, so the GameTests must run; "false" when every changed file
+          is documentation (below), and jobs bar / bar-tests are skipped - skipped counts as passing for
+          tools/ci_wait.py, and a docs-only main push has nothing new to publish. The fast `build` checks always run.
+
+What was changed is read from the compare API (no history needed):
+  pull_request       the PR's changes since its merge base (base.sha...head.sha);
+  push to main       everything since the head commit of the LAST SUCCESSFUL main build - not the previous commit: when
+                     a quick batch of merges makes builds queue and a pending one is replaced (concurrency group), a
+                     docs-only push right after a replaced code push must still test that code;
+  workflow_dispatch  always code.
+Anything unsure (API error, no base, 300+ files, an empty diff) counts as code. Docs = *.md anywhere, docs/**, and the
+design sheets design/*.png. Everything else (java, json, py, gradle, workflows, resources, design/*.json, nbt ...) is
+code.
+### tools/ci_wait.py
+#!/usr/bin/env python3
+"""Wait quietly for CI on a commit or PR, rerun known flakes once, print one summary.
+
+Why: an agent that polls CI in a sleep loop pays for every check-in. This script does the waiting itself, so a session
+starts it once (in the background where the tool allows it) and reads one result at the end.
+
+Usage:
+  python3 tools/ci_wait.py --pr 81
+  python3 tools/ci_wait.py --sha 57407cca
+  python3 tools/ci_wait.py --pr 81 --timeout 120 --no-rerun
+
+Exit codes: 0 = all checks green (or skipped), 1 = red or cancelled, 2 = timed out, 3 = usage / API error.
+With --pr it follows the PR to its newest commit, so a push while waiting does not end the wait.
+
+Known flakes live in tools/known_flakes.txt (one GameTest name per line). When every failed GameTest of a run is on
+that list, the failed jobs are rerun once (--reruns to change) and the wait continues. A failure that names no test
+(build error, check_java, a crash) is never rerun - it is real until someone reads it. Fixing a flake beats listing it:
+take a name off the list when its fix lands.
+### tools/check_server_client_imports.py
+#!/usr/bin/env python3
+"""Server code must not import client-only classes (improve-004, Oct 22 2026).
+
+CommandsServerEvents called net.minecraft.client.resources.language.I18n.get on the server (unit action with an owner,
+invalid rotation, resource add). On a dedicated server that class is absent: NoClassDefFoundError, an Error that
+Brigadier does not catch, so the command (and the tick) dies. GameTests cannot show it - the GameTest server runs from
+the full dev jar where client classes exist - so this is a static guard.
+
+Checked files (the server/common side):
+  - any class named *ServerEvents*, *Server.java, or *ServerboundPacket (packets run their handler on the server)
+  - any class with @Mod.EventBusSubscriber that is not Dist.CLIENT-only
+  - everything under commands/ except commands/lang/ (the client-side command bar)
+A checked file fails when it imports net.minecraft.client.* or com.mojang.blaze3d.* and is not marked Dist.CLIENT.
+
+ServerboundPacket classes keep client-side static helpers (they send the packet from the client) next to the server
+handler; those are listed in CLIENT_HELPER_PACKETS with the reason, and their handler must stay free of client calls.
+Use Component.translatable(...) (the client translates it) instead of I18n on the server.
+
+### tools/check_shards.py
+#!/usr/bin/env python3
+"""Static check of the GameTest shard lists at the top of .github/workflows/build.yml (SHARD_2, SHARD_3, ...).
+
+CI runs shard N >= 2 with BAT_GAMETEST_ONLY=<SHARD_N> and shard 1 with BAT_GAMETEST_SKIP=<every list joined>
+(gametest/GameTestShards). Every test then runs exactly once only if no two lists name the same test - a test named by
+two lists would run twice (and slow two shards), which CI's `bar-audit` job would only report after a full run. This
+reads the @GameTest methods out of the sources (a test's name in CI is its lower-cased method name, no class prefix -
+the [TestTime] lines), applies the same matching as GameTestShards.named() and fails when
+
+  - a test is named by two lists (it would run twice), or
+  - a list entry names no test at all (a typo - the shard would silently be smaller than meant).
+
+It also prints each shard's test count (shard 1 = everything unnamed) so a re-balance can be eyeballed before a push;
+real wall times come from each shard's "[GameTest timing]" notice and the `gametests-shard-N` artifacts.
+Entries that name a vanilla chunk ("defaultBatch:3") cannot be resolved from the sources and are skipped here.
+
+    python3 tools/check_shards.py
+"""
+### tools/prepush.sh
+#!/usr/bin/env bash
+# Run CI's fast checks locally before a push, so a 25-minute CI run is never spent finding a check_java error.
+# Mirrors the `build` job in .github/workflows/build.yml up to the gradle step (keep the two in step: when a check is
+# added there, add it here). Seconds, not minutes. Exit 0 = every check passed; it runs them all and lists the failures.
+# Usage: bash tools/prepush.sh            (from the repo root)
+#        bash tools/prepush.sh --quick    (skip the engine javac bench compile)
+set -u
+cd "$(git rev-parse --show-toplevel)" || exit 2
+quick=0; [ "${1:-}" = "--quick" ] && quick=1
+failed=()
+run() {  # run "<label>" <command...>; its own exit code decides
+  local label="$1"; shift
+  if "$@" >/tmp/prepush.$$.log 2>&1; then echo "ok    $label"
+  else echo "FAIL  $label"; sed 's/^/      /' /tmp/prepush.$$.log | tail -25; failed+=("$label"); fi
+}
+run "preflight (design sheets)"   python3 tools/preflight.py --allow-unverified
+run "generated code matches"      bash -c 'python3 tools/gen_java.py && git diff --exit-code engine/src/main/java/dev/beyondtabs/engine/gen'
+run "check_java"                  bash -c "python3 tools/check_java.py \$(git ls-files 'bar/src/main/java/*.java' 'mod/src/main/java/*.java' 'engine/src/*.java'
+### tools/claim.py
+#!/usr/bin/env python3
+"""Claim work before starting it, so two sessions never build the same thing.
+
+Claims live as comments on the claims issue (#91, override with BAT_CLAIMS_ISSUE). Every lane and every agent runs
+`check` before starting a task and `take` before writing code.
+
+  python3 tools/claim.py check merged buildings wind      # overlapping open PRs + active claims; exit 1 if any
+  python3 tools/claim.py take merged-buildings-1 --lane "Lane A" --branch claude/merged-buildings-1 \
+          --what "White Angel wind generators merge, sizes 2-9" [--hours 24]
+  python3 tools/claim.py release merged-buildings-1
+  python3 tools/claim.py list
+
+Comment format (machine-read; keep it): `CLAIM <slug> | <lane> | <branch> | <what> | until <ISO UTC>` and
+`RELEASE <slug>`. A claim is active until released or past its time. Matching is by words (case-insensitive, words of 3+
+letters, plus the slug), against PR titles, branch names and claims - crude on purpose: a false alarm costs a look, a
+missed duplicate costs a whole PR.
+Needs: gh (signed in).
+"""
+### tools/ci_route.py
+#!/usr/bin/env python3
+"""Where should this PR's GameTests run? build.yml's `changes` job asks; prints `where=here|mirror` to GITHUB_OUTPUT.
+
+lovish, Oct 22 01:53: "I want to be cycling through the 40 runners as well as possible". GitHub Free gives this account
+20 concurrent jobs and the org ILovishThe another 20 (its repo ILovishThe/beyond-and-tabs-ci runs the GameTests
+from this public repo with mirror-tests.yml - no secrets).
+
+  mirror  the PR has the label `ci-mirror` (forced), or the mirror has fewer GameTest jobs waiting or running than here
+  here    everything else: main pushes and manual runs (always: main is tested and published here), the label
+          `ci-here` (forced), an API error (unsure -> here), or here
+          is no busier than the mirror.
+
+Load = queued + in-progress runs (build.yml here, mirror-tests.yml there), counted from each repo's runs (a queued run that has not started
+its jobs yet counts as a whole build, ~10 jobs). Both read with GH_TOKEN (the mirror is public; the token only lifts the
+rate limit). Only PR test runs count there (event workflow_dispatch), not the always-on watcher.
+"""
+import json
+import os
+### tools/check_guards.py
+#!/usr/bin/env python3
+"""Two "Never twice" guards (claude/improvement-loop.md, Oct 21 2026) - a rule broken once becomes a check.
+
+1. Camera keys stay camera keys. lovish (Oct 20): "fight command is on a instead of f which is blocking the wasd
+   camera" - Attack defaulted to A, which is also pan-left (fixed in #39). A default binding outside the camera
+   category on W/A/S/D or an arrow key fails here, unless it is listed in ALLOWED_ON_CAMERA_KEYS with the reason.
+
+2. No new GameTests in the shared hot file. Two PRs that both added tests at the same spot in SkirmishGameTests.java
+   conflicted (#44 / #45, Oct 21). New tests go in their own class (gametest/<Topic>GameTests.java), as Lane C does.
+   On a pull request this compares the @GameTest count in SkirmishGameTests.java with the base branch and fails if
+   it grew. Moving tests OUT of the file is always fine. Outside a PR (a push to main, a local run) it checks against
+   origin/main when that ref exists, and skips otherwise.
+
+Usage: python3 tools/check_guards.py      (exit 1 on a failure, with the reason)
+"""
+import os
+import re
+import subprocess

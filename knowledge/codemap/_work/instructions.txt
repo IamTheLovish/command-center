@@ -1,0 +1,15 @@
+INSTRUCTIONS
+You are building a compact code map for one area of a Minecraft Forge 1.20.1 RTS mod (package com.solegendary.reignofnether; paths are relative to it). The DOSSIER below is machine-generated facts: line counts, top files, @SubscribeEvent counts, instrumentation ids, imports, and the first lines of the biggest files. Write ONLY these markdown sections, max 40 lines total, terse, no preamble:
+## Purpose
+(2 lines)
+## Key classes
+(one line each, 12-18 lines: `path` (~lines) - role. Use the exact line counts from the dossier. Append " [OVER 1000]" for files over 1000 lines. Take roles from the file heads/signatures; if you only have the file name to go on, append "(name-based)".)
+## Entry points and events
+(tick handlers, packets, commands, event classes seen in the dossier; 4-8 lines)
+## Server vs client
+(which classes are server-only vs client-only, judged from names like ServerEvents/ClientEvents and the dossier; 2-4 lines)
+## Data flow
+(what this area imports from and who imports it, from the IMPORTS and IMPORTED BY lines; 3-5 lines)
+## Instrumentation and tests
+(FrameParts/Sys ids from the dossier, GameTest classes from the dossier; 2-4 lines; say 'none seen' if empty)
+Rules: never invent a class, number or path that is not in the dossier. If unsure write (?). Do not write a TRAPS section.
