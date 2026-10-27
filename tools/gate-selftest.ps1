@@ -138,6 +138,20 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
     St-Assert $case[3] $c 'branch-check' $case[1] $case[2]
   }
 
+  # ---- M17 reviewers blocked by the 2h rule (Oct 27 overnight: Mode A reviewers could not start on a branch whose
+  #      builder had just pushed, which is exactly when a review is due). A read-only reviewer gets WARN for recent
+  #      activity; a running builder row of another gen still blocks it, and builders are unchanged.
+  $s17 = St-Stub $tmp 'm17' $fx 'auth-noworkflow.txt'
+  St-Fix247 $s17 'open cmt-none'
+  $c = Invoke-GatePreflight (St-Ctx $r16 $s17 $now) @{ Task = 'x'; Pr = '247'; Reviewer = $true }
+  St-Assert 'M17 reviewer: recent comment only warns' $c 'branch-check' 'WARN' 'PR comment'
+  $c = Invoke-GatePreflight (St-Ctx $r16 $s17 $now) @{ Task = 'x'; Pr = '247' }
+  St-Assert 'M17 control: builder still blocked by recent comment' $c 'branch-check' 'FAIL' 'PR comment'
+  $r17 = St-Root $tmp 'm17' $fx $good
+  Write-Text (Join-Path $r17 'usage\ledger-2026-10-27.md') ($ledgerHdr + "| 07:50 | A | 013 | owns #247 fix round 2 | opus | xhigh | - | running | tier: core [id:cc33] |`r`n") $false
+  $c = Invoke-GatePreflight (St-Ctx $r17 $s17 $now) @{ Task = 'x'; Pr = '247'; Reviewer = $true }
+  St-Assert 'M17 control: reviewer still blocked by a running builder row' $c 'branch-check' 'FAIL' 'running ledger row'
+
   # ---- accept: independence, stale sha, old file, gametests, CI
   $s3 = St-Stub $tmp 'pos' $fx 'auth-noworkflow.txt'
   St-Fix247 $s3 'open authors stress'
