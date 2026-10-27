@@ -15,7 +15,7 @@ with `gh pr view` before acting on it (branch-check rule).
 | 1 | Merge Joisco's **#276** | game repo | main cannot open any world since #248 ("Channels [reignofnether:main] rejected their server side version number"). Verified in a real client by merging it locally. |
 | 2 | Merge **#273** (claude/flake-roots) | game repo | fixes `elder_druid_is_a_t2_worker` on main (stale test after #253) plus the fog-snapshot block-entity bug. Report: `briefs/flake-roots-2026-10-27-REPORT.md`. Design note: if the Elder Druid should keep Awaken Thicket, the fix goes the other way. |
 | 3 | Merge **#274** (mode-a gate workflow), then apply `guards/github/protection.json` | game repo | Mode A PASS on e090f687 (round 2). Test the app_id on one throwaway PR first (guards/github/README.md). main is still unprotected. |
-| 4 | Re-enable the nightly jobs or keep them off | Task Scheduler | D043: all five jobs DISABLED at 04:37 ("stop automatic usage"); D037 is suspended until lovish says otherwise. |
+| 4 | Nightly jobs | Task Scheduler | stay off (D046); D037 suspended until lovish says otherwise. |
 
 ## Game repo work (needs a session in `D:\BeyondAndTabs-Repo`)
 
@@ -33,6 +33,6 @@ with `gh pr view` before acting on it (branch-check rule).
 
 | # | What | Status |
 |---|---|---|
-| 12 | The "lovish" desktop shortcut launches Prism with `-l "BeyondAndTabs"`, an empty instance; the real id is `BeyondAndTabs(1)` (`D:\Downloads\BeyondAndTabs-Test`). | not changed: lovish's shortcut, asked in the status message |
+| 12 | The "lovish" desktop shortcut was said to launch the empty `BeyondAndTabs` instance. | checked: it already launches `BeyondAndTabs(1)` through `D:\BeyondAndTabs-Server\Play Beyond and Tabs.bat` (D045) |
 | 13 | Gate-hook blocked reviewer agents on branches with commits under 2h old. | DONE on `cc/gen014-guards-and-reports`: M17, `-Reviewer` / brief line `ROLE: reviewer`; selftest 44/44 |
 | 14 | Private repo `main` (origin) and the public mirror (`public`) have unrelated histories; M16 (branch-check own-gen comments) is only on the public side. | asked: which remote gets `cc/gen014-guards-and-reports` |
