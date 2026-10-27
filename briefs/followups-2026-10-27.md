@@ -55,3 +55,14 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 ## Done in this session after the merges
 
 - Draft PR #286 (`claude/prepush-windows`): `tools/prepush.sh` passes on Windows (check_java @argfile + UTF-8, anim_lab path slashes, SHARD_8 `test:men` removed). Needs Mode A + lovish's OK.
+
+## Who is on what (Oct 27 ~19:50Z)
+
+| Work | Owner | Where |
+|---|---|---|
+| #286 prepush on Windows | this session | Mode A PASS round 2 (bc8e8491), lovish OK'd the merge; merge when CI is green |
+| #285 ResourceCost NPE | Desktop session "1" | Mode A PASS (a38e2c2d), draft, waits on lovish's OK |
+| #287 config reload race everywhere (mixin) | claude.ai chat "13" (Beyond All Craft project) | draft; Mode A review started from this session |
+| plan 015 step 3, vanilla_path arenas | Desktop session "1" | branch claude/flake-015b-pathing-arenas |
+| ac2 guard flake | this session | branch claude/flake-ac2-guard; shard-1 stress 40570846741 on main for a diagnosed red sample |
+| idle_reclaim_never_overrides_orders_or_building, the only new red on main after #273/#276 (runs 40566241275, 40566701183) | claude.ai chat "13" | branch claude/flake-idle-reclaim |
