@@ -210,7 +210,8 @@ function Cmd-BranchCheck {
       if ($j.headRefName -and -not $Branch) { $Branch = [string]$j.headRefName }
       $label += ' (' + $j.state + ', branch ' + $j.headRefName + ')'
       foreach ($c in @($j.commits)) { $t = Get-Iso $c.committedDate; if ($t -and (($null -eq $lastCommit) -or $t -gt $lastCommit)) { $lastCommit = $t } }
-      foreach ($c in @($j.comments)) { $t = Get-Iso $c.createdAt; if ($t -and (($null -eq $lastComment) -or $t -gt $lastComment)) { $lastComment = $t } }
+      $own = @{}; foreach ($r in (Get-LedgerRows $Root)) { if ($r.GenNum -eq $myGen -and $r.Id) { $own[[string]$r.Id] = 1 } }
+      foreach ($c in @($j.comments)) { if (Test-OwnGenComment ([string]$c.body) $own) { continue }; $t = Get-Iso $c.createdAt; if ($t -and (($null -eq $lastComment) -or $t -gt $lastComment)) { $lastComment = $t } }
     }
   } else {
     $label = 'branch ' + $Branch

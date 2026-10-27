@@ -195,6 +195,12 @@ function Invoke-BootDone($ctx, [bool]$force) {
 
 # ------------------------------------------------------------------ preflight
 $script:PlanStop = @('about', 'above', 'after', 'again', 'agent', 'agents', 'also', 'before', 'being', 'build', 'change', 'check', 'could', 'every', 'first', 'implement', 'later', 'other', 'please', 'should', 'since', 'still', 'their', 'there', 'these', 'those', 'update', 'using', 'where', 'which', 'while', 'would', 'write', 'tests', 'files', 'adds', 'make', 'needs', 'task', 'work', 'with', 'from', 'into', 'that', 'this', 'when', 'what', 'will', 'have')
+function Test-OwnGenComment([string]$body, $ownIds) {
+  # M16 (Oct 27, #257): a PR comment tagged with a CURRENT-gen ledger id ([id:xxxx], e.g. the gen's own Mode A review)
+  # is this generation's own activity, not another session on the branch. Untagged or other-gen comments still count.
+  foreach ($m in [regex]::Matches($body, '\[id:([0-9a-f]{4})\]')) { if ($ownIds.ContainsKey($m.Groups[1].Value)) { return $true } }
+  return $false
+}
 function Test-GateBranchBusy($ctx, $prObj, [string]$prNum, [string]$branch) {
   $reasons = New-Object System.Collections.ArrayList
   $unknown = $false
@@ -204,7 +210,8 @@ function Test-GateBranchBusy($ctx, $prObj, [string]$prNum, [string]$branch) {
   $lastCommit = $null; $lastComment = $null
   if ($prObj) {
     foreach ($c in @($prObj.commits)) { $t = Get-GIso $c.committedDate; if ($t -and (($null -eq $lastCommit) -or $t -gt $lastCommit)) { $lastCommit = $t } }
-    foreach ($c in @($prObj.comments)) { $t = Get-GIso $c.createdAt; if ($t -and (($null -eq $lastComment) -or $t -gt $lastComment)) { $lastComment = $t } }
+    $own = @{}; foreach ($r in (Get-GRows $ctx)) { if ($r.GenNum -eq $myGen -and $r.Id) { $own[[string]$r.Id] = 1 } }
+    foreach ($c in @($prObj.comments)) { if (Test-OwnGenComment ([string]$c.body) $own) { continue }; $t = Get-GIso $c.createdAt; if ($t -and (($null -eq $lastComment) -or $t -gt $lastComment)) { $lastComment = $t } }
   } elseif ($branch -and -not $ctx.Stub) {
     $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
     foreach ($ref in @(('origin/' + $branch), $branch)) {
