@@ -4,7 +4,7 @@
 # Stub mode (ctx.Stub = folder): gh data is read from files there (openprs.json, auth.txt, pr<N>.json, pr<N>.diff) - used by gate-selftest.
 
 function New-GateCtx([hashtable]$o) {
-  $c = @{ Root = 'D:\Command Center'; Repo = 'D:\BeyondAndTabs-Repo'; Stub = ''; NoCache = $false; NoLog = $false; Verbose = $false; Now = $null; PrCache = @{}; Rows = $null; GhCalls = 0 }
+  $c = @{ Root = 'D:\Command Center'; Repo = 'D:\BeyondAndTabs-Repo'; Stub = ''; NoCache = $false; NoLog = $false; Verbose = $false; Now = $null; PrCache = @{}; StressCache = @{}; Rows = $null; GhCalls = 0 }
   if ($o) { foreach ($k in $o.Keys) { $c[$k] = $o[$k] } }
   return $c
 }
@@ -49,7 +49,7 @@ function Invoke-GhRaw($ctx, [string[]]$a, [bool]$merge) {
 function Get-GateData($ctx, [string]$kind, [string]$arg = '') {
   if ($ctx.Stub) {
     $f = ''
-    switch ($kind) { 'openprs' { $f = 'openprs.json' } 'auth' { $f = 'auth.txt' } 'pr' { $f = 'pr' + $arg + '.json' } 'diff' { $f = 'pr' + $arg + '.diff' } }
+    switch ($kind) { 'openprs' { $f = 'openprs.json' } 'auth' { $f = 'auth.txt' } 'pr' { $f = 'pr' + $arg + '.json' } 'diff' { $f = 'pr' + $arg + '.diff' } 'stressruns' { $f = 'stressruns.json' } 'stressrun' { $f = 'stress-' + $arg + '.txt' } }
     $p = Join-Path $ctx.Stub $f
     if (Test-Path -LiteralPath $p) { return @{ Ok = $true; Text = (Read-Text $p); Cached = $false } }
     return @{ Ok = $false; Text = ''; Err = ('stub file missing: ' + $f); Cached = $false }
@@ -69,6 +69,8 @@ function Get-GateData($ctx, [string]$kind, [string]$arg = '') {
     'auth' { $r = Invoke-GhRaw $ctx @('auth', 'status') $true }
     'pr' { $r = Invoke-GhRaw $ctx @('pr', 'view', $arg, '--json', 'number,title,state,mergedAt,headRefOid,headRefName,body,commits,statusCheckRollup,files,comments') $false }
     'diff' { $r = Invoke-GhRaw $ctx @('pr', 'diff', $arg) $false }
+    'stressruns' { $r = Invoke-GhRaw $ctx @('run', 'list', '--workflow', 'flake-stress.yml', '--limit', '100', '--json', 'databaseId,displayTitle,status,conclusion,createdAt') $false }
+    'stressrun' { return (Get-GateStressRun $ctx $arg) }
   }
   if ($r.Code -ne 0) { return @{ Ok = $false; Text = ''; Err = ('gh ' + $kind + ' failed: ' + (Get-Trunc $r.Out 120)); Cached = $false } }
   $txt = $r.Out
@@ -82,6 +84,82 @@ function Get-GateData($ctx, [string]$kind, [string]$arg = '') {
     } catch { }
   }
   return @{ Ok = $true; Text = $txt; Cached = $false }
+}
+# One flake-stress run as the gate reads it (stub: stress-<id>.txt): "workflow: <name>", then for a completed
+# flake-stress run "ref: <what its stress job checked out>" (the -B branch, or the sha) and its summary job's annotation
+# lines ("[Stress] ...", "<test>: failed X, passed Y"). The run's own title is "flake-stress" for every ref until the
+# workflow names it, so the ref comes from the checkout line of the first stress job's log. Returns @{Ok;Text;Err}.
+function Get-GateStressRun($ctx, [string]$id) {
+  if ($ctx.StressCache.ContainsKey($id)) { return $ctx.StressCache[$id] }
+  $res = @{ Ok = $false; Text = ''; Err = ''; Cached = $false }
+  $r = Invoke-GhRaw $ctx @('run', 'view', $id, '--json', 'name,status,jobs') $false
+  $o = $null; if ($r.Code -eq 0) { $o = ConvertFrom-GJson $r.Out }
+  if ($null -eq $o) { $res.Err = 'gh run view ' + $id + ' failed' }
+  else {
+    $lines = New-Object System.Collections.ArrayList
+    [void]$lines.Add('workflow: ' + [string]$o.name)
+    if ([string]$o.name -eq 'flake-stress' -and [string]$o.status -eq 'completed') {
+      $st = @(@($o.jobs) | Where-Object { ([string]$_.name).StartsWith('stress') }) | Select-Object -First 1
+      $sum = @(@($o.jobs) | Where-Object { [string]$_.name -eq 'summary' }) | Select-Object -First 1
+      $ref = ''
+      if ($st) {
+        $lg = Invoke-GhRaw $ctx @('run', 'view', $id, '--job', [string]$st.databaseId, '--log') $false
+        $m = [regex]::Match($lg.Out, 'git checkout --progress --force (?:-B (\S+)|([0-9a-f]{40}))')
+        if ($m.Success) { $ref = $m.Groups[1].Value + $m.Groups[2].Value }
+      }
+      [void]$lines.Add('ref: ' + $ref)
+      if ($sum) {
+        $an = Invoke-GhRaw $ctx @('api', ('repos/{owner}/{repo}/check-runs/' + [string]$sum.databaseId + '/annotations'), '--jq', '.[].message') $false
+        foreach ($l in ($an.Out -split "\r?\n")) { if ($l.Trim()) { [void]$lines.Add($l) } }
+      }
+    }
+    $res.Ok = $true; $res.Text = ($lines -join "`n")
+  }
+  $ctx.StressCache[$id] = $res
+  return $res
+}
+# M20 (Oct 27 night): flake-stress runs given bare test names ran 0 tests ("All 0 required tests passed" on every runner)
+# and were posted as "[Stress] 0 with any failure"; #273 and #289 merged on them. Every new @GameTest now needs a
+# flake-stress run of the PR's own branch (or one of its commits) whose summary names it: "<name>: failed 0, passed N"
+# with N > 0. A [Stress] comment or ledger row is no longer evidence by itself, only a pointer to run ids to read.
+function Test-GateStress($ctx, $d, [string]$n, [string]$diff, $L) {
+  $added = [regex]::Matches($diff, '(?m)^\+\s*@GameTest\b').Count
+  $names = @([regex]::Matches($diff, '(?ms)^\+\s*@GameTest\b.*?^\+\s*(?:public\s+)?static\s+void\s+(\w+)\s*\(') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+  if ($names.Count -lt $added) { Add-Chk $L 'gametests' 'FAIL' ("{0} new @GameTest but only {1} named in the diff: cannot match them to a flake-stress summary" -f $added, $names.Count); return }
+  $branch = [string]$d.headRefName
+  $oids = @(@($d.commits) | ForEach-Object { [string]$_.oid })
+  $ids = New-Object System.Collections.ArrayList
+  $rl = Get-GateData $ctx 'stressruns'
+  if ($rl.Ok -and $branch) {
+    foreach ($x in @(ConvertFrom-GJson $rl.Text)) {
+      if ([string]$x.displayTitle -match ('(?<![\w/.-])' + [regex]::Escape($branch) + '(?![\w/.-])')) { [void]$ids.Add([string]$x.databaseId) }
+    }
+  }
+  $txt = [string]$d.body
+  foreach ($c in @($d.comments)) { $txt += "`n" + [string]$c.body }
+  foreach ($r in (Get-GRows $ctx)) { $t = $r.Assignment + ' ' + $r.Note; if ($t -match ('#' + [regex]::Escape($n) + '(?!\d)')) { $txt += "`n" + $t } }
+  foreach ($m in [regex]::Matches($txt, '(?<!\d)(\d{10,12})(?!\d)')) { if (-not $ids.Contains($m.Groups[1].Value)) { [void]$ids.Add($m.Groups[1].Value) } }
+  $ok = @{}; $onBranch = New-Object System.Collections.ArrayList; $elsewhere = New-Object System.Collections.ArrayList
+  foreach ($id in @($ids | Select-Object -First 15)) {
+    $s = Get-GateData $ctx 'stressrun' $id
+    if (-not $s.Ok) { continue }
+    if ([regex]::Match($s.Text, '(?m)^workflow:\s*(.*?)\s*$').Groups[1].Value -ne 'flake-stress') { continue }
+    $ref = [regex]::Match($s.Text, '(?m)^ref:\s*(.*?)\s*$').Groups[1].Value
+    $mine = ($ref -and (($ref -eq $branch) -or (($ref.Length -ge 7) -and @($oids | Where-Object { $_.StartsWith($ref) }).Count -gt 0)))
+    if (-not $mine) { if ($ref) { [void]$elsewhere.Add($id + ' (' + $ref + ')') }; continue }
+    [void]$onBranch.Add($id)
+    foreach ($nm in $names) {
+      $m = [regex]::Match($s.Text, '(?m)^' + [regex]::Escape($nm) + ':\s*failed\s+(\d+),\s*passed\s+(\d+)')
+      if ($m.Success -and [int]$m.Groups[1].Value -eq 0 -and [int]$m.Groups[2].Value -gt 0 -and -not $ok.ContainsKey($nm)) { $ok[$nm] = $id + ' passed ' + $m.Groups[2].Value }
+    }
+  }
+  $miss = @($names | Where-Object { -not $ok.ContainsKey($_) })
+  if ($miss.Count -eq 0) { Add-Chk $L 'gametests' 'PASS' ("{0} new @GameTest, each passed in a flake-stress run of {1}: {2}" -f $names.Count, $branch, ((@($names | ForEach-Object { $_ + ' (' + $ok[$_] + ')' })) -join '; ')); return }
+  $seen = 'none'; if ($onBranch.Count -gt 0) { $seen = ($onBranch -join ', ') }
+  $det = @(('flake-stress runs of ' + $branch + ' read: ' + $seen))
+  if ($elsewhere.Count -gt 0) { $det += ('runs of other refs ignored: ' + (($elsewhere | Select-Object -First 6) -join ', ')) }
+  $det += ('a [Stress] comment is not evidence (M20); run: gh workflow run flake-stress.yml -f ref=' + $branch + ' -f tests=test:<name>')
+  Add-Chk $L 'gametests' 'FAIL' ("{0} of {1} new @GameTest in no flake-stress run of {2} as '<name>: failed 0, passed N' with N > 0: {3}" -f $miss.Count, $names.Count, $branch, ($miss -join ', ')) $det
 }
 # live PR view, memoised per run. Returns the parsed object or $null (error in ctx.PrError).
 function Get-GatePr($ctx, [string]$n) {
@@ -109,7 +187,7 @@ function Get-GateCounts($checks) {
 function Write-GateResult($ctx, [string]$title, $checks, $sw) {
   foreach ($c in $checks) {
     Write-Output ('{0} {1}: {2}' -f $c.Status, $c.Name, $c.Reason)
-    if ($ctx.Verbose) { foreach ($d in @($c.Detail)) { if ($d) { Write-Output ('     ' + $d) } } }
+    if ($ctx.Verbose -or $c.Status -eq 'FAIL') { foreach ($d in @($c.Detail)) { if ($d) { Write-Output ('     ' + $d) } } }
   }
   $n = Get-GateCounts $checks
   $v = 'PASS'; if ($n.F -gt 0) { $v = 'FAIL' }
@@ -438,18 +516,7 @@ function Invoke-GateAccept($ctx, [string]$n) {
     else {
       $added = [regex]::Matches($df.Text, '(?m)^\+\s*@GameTest\b').Count
       if ($added -eq 0) { Add-Chk $L 'gametests' 'PASS' 'diff adds no @GameTest' }
-      else {
-        $ev = ''
-        foreach ($c in @($d.comments)) { if ([string]$c.body -match '\[Stress\]' -and [string]$c.body -match '0 with any failure') { $ev = 'PR comment' } }
-        if (-not $ev) {
-          foreach ($r in (Get-GRows $ctx)) {
-            $t = $r.Assignment + ' ' + $r.Note
-            if ($t -match ('#' + [regex]::Escape($n) + '(?!\d)') -and $t -match '\[Stress\]' -and $t -match '\d{8,}') { $ev = 'ledger row ' + $r.Id }
-          }
-        }
-        if ($ev) { Add-Chk $L 'gametests' 'PASS' ("{0} new @GameTest, flake-stress evidence: {1}" -f $added, $ev) }
-        else { Add-Chk $L 'gametests' 'FAIL' ("{0} new @GameTest but no flake-stress evidence: need a PR comment with '[Stress]' and '0 with any failure', or a ledger row citing #{1}, '[Stress]' and a run id" -f $added, $n) }
-      }
+      else { Test-GateStress $ctx $d $n $df.Text $L }
     }
   }
   # Mode A (M4)

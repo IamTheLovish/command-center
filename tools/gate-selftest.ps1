@@ -48,18 +48,19 @@ function St-Fix247([string]$stubDir, [string]$mode) {
   if ($mode -match 'authors') { $t = [regex]::Replace($t, '"email":\s*"noreply@anthropic.com"', '"email":  "IamTheLovish@users.noreply.github.com"'); $t = [regex]::Replace($t, '"name":\s*"Claude"', '"name":  "IamTheLovish"') }
   if ($mode -match 'acctnoreply') { $t = [regex]::Replace($t, '"email":\s*"noreply@anthropic.com"', '"email":  "339019718+IamTheLovish@users.noreply.github.com"'); $t = [regex]::Replace($t, '"name":\s*"Claude"', '"name":  "Lovish"') }
   if ($mode -match 'otheracct') { $t = [regex]::Replace($t, '"email":\s*"noreply@anthropic.com"', '"email":  "12345+SomeoneElse@users.noreply.github.com"'); $t = [regex]::Replace($t, '"name":\s*"Claude"', '"name":  "Lovish"') }
-  if ($mode -match 'stress') {
-    $t = [regex]::Replace($t, '"comments":\s*\[\s*\]', '"comments":  [{"body":"[Stress] flake-stress 30 runs: 0 with any failure","createdAt":"2026-10-27T03:00:00Z"}]')
-    # SYNTHETIC (M20): the saved #247 diff stops at the @GameTest lines, so each gets a method name, and a flake-stress
-    # run of #247's branch (found by its run-name title) whose summary passes all six
+  if ($mode -match 'names|stress') {
+    # SYNTHETIC (M20): the saved #247 diff stops at the @GameTest lines, so each gets a method name
     $script:StK = 0
     $df = [regex]::Replace((Read-Text (Join-Path $stubDir 'pr247.diff')), '(?m)^(\+\s*@GameTest\b[^\r\n]*)', { param($m) $script:StK++; $m.Groups[1].Value + "`n+    public static void perf_quick_wins_case_" + $script:StK + '(GameTestHelper helper) {' })
     Write-Text (Join-Path $stubDir 'pr247.diff') $df $false
+  }
+  if ($mode -match 'stress') {
+    $t = [regex]::Replace($t, '"comments":\s*\[\s*\]', '"comments":  [{"body":"[Stress] flake-stress 30 runs: 0 with any failure","createdAt":"2026-10-27T03:00:00Z"}]')
+    # SYNTHETIC (M20): a flake-stress run of #247's branch (found by its run-name title) whose summary passes all six
     Write-Text (Join-Path $stubDir 'stressruns.json') '[{"databaseId":40500000001,"displayTitle":"flake-stress claude/perf-quick-wins","status":"completed","conclusion":"success","createdAt":"2026-10-27T03:00:00Z"}]' $false
     $sum = "workflow: flake-stress`nref: claude/perf-quick-wins`n[Stress] 6 runners; 0 with any failure"
     for ($i = 1; $i -le $script:StK; $i++) { $sum += "`nperf_quick_wins_case_" + $i + ': failed 0, passed 6' }
     Write-Text (Join-Path $stubDir 'stress-40500000001.txt') $sum $false
-    $script:StK = 0
   }
   if ($mode -match 'cmt-(\w+)') { $tag = $Matches[1]; $b = 'VERDICT: PASS\nREVIEWER: opus reviewer'; if ($tag -ne 'none') { $b += (' [id:' + $tag + ']') }; $t = [regex]::Replace($t, '"comments":\s*\[\s*\]', ('"comments":  [{"body":"' + $b + '","createdAt":"2026-10-27T11:47:00Z"}]')) }
   if ($mode -match 'cifail') { $rx = New-Object regex('"conclusion":\s*"SUCCESS"'); $t = $rx.Replace($t, '"conclusion":  "FAILURE"', 1) }
@@ -207,9 +208,9 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
   St-Assert 'M4+ Mode A file older than the head commit' $c 'modeA-independent' 'FAIL' 'before head commit'
 
   $s4 = St-Stub $tmp 'nostress' $fx 'auth-noworkflow.txt'
-  St-Fix247 $s4 'open authors'
+  St-Fix247 $s4 'open authors names'
   $c = Invoke-GateAccept (St-Ctx $r3 $s4 $now) '247'
-  St-Assert 'new @GameTest without stress evidence' $c 'gametests' 'FAIL' '6 new @GameTest but no flake-stress'
+  St-Assert 'new @GameTest without stress evidence' $c 'gametests' 'FAIL' '6 of 6 new @GameTest in no flake-stress run'
   $s5 = St-Stub $tmp 'cifail' $fx 'auth-noworkflow.txt'
   St-Fix247 $s5 'open authors stress cifail'
   $c = Invoke-GateAccept (St-Ctx $r3 $s5 $now) '247'
