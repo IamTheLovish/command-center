@@ -66,3 +66,9 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 | plan 015 step 3, vanilla_path arenas | Desktop session "1" | branch claude/flake-015b-pathing-arenas |
 | ac2 guard flake | this session | branch claude/flake-ac2-guard; shard-1 stress 40570846741 on main for a diagnosed red sample |
 | idle_reclaim_never_overrides_orders_or_building, the only new red on main after #273/#276 (runs 40566241275, 40566701183) | claude.ai chat "13" | branch claude/flake-idle-reclaim |
+
+## Flake results, Oct 27 ~20:30Z
+
+- ac2_a_guard_follows_its_ward_to_the_next_site_and_helps_there: NOT reproduced since #273's changes: 0 of 6 in shard-1 stress 40570846741 on main 2407a0ef, plus 0 of 10 twice on the #273 branch (40469592779, 40472451498): 0 of 26, against 4 of 20 before. No fix without a red sample; #273's diagnostics (guard end, B's order, A's site ticks, wall time) stay on main for the next one. Branch claude/flake-ac2-guard deleted (no commits).
+- Same run, other reds: ac1_shift 2 of 6 and capture_bounded 2 of 6 (Joisco #272), vanilla_path_wall_detour 1 of 6 (#289), bombard_backs_out_of_its_dead_zone 1 of 6: "the bombard never hit the target (moved at most 3.7, now 6.7 away, dead zone 6.0, nav done true, aggressive false)". Not fixed: #222 (artillery nerf: 2 s set-up after moving) changes ArtilleryGameTests, BombardCrewUnit, FieldArtillery and BombardShell; fix it on #222 or after it.
+- Claude PRs #133 #136 #146 #196 #199 #204 #206 #221 #222 are 3-5 days behind main; their reds predate #273/#276. `gh pr update-branch` from a session was refused (external write); needs lovish's say-so or a session with that permission.
