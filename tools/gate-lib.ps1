@@ -221,8 +221,10 @@ function Test-GateBranchBusy($ctx, $prObj, [string]$prNum, [string]$branch) {
     $ErrorActionPreference = $old
     if ($null -eq $lastCommit) { $unknown = $true }
   }
-  if ($lastCommit) { $mins = [int]($now - $lastCommit).TotalMinutes; if ($mins -lt 120) { [void]$reasons.Add("commit $mins min ago (<2h, another session may be on it)") } }
-  if ($lastComment) { $mins = [int]($now - $lastComment).TotalMinutes; if ($mins -lt 120) { [void]$reasons.Add("PR comment $mins min ago (<2h)") } }
+  # M17: recent-activity reasons go to $recent; a read-only reviewer only gets a WARN for them (ownership still blocks)
+  $recent = New-Object System.Collections.ArrayList
+  if ($lastCommit) { $mins = [int]($now - $lastCommit).TotalMinutes; if ($mins -lt 120) { [void]$recent.Add("commit $mins min ago (<2h, another session may be on it)") } }
+  if ($lastComment) { $mins = [int]($now - $lastComment).TotalMinutes; if ($mins -lt 120) { [void]$recent.Add("PR comment $mins min ago (<2h)") } }
   $pat = @()
   if ($prNum) { $pat += ('(?<![\w])#' + [regex]::Escape($prNum) + '(?!\d)'); $pat += ('(?i)\bPR\s*#?' + [regex]::Escape($prNum) + '(?!\d)') }
   if ($branch) { $pat += [regex]::Escape($branch) }
@@ -233,9 +235,9 @@ function Test-GateBranchBusy($ctx, $prObj, [string]$prNum, [string]$branch) {
     if ($r.Assignment -match '(?i)boot') { [void]$reasons.Add("gen-$($r.Gen) owns it in a boot row ($($r.Date) $($r.Time))") }
     elseif ($r.Class -eq 'running') { [void]$reasons.Add("gen-$($r.Gen) has a running ledger row for it ($($r.Date) $($r.Time))") }
     $stamp = Get-RowStamp $r
-    if ($stamp) { $age = ($now.DateTime - $stamp).TotalMinutes; if ($age -ge -5 -and $age -lt 120 -and $r.Assignment -notmatch '(?i)boot') { [void]$reasons.Add("gen-$($r.Gen) touched it $([int]$age) min ago per ledger") } }
+    if ($stamp) { $age = ($now.DateTime - $stamp).TotalMinutes; if ($age -ge -5 -and $age -lt 120 -and $r.Assignment -notmatch '(?i)boot') { [void]$recent.Add("gen-$($r.Gen) touched it $([int]$age) min ago per ledger") } }
   }
-  return @{ Reasons = @($reasons | Select-Object -Unique); Unknown = $unknown }
+  return @{ Reasons = @($reasons | Select-Object -Unique); Recent = @($recent | Select-Object -Unique); Unknown = $unknown }
 }
 function Get-PlanHits($ctx, [string[]]$files, [string]$task) {
   $pd = Join-Path $ctx.Root 'plans'
@@ -288,11 +290,14 @@ function Invoke-GatePreflight($ctx, [hashtable]$p) {
       if (-not $branch) { $branch = [string]$o.headRefName }
     }
     $busy = Test-GateBranchBusy $ctx $o $prNum $branch
+    if (-not $p.Reviewer) { $busy.Reasons = @($busy.Reasons) + @($busy.Recent) }
     if (@($busy.Reasons).Count -gt 0) { Add-Chk $L 'branch-check' 'FAIL' ('BLOCKED: ' + ($busy.Reasons -join '; ')) }
+    elseif (@($busy.Recent).Count -gt 0) { Add-Chk $L 'branch-check' 'WARN' ('reviewer (read-only), recent activity: ' + ($busy.Recent -join '; ')) }
     elseif ($busy.Unknown) { Add-Chk $L 'branch-check' 'FAIL' 'UNKNOWN: could not verify commit time (fail closed)' }
     else { Add-Chk $L 'branch-check' 'PASS' 'no other gen touched it within 2h, no boot-row owner' }
   } elseif ($branch) {
     $busy = Test-GateBranchBusy $ctx $null '' $branch
+    $busy.Reasons = @($busy.Reasons) + @($busy.Recent)
     if (@($busy.Reasons).Count -gt 0) { Add-Chk $L 'branch-check' 'FAIL' ('BLOCKED: ' + ($busy.Reasons -join '; ')) }
     elseif ($busy.Unknown) { Add-Chk $L 'branch-check' 'WARN' ("branch {0} has no PR and no git ref (new branch?)" -f $branch) }
     else { Add-Chk $L 'branch-check' 'PASS' ("branch {0}: no other gen touched it" -f $branch) }
