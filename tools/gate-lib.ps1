@@ -325,6 +325,7 @@ function Invoke-GatePreflight($ctx, [hashtable]$p) {
         $lst = (@($hits.Keys | Sort-Object | ForEach-Object { '#' + $_ + ' (' + (@($hits[$_] | Select-Object -Unique | ForEach-Object { $_.Substring($_.Replace('\', '/').LastIndexOf('/') + 1) }) -join ',') + ')' }) -join ', ')
         $det = @($hits.Keys | Sort-Object | ForEach-Object { '#' + $_ + ': ' + (@($hits[$_] | Select-Object -Unique) -join ', ') })
         if ($p.AllowOverlap) { Add-Chk $L 'overlap' 'WARN' ("overlap allowed (" + (Get-Trunc ([string]$p.AllowOverlap) 80) + "): " + $lst) $det }
+        elseif ($p.Reviewer) { Add-Chk $L 'overlap' 'WARN' ("reviewer (read-only), edits nothing; open PRs on the same files: " + $lst) $det }   # M18
         else { Add-Chk $L 'overlap' 'FAIL' ("{0} open PR(s) edit the same lines/files: {1}. Rebase onto them or use -AllowOverlap ""reason""" -f $hits.Count, $lst) $det }
       }
     }
