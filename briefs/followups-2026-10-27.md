@@ -12,8 +12,8 @@ with `gh pr view` before acting on it (branch-check rule).
 
 | # | What | Where | Why it matters |
 |---|---|---|---|
-| 1 | Merge Joisco's **#276** | game repo | main cannot open any world since #248 ("Channels [reignofnether:main] rejected their server side version number"). Verified in a real client by merging it locally. |
-| 2 | Merge **#273** (claude/flake-roots) | game repo | fixes `elder_druid_is_a_t2_worker` on main (stale test after #253) plus the fog-snapshot block-entity bug. Report: `briefs/flake-roots-2026-10-27-REPORT.md`. Design note: if the Elder Druid should keep Awaken Thicket, the fix goes the other way. |
+| 1 | DONE: **#276** merged 2026-10-27 19:08Z (2407a0ef), Mode A PASS; merged on the elder_druid red that #273 fixed (lovish: "Merge #276 now") | game repo | main cannot open any world since #248 ("Channels [reignofnether:main] rejected their server side version number"). Verified in a real client by merging it locally. |
+| 2 | DONE: **#273** merged 2026-10-27 19:07Z (511e663f), Mode A PASS, stress 40565576897 clean | game repo | fixes `elder_druid_is_a_t2_worker` on main (stale test after #253) plus the fog-snapshot block-entity bug. Report: `briefs/flake-roots-2026-10-27-REPORT.md`. Design note: if the Elder Druid should keep Awaken Thicket, the fix goes the other way. |
 | 3 | Merge **#274** (mode-a gate workflow), then apply `guards/github/protection.json` | game repo | Mode A PASS on e090f687 (round 2). Test the app_id on one throwaway PR first (guards/github/README.md). main is still unprotected. |
 | 4 | Nightly jobs | Task Scheduler | stay off (D046); D037 suspended until lovish says otherwise. |
 
