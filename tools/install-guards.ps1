@@ -30,7 +30,13 @@ if (-not $Uninstall) {
   if ($pol -ne 'RemoteSigned' -and $pol -ne 'Unrestricted' -and $pol -ne 'Bypass') {
     Write-Host ('Your user execution policy is ' + $pol + '. Claude sessions cannot run the Command Center scripts until it is RemoteSigned.')
     $a = Read-Host 'Set CurrentUser to RemoteSigned? Type YES to set it, anything else skips'
-    if ($a -eq 'YES') { Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force; Write-Host 'CurrentUser policy: RemoteSigned' }
+    if ($a -eq 'YES') {
+      # -ExecutionPolicy Bypass on our own command line sets the Process scope, so Set-ExecutionPolicy saves CurrentUser
+      # and then throws ExecutionPolicyOverride; under ErrorAction Stop that aborted the install before settings.json.
+      try { Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force }
+      catch { if ($_.FullyQualifiedErrorId -notlike 'ExecutionPolicyOverride*') { throw } }
+      Write-Host ('CurrentUser policy: ' + (Get-ExecutionPolicy -Scope CurrentUser))
+    }
     else { Write-Host 'Skipped: sessions still cannot run cc.ps1 themselves.' }
   }
 }
