@@ -95,6 +95,9 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
   St-Assert 'M6 open PR edits the same file' $c 'overlap' 'FAIL' '#216'
   $c = Invoke-GatePreflight (St-Ctx $r2 $s2 $now) @{ Task = 'x'; Files = 'bar/src/main/java/com/solegendary/reignofnether/matchstart/EyesOverlaysScene.java'; AllowOverlap = 'coordinated with 216 owner' }
   St-Assert 'M6 -AllowOverlap downgrades to WARN' $c 'overlap' 'WARN' 'overlap allowed'
+  # M18 (Oct 27, #286): a read-only reviewer edits no file, so another PR touching the same files is only a WARN
+  $c = Invoke-GatePreflight (St-Ctx $r2 $s2 $now) @{ Task = 'x'; Files = 'bar/src/main/java/com/solegendary/reignofnether/matchstart/EyesOverlaysScene.java'; Reviewer = $true }
+  St-Assert 'M18 reviewer: open-PR overlap only warns' $c 'overlap' 'WARN' 'reviewer \(read-only\)'
 
   # ---- M7 PR pile-up
   $c = Invoke-GatePreflight (St-Ctx $r2 $s2 $now) @{ Task = 'x'; NewPr = $true }
