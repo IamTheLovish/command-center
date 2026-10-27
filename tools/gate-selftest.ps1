@@ -42,6 +42,7 @@ function St-Fix247([string]$stubDir, [string]$mode) {
   if ($mode -match 'open') { $t = [regex]::Replace($t, '"state":\s*"MERGED"', '"state":  "OPEN"'); $t = [regex]::Replace($t, '"mergedAt":\s*"[^"]*"', '"mergedAt":  null') }
   if ($mode -match 'authors') { $t = [regex]::Replace($t, '"email":\s*"noreply@anthropic.com"', '"email":  "IamTheLovish@users.noreply.github.com"'); $t = [regex]::Replace($t, '"name":\s*"Claude"', '"name":  "IamTheLovish"') }
   if ($mode -match 'stress') { $t = [regex]::Replace($t, '"comments":\s*\[\s*\]', '"comments":  [{"body":"[Stress] flake-stress 30 runs: 0 with any failure","createdAt":"2026-10-27T03:00:00Z"}]') }
+  if ($mode -match 'cmt-(\w+)') { $tag = $Matches[1]; $b = 'VERDICT: PASS\nREVIEWER: opus reviewer'; if ($tag -ne 'none') { $b += (' [id:' + $tag + ']') }; $t = [regex]::Replace($t, '"comments":\s*\[\s*\]', ('"comments":  [{"body":"' + $b + '","createdAt":"2026-10-27T11:47:00Z"}]')) }
   if ($mode -match 'cifail') { $rx = New-Object regex('"conclusion":\s*"SUCCESS"'); $t = $rx.Replace($t, '"conclusion":  "FAILURE"', 1) }
   Write-Text $p $t $false
 }
@@ -125,6 +126,17 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
   Write-Text (Join-Path $rh 'usage\ledger-2026-10-27.md') ($ledgerHdr + "| 00:01 | B | 014 | audit one | opus | xhigh | - | running | tier: core [id:h111] |`r`n| 00:02 | B | 014 | audit two | fable | xhigh | - | running | tier: core [id:h222] |`r`n") $false
   $c = Invoke-GatePreflight (St-Ctx $rh $s2 $now) @{ Task = 'x'; Heavy = $true }
   St-Assert 'heavy: 3rd heavy agent blocked' $c 'heavy-cap' 'FAIL' '2 open heavy rows'
+
+  # ---- M16 own review comment blocked its own gen (Oct 27 03:40, PR #257: the commander's Mode A comment 13 min earlier
+  #      blocked handing the fix to a builder). A comment tagged with a CURRENT-gen ledger id is not another session.
+  $r16 = St-Root $tmp 'm16' $fx $good
+  Write-Text (Join-Path $r16 'usage\ledger-2026-10-27.md') ($ledgerHdr + "| 07:40 | B | 013 | build something | opus | xhigh | - | pass | tier: core [id:bb22] |`r`n| 07:45 | B | 014 | Mode A review | opus | high | - | pass | tier: standard [id:aa11] |`r`n") $false
+  foreach ($case in @(@('aa11', 'PASS', 'no other gen', 'M16 own-gen tagged comment does not block'), @('bb22', 'FAIL', 'PR comment', 'M16 control: other gen tagged comment still blocks'), @('none', 'FAIL', 'PR comment', 'M16 control: untagged comment still blocks'))) {
+    $s16 = St-Stub $tmp ('m16-' + $case[0]) $fx 'auth-noworkflow.txt'
+    St-Fix247 $s16 ('open cmt-' + $case[0])
+    $c = Invoke-GatePreflight (St-Ctx $r16 $s16 $now) @{ Task = 'x'; Pr = '247' }
+    St-Assert $case[3] $c 'branch-check' $case[1] $case[2]
+  }
 
   # ---- accept: independence, stale sha, old file, gametests, CI
   $s3 = St-Stub $tmp 'pos' $fx 'auth-noworkflow.txt'
