@@ -6,8 +6,8 @@ $PsExe = (Get-Process -Id $PID).Path   # same PowerShell that runs this test
 $TmpBase = $env:TEMP; if (-not $TmpBase) { $TmpBase = [IO.Path]::GetTempPath() }
 $tmp = Join-Path $TmpBase ('cc-ctxq-test-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Force -Path $tmp | Out-Null
-$R = New-Object System.Collections.ArrayList
-function Case([string]$name, [bool]$ok, [string]$got) { [void]$R.Add([pscustomobject]@{ Case = $name; Ok = $ok; Got = $got }) }
+$Results = New-Object System.Collections.ArrayList
+function Case([string]$name, [bool]$ok, [string]$got) { [void]$Results.Add([pscustomobject]@{ Case = $name; Ok = $ok; Got = $got }) }
 function Run-Script([string]$file, [string]$stdin, [hashtable]$envs) {
   foreach ($k in $envs.Keys) { Set-Item -Path ('env:' + $k) -Value $envs[$k] }
   try {
@@ -78,8 +78,8 @@ Remove-Item -LiteralPath (Join-Path $offDir 'question-guard')
 $r = Run-Script 'question-guard.ps1' 'garbage' $E
 Case 'qguard bad input: exit 0, no block' (($r.Code -eq 0) -and ($r.Out -notmatch 'block')) $r.Out
 
-$pass = @($R | Where-Object { $_.Ok }).Count
-foreach ($c in $R) { Write-Output ('{0}  {1}{2}' -f $(if ($c.Ok) { 'PASS' } else { 'FAIL' }), $c.Case, $(if ($c.Ok) { '' } else { '  | got: ' + ($c.Got -replace '\s+', ' ').Substring(0, [math]::Min(140, ($c.Got -replace '\s+', ' ').Length)) })) }
-Write-Output ('TEST ctx-qguard {0}/{1}' -f $pass, $R.Count)
+$pass = @($Results | Where-Object { $_.Ok }).Count
+foreach ($c in $Results) { Write-Output ('{0}  {1}{2}' -f $(if ($c.Ok) { 'PASS' } else { 'FAIL' }), $c.Case, $(if ($c.Ok) { '' } else { '  | got: ' + ($c.Got -replace '\s+', ' ').Substring(0, [math]::Min(140, ($c.Got -replace '\s+', ' ').Length)) })) }
+Write-Output ('TEST ctx-qguard {0}/{1}' -f $pass, $Results.Count)
 Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
-if ($pass -ne $R.Count) { exit 1 }
+if ($pass -ne $Results.Count) { exit 1 }
