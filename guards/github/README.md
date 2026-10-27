@@ -21,6 +21,9 @@ Mode A). A required GitHub check stops EVERY merge path until a Mode A review co
    main has NO branch protection today (checked Oct 27 03:30). protection.json requires only "mode-a" (CI green is
    still enforced by merge_pr.py; making path-filtered CI jobs required can wedge merges). It also blocks force pushes
    and deleting main. enforce_admins is false, so you can still override in an emergency.
+   "mode-a" must come from the GitHub Actions app (app_id 15368), so a status set with a personal token does not count.
+   main was still unprotected when re-checked late Oct 27. Before relying on it, open one throwaway PR and watch mode-a go pending, then
+   green on a PASS comment: a wrong app_id would wedge every merge (PR #274 review round 2, finding 3).
 
 ## How a review passes it
 The reviewer (never the builder) posts the Mode A file as a PR comment:
