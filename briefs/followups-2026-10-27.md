@@ -25,7 +25,7 @@ with `gh pr view` before acting on it (branch-check rule).
 | 6 | Add a parade scene to the eyes harness (living army). | #176 merged |
 | 7 | Bring the Bone Dragon into the living army. | #145 merged |
 | 8 | Local `prepush.sh` fails on three pre-existing main issues: check_java "Argument list too long" on Windows; animation lab data; SHARD_8 entry `test:men` names no test (#253 deleted the mending tests; needs a `.github/workflows/build.yml` edit and the gh `workflow` scope). | none |
-| 9 | Intermittent COMMON_SETUP crash: `ResourceCostConfigEntry.getWood() is null` (bar-tests (5), job 122075675704, run 40469588386). | sent to the Desktop session "1" on Oct 27 evening, branch `claude/fix-resource-cost-npe` |
+| 9 | Intermittent COMMON_SETUP crash: `ResourceCostConfigEntry.getWood() is null` (bar-tests (5), job 122075675704, run 40469588386). | draft PR #285 (session "1"): a config reload clears ForgeConfigSpec's cached value between its check and return; getters re-read the transient null, test first (red on f963972d). Shares no files with #273/#272; merge main in after #273, then Mode A. |
 | 10 | Hero AI v2 PR 1 (#275): five feel questions for lovish in `briefs/hero-ai-v2-pr1-2026-10-27-REPORT.md`; GREEN_RUN / STRESS_LINE placeholders still unfilled in that report. | lovish plays the Paladin |
 | 11 | GPU units: in-client proof of path C under Oculus + Complementary before round 3 (smooth skin). | about a day of spike work, then lovish's eyes |
 
