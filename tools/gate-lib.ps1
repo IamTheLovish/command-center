@@ -503,7 +503,10 @@ function Invoke-GateAccept($ctx, [string]$n) {
     foreach ($c in @($d.commits)) {
       $a = $null; if (@($c.authors).Count -gt 0) { $a = @($c.authors)[0] }
       $nm = ''; $em = ''; if ($a) { $nm = [string]$a.name; $em = [string]$a.email }
-      if ($nm.ToLower() -ne $id.Name.ToLower() -or $em.ToLower() -ne $id.Email.ToLower()) { $bad += ('{0} {1} <{2}>' -f ([string]$c.oid).Substring(0, 7), $nm, $em) }
+      # M19: lovish's own GitHub-web commits (merges, "Update branch") carry the same account's numeric noreply
+      # address (<digits>+IamTheLovish@users.noreply.github.com), whatever display name the web UI used
+      $acctNoreply = $em -match ('^\d+\+' + [regex]::Escape($id.Name) + '@users\.noreply\.github\.com$')
+      if (-not $acctNoreply -and ($nm.ToLower() -ne $id.Name.ToLower() -or $em.ToLower() -ne $id.Email.ToLower())) { $bad += ('{0} {1} <{2}>' -f ([string]$c.oid).Substring(0, 7), $nm, $em) }
     }
     $tot = @($d.commits).Count
     if ($bad.Count -eq 0) { Add-Chk $L 'authors' 'PASS' ("all {0} commits authored as {1} <{2}>" -f $tot, $id.Name, $id.Email) }

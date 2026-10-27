@@ -41,6 +41,8 @@ function St-Fix247([string]$stubDir, [string]$mode) {
   $t = Read-Text $p
   if ($mode -match 'open') { $t = [regex]::Replace($t, '"state":\s*"MERGED"', '"state":  "OPEN"'); $t = [regex]::Replace($t, '"mergedAt":\s*"[^"]*"', '"mergedAt":  null') }
   if ($mode -match 'authors') { $t = [regex]::Replace($t, '"email":\s*"noreply@anthropic.com"', '"email":  "IamTheLovish@users.noreply.github.com"'); $t = [regex]::Replace($t, '"name":\s*"Claude"', '"name":  "IamTheLovish"') }
+  if ($mode -match 'acctnoreply') { $t = [regex]::Replace($t, '"email":\s*"noreply@anthropic.com"', '"email":  "339019718+IamTheLovish@users.noreply.github.com"'); $t = [regex]::Replace($t, '"name":\s*"Claude"', '"name":  "Lovish"') }
+  if ($mode -match 'otheracct') { $t = [regex]::Replace($t, '"email":\s*"noreply@anthropic.com"', '"email":  "12345+SomeoneElse@users.noreply.github.com"'); $t = [regex]::Replace($t, '"name":\s*"Claude"', '"name":  "Lovish"') }
   if ($mode -match 'stress') { $t = [regex]::Replace($t, '"comments":\s*\[\s*\]', '"comments":  [{"body":"[Stress] flake-stress 30 runs: 0 with any failure","createdAt":"2026-10-27T03:00:00Z"}]') }
   if ($mode -match 'cmt-(\w+)') { $tag = $Matches[1]; $b = 'VERDICT: PASS\nREVIEWER: opus reviewer'; if ($tag -ne 'none') { $b += (' [id:' + $tag + ']') }; $t = [regex]::Replace($t, '"comments":\s*\[\s*\]', ('"comments":  [{"body":"' + $b + '","createdAt":"2026-10-27T11:47:00Z"}]')) }
   if ($mode -match 'cifail') { $rx = New-Object regex('"conclusion":\s*"SUCCESS"'); $t = $rx.Replace($t, '"conclusion":  "FAILURE"', 1) }
@@ -195,6 +197,16 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
   St-Fix247 $s5 'open authors stress cifail'
   $c = Invoke-GateAccept (St-Ctx $r3 $s5 $now) '247'
   St-Assert 'failing CI check' $c 'ci' 'FAIL' 'failed/cancelled'
+
+  # M19 (Oct 27 night): lovish's own GitHub-web commits carry the account's numeric noreply address; same account
+  $s19 = St-Stub $tmp 'acct' $fx 'auth-noworkflow.txt'
+  St-Fix247 $s19 'open acctnoreply stress'
+  $c = Invoke-GateAccept (St-Ctx $r3 $s19 $now) '247'
+  St-Assert 'M19 the account numeric noreply is IamTheLovish' $c 'authors' 'PASS' 'authored as IamTheLovish'
+  $s19b = St-Stub $tmp 'acct2' $fx 'auth-noworkflow.txt'
+  St-Fix247 $s19b 'open otheracct stress'
+  $c = Invoke-GateAccept (St-Ctx $r3 $s19b $now) '247'
+  St-Assert 'M19 control: another account numeric noreply still fails' $c 'authors' 'FAIL' 'not authored as IamTheLovish'
 
   # ---- report-lint
   $rr = St-Root $tmp 'rep' $fx $good
