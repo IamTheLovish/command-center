@@ -525,13 +525,14 @@ function Invoke-GateAccept($ctx, [string]$n) {
   if (-not (Test-Path -LiteralPath $ma)) { Add-Chk $L 'modeA' 'FAIL' ("no Mode A review: reviews\pr-{0}-modeA.md is missing (COMMANDER s7: Mode A before every merge)" -f $n) }
   else {
     $t = Read-Text $ma
+    # M21: rounds are appended at the bottom, so the LAST VERDICT / SHA / REVIEWER is the current review
     $why = New-Object System.Collections.ArrayList
-    $vm = [regex]::Match($t, '(?im)^\s*VERDICT:\s*([A-Za-z]+)')
+    $vm = [regex]::Match($t, '(?im)^\s*VERDICT:\s*([A-Za-z]+)', 'RightToLeft, IgnoreCase, Multiline')
     if (-not $vm.Success) { [void]$why.Add('no VERDICT line') } elseif ($vm.Groups[1].Value.ToUpper() -ne 'PASS') { [void]$why.Add('VERDICT is ' + $vm.Groups[1].Value) }
-    $sm = [regex]::Match($t, '(?im)^\s*(?:HEAD\s*)?SHA:\s*([0-9a-f]{7,40})')
+    $sm = [regex]::Match($t, '(?im)^\s*(?:HEAD\s*)?SHA:\s*([0-9a-f]{7,40})', 'RightToLeft, IgnoreCase, Multiline')
     if (-not $sm.Success) { [void]$why.Add('no SHA line') }
     elseif (-not $sha.ToLower().StartsWith($sm.Groups[1].Value.ToLower())) { [void]$why.Add(("stale: file reviewed {0}, PR head is {1}" -f $sm.Groups[1].Value.Substring(0, 8), $sha.Substring(0, 8))) }
-    $rm = [regex]::Match($t, '(?im)^\s*REVIEWER:\s*(.+?)\s*$')
+    $rm = [regex]::Match($t, '(?im)^\s*REVIEWER:\s*(.+?)\s*$', 'RightToLeft, IgnoreCase, Multiline')
     if ($rm.Success) { $reviewer = $rm.Groups[1].Value } else { [void]$why.Add('no REVIEWER line') }
     if ($why.Count -eq 0) { Add-Chk $L 'modeA' 'PASS' ("VERDICT PASS for head {0}" -f $sha.Substring(0, 8)) } else { Add-Chk $L 'modeA' 'FAIL' ($why -join '; ') }
     # independence + freshness

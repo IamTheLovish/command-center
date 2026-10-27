@@ -216,6 +216,19 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
   $c = Invoke-GateAccept (St-Ctx $r3 $s5 $now) '247'
   St-Assert 'failing CI check' $c 'ci' 'FAIL' 'failed/cancelled'
 
+  # M21 (Oct 27 night): a review file with several rounds is judged on its LAST round (appended at the bottom)
+  $r21 = St-Root $tmp 'rounds' $fx $good
+  Copy-Item (Join-Path $r3 'usage\ledger-2026-10-27.md') (Join-Path $r21 'usage\ledger-2026-10-27.md')
+  $p21 = Join-Path $r21 'reviews\pr-247-modeA.md'
+  Write-Text $p21 ("VERDICT: BLOCK`r`nREVIEWER: fresh-reviewer-sonnet [id:r222]`r`nSHA: 1111111111111111111111111111111111111111`r`n`r`n## Round 2`r`nVERDICT: PASS`r`nREVIEWER: fresh-reviewer-sonnet [id:r222]`r`nSHA: $head247`r`n") $false
+  St-SetTime $p21 $after
+  $c = Invoke-GateAccept (St-Ctx $r21 $s3 $now) '247'
+  St-Assert 'M21 last round PASS on the head wins over an old BLOCK' $c 'modeA' 'PASS' 'VERDICT PASS'
+  Write-Text $p21 ("VERDICT: PASS`r`nREVIEWER: fresh-reviewer-sonnet [id:r222]`r`nSHA: $head247`r`n`r`n## Round 2`r`nVERDICT: BLOCK`r`nREVIEWER: fresh-reviewer-sonnet [id:r222]`r`nSHA: $head247`r`n") $false
+  St-SetTime $p21 $after
+  $c = Invoke-GateAccept (St-Ctx $r21 $s3 $now) '247'
+  St-Assert 'M21 control: a later BLOCK overrides an earlier PASS' $c 'modeA' 'FAIL' 'VERDICT is BLOCK'
+
   # M19 (Oct 27 night): lovish's own GitHub-web commits carry the account's numeric noreply address; same account
   $s19 = St-Stub $tmp 'acct' $fx 'auth-noworkflow.txt'
   St-Fix247 $s19 'open acctnoreply stress'
