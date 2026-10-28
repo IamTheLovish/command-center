@@ -316,9 +316,11 @@ function Test-GateBranchBusy($ctx, $prObj, [string]$prNum, [string]$branch) {
     $txt = $r.Assignment + ' ' + $r.Note
     $m = $false; foreach ($p in $pat) { if ($txt -match $p) { $m = $true } }
     if (-not $m -or $r.GenNum -eq $myGen) { continue }
-    if ($r.Assignment -match '(?i)boot') { [void]$reasons.Add("gen-$($r.Gen) owns it in a boot row ($($r.Date) $($r.Time))") }
-    elseif ($r.Class -eq 'running') { [void]$reasons.Add("gen-$($r.Gen) has a running ledger row for it ($($r.Date) $($r.Time))") }
     $stamp = Get-RowStamp $r
+    # a boot row claims its PRs for that generation's night only: older than 24h it no longer owns them (Oct 28: gen-010's Oct 22 boot row blocked reviews)
+    $bootStale = $stamp -and (($now.DateTime - $stamp).TotalHours -ge 24)
+    if ($r.Assignment -match '(?i)boot') { if (-not $bootStale) { [void]$reasons.Add("gen-$($r.Gen) owns it in a boot row ($($r.Date) $($r.Time))") } }
+    elseif ($r.Class -eq 'running') { [void]$reasons.Add("gen-$($r.Gen) has a running ledger row for it ($($r.Date) $($r.Time))") }
     if ($stamp) { $age = ($now.DateTime - $stamp).TotalMinutes; if ($age -ge -5 -and $age -lt 120 -and $r.Assignment -notmatch '(?i)boot') { [void]$recent.Add("gen-$($r.Gen) touched it $([int]$age) min ago per ledger") } }
   }
   return @{ Reasons = @($reasons | Select-Object -Unique); Recent = @($recent | Select-Object -Unique); Unknown = $unknown }
