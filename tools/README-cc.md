@@ -41,3 +41,6 @@ Added Oct 27 (session 3, D040-D042):
 - `install-guards.ps1` (lovish runs): tests first (`test-ctx-qguard.ps1`, gate-selftest), then statusline + question-guard + gate hook into `%USERPROFILE%\.claude\settings.json` with a backup; `-Uninstall` removes them. Asks before setting CurrentUser RemoteSigned.
 - GitHub merge gate: `guards\github\` (required `mode-a` status from a review comment for the head sha; lovish switches it on).
 - Session chain: `usage\sessions.md` + `command-center\NEXT-SESSION-PROMPT.md` (command-center skill, "Session chain").
+
+Added Oct 27 (gen-014 session 3, flake-move-unloaded):
+- `prove-red.ps1 -Name n -Commits a,b -Tests "test:x" [-Shard 1 -Focus x] [-Runners 4]` (4: the public repo shares ~20 runners): proves a new GameTest red on the OLD game code before "tests first" is claimed. Builds `throwaway/red-<n>` = origin/main + only the named commits, FAILs if any of them touches a file outside `gametest/`, pushes, dispatches flake-stress, prints the run id. The test must fail in the summary's `[Stress]` line; if it passes, it does not reproduce the bug.
