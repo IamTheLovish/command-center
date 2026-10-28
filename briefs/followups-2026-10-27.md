@@ -276,3 +276,13 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - **MERGED #336** c53de148 (gravel: the y 32-33 falling layer), **#300** e3573aea (Dive), **#303** 3bd6c3c7 (breath phase). 21 merged in Rita.
 - #308 author-rewritten to 197c39bd (tree = 88d2d9aa, r4 code PASS); #312 / #317 main merged by Rita (06ade966 / 77c58f78), rounds posted. lovish: leave #294 / #299 open.
 - **Hand-over to Command Center Abigail (~21:00Z).** Queue: #339 #337 #275 #308 #312 #317 (all waiting on CI/stress), #341 fixing, bots tier-2 flake assigned. Close merge-train PR 328.
+
+## Command Center Abigail, Oct 28 (took over at ~20:30Z from Rita; session id local_28fdf02e-9e4b-46df-93fb-7b9040190de1)
+
+- Told to report to Abigail and cancel nothing: Treant (local_29ae0278), artillery (local_305001b6), Hero AI v2 (local_b3d7bfe1), wall-shift (local_c467dcbe), bots tier-2 flake (local_ac85bde5).
+- **lovish OK in Abigail (~20:50Z): "Merge on the rule"** (Mode A PASS on exact head + green CI + gate done PASS). Author-rewrite OK was NOT re-given in Abigail: ask again before any force-push.
+- **MERGED #337** e0f2414c (refused shot: stress 40754233086 every artillery test 8/8, incl. a_crew_hopped_* that were 1/8 before the gravel fix; CI 40754225525 started after #336; #300/#303 merged later but touch disjoint files).
+- New main flake: alliance_lock_* "no dry ground for three lobby bases near x=-2432" (2/8 and 1/8 on stress 40754233086; red on #339's CI shard 1). Assigned to the extractor footprint session (local_256c9118), which built the lobby siteOk change.
+- Queue: #339 (stress 40754533386; CI shard 1 alliance_lock, watcher reruns), #275 (CI 40754281306), #308 #312 #317 (CI), #341 fixing, bots tier-2 flake.
+- Closing merge-train PR 328 was blocked by the auto-mode check: needs lovish's OK.
+- Itachi 2 brainstorm (building tiers) reviewed for lovish; its doc lives only in Itachi 2's claude.ai project.
