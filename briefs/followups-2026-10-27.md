@@ -201,3 +201,11 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - **#305** Mode A FAIL fbf0c902 (nested runAfterDelay in a test; move orders while rooted silently dropped). Sent to rooted-treant. 30% rooted damage cut needs lovish's OK.
 - **#300** new head 3dc49cae (dive landed 4.6 off because of unit separation pushes; in-flight reload never landed: speed/climb now saved, diagnostics added). Focused stress 40634774204. Delta review from 133e8227 next.
 - **Vertos hand-over (~06:35Z, lovish: "start new command center rem to save on usage"):** see side-session-notes\local_fde47261...\coordinator-handover-vertos.md. #301 author-rewritten to dd9c143a (lovish OK). #309 (ac1 fix) PASS, #308 FAIL, #301 r2 PASS. Design PR #310 (design/proposals/). lovish: tech 4 = Ascension research; creep rule Ashborn + Hivebound; pre-made home metal moves out; capitol even bigger than 39 (metal farther); 7 reference images (tall, layered, ornate).
+
+## Command Center Rem, Oct 28 (took over at ~06:35Z from Vertos; session id local_2ca95f23-4172-492a-b343-c58191dcccd8)
+
+- 10 working sessions told to report to Rem and cancel nothing (buildings-design not reached: message cap; it is idle and done).
+- **lovish OKs in Rem (~06:45Z):** merge each PR on Mode A PASS on its exact head + green CI + gate done PASS; author-only force-push rewrites on claude/ branches when `git diff old new` is empty (#203 and others).
+- Reran failed jobs (no cancels): #309 CI 40638286450 (shard 9, one required test) and #298 CI 40617687211 (summary job only).
+- **MERGED #295** a436b1e6, **#296** 33238eac, **#257** 3aec04f7 (gate done PASS each). #296/#257 first failed the gate only because their green stress ids were not in the PR body; appended 40619387355 / 40625408707.
+- Runners ~06:45Z: 6 in progress, 33 queued. Still queued: #297 red/green, #203 stress, #300 green, #305 red, #307 red/green, #309 red/green.
