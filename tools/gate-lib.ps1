@@ -97,8 +97,11 @@ function Get-GateStressRun($ctx, [string]$id) {
   if ($null -eq $o) { $res.Err = 'gh run view ' + $id + ' failed' }
   else {
     $lines = New-Object System.Collections.ArrayList
-    [void]$lines.Add('workflow: ' + [string]$o.name)
-    if ([string]$o.name -eq 'flake-stress' -and [string]$o.status -eq 'completed') {
+    # The run name is "flake-stress <ref>" since the workflow got a run-name; match the prefix.
+    $isStress = ([string]$o.name -match '^flake-stress(\s|$)')
+    $wf = [string]$o.name; if ($isStress) { $wf = 'flake-stress' }
+    [void]$lines.Add('workflow: ' + $wf)
+    if ($isStress -and [string]$o.status -eq 'completed') {
       $st = @(@($o.jobs) | Where-Object { ([string]$_.name).StartsWith('stress') }) | Select-Object -First 1
       $sum = @(@($o.jobs) | Where-Object { [string]$_.name -eq 'summary' }) | Select-Object -First 1
       $ref = ''
