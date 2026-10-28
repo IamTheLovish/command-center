@@ -166,3 +166,12 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - **Itachi 2:** #295 CI green 42bf85a1, stress 40626428525. #131 BAR-style metal bf307b31 (7 standard home patches 48-72 out, contested clumps of 3, clumps/paths/strays; 240-map report: 4v4 seat fairness up, redraws 22->17, max build 5.57->3.33 s). Open lovish question: home metal set. Itachi 1: #294 stress re-dispatched on full SHA (40628382926/85030/87257/89476).
 - **PC:** BAR lag = memory pressure (90% committed, spring paging); archived ruff-fix and spike-gpu sessions. Janitor protects spring.
 - **Hand-over:** Xerath -> Command Center Vertos (note: side-session-notes/local_1c03e1b4.../coordinator-handover-2026-10-28-0350-xerath.md).
+
+## Command Center Vertos, Oct 28 (took over at ~03:50Z from Xerath; session id local_d19c1449-6b3d-46bc-9122-c5bff6ce18ea)
+
+- All 8 working sessions told to report to Vertos (local_d19c1449) and to cancel nothing, not even their own superseded runs.
+- **lovish OKs in Vertos (Oct 28 ~03:55Z):** "Yes to both": merge each PR on Mode A PASS on its exact head + green CI + gate done PASS (stale pile, tonight's drafts, #295, #203), and force-push #203's author rewrite if git diff old new is empty.
+- **lovish design answers (Oct 28 ~03:55Z):** #131 home metal = standard 7 patches (48-72 out, none within 40 of a start; Itachi 2's current bf307b31 build). Infantry vs buildings = real damage (infantry can kill buildings, slower than vehicles). Faction-themed vehicles = design doc first.
+- **Runners ~03:55Z:** 6 jobs running, 43 runs queued. Nearly every pending run (#297 #298 #296 #198 #257 #120 #295 #294 #145/#300 keep-units-selected T2) is still queued.
+- **#301** CI 40621815134 red on ruff only: main's old F401s (gen_architect, gen_cleric, gen_dawn_paladin), fixed on main by #302. Needs a main merge (8 behind) and a fresh CI; Itachi 1's branch.
+- **#300** head is now 85450f49 (was 3805a1c4).
