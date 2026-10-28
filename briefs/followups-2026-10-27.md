@@ -268,3 +268,5 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - PR 338 scar top-face fix r1 PASS d3475a17 (an ac5 test that fails leaves its sky pad); conflicts at `Runnable undoBig` with the ac5 fix branch (session told).
 - Runner starvation: ~5 hosted jobs at once, 34 queued.
 - After #203: tell Itachi 2 (morning paste) to do the T2 site-search fix (Vertos note).
+- **MERGED #338** b4df3b3e (scar top-face flake), **#321** 65067825 (Lovish's Wager Book; stress 40698630635 every wager_ test failed 0 passed 7). 15 merged in Rita.
+- Reviews PASS, waiting on evidence: #336 gravel (c47a0219, CI), #337 refused shot, #339 Treant follow-up 2 (stress), #340 ac5 fix (0d5db8f7, stress 40727190758; game-code fix in BuildingPlacement.onBuilt), #318 far selection r2 PASS f6ad02d2 (stress 40727304315 + shard 9 rerun; lovish should check the HUD/long-queue path in game), #145 (yaw fix 14e96d85; stress 40721921322).
