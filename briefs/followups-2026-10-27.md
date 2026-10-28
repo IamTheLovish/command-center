@@ -259,3 +259,7 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - #321 head 33eaa04c (sticky thunder test), coordinator round PASS; waits on CI 40683706318 (shard 1 shows the block-test refusal reasons), stress 40683715954, red 40683711784.
 - #331 Treant follow-up r2 PASS 7c6d5814; waits on CI + red 40681753960 / green 40681837370.
 - #324: Rita merged main (d52608b5, merge-only) so the unittest step now has numpy; check the ruff job log shows "Ran 22 ... OK" with 0 skipped. Tell Itachi 2 by morning paste.
+- **MERGED #324** 51707b77 (shape kit; Rita merged main d52608b5 so the unittest step had numpy: "Ran 62 tests ... OK", none skipped). Lesson: I chained the merge onto the base check; main had moved 2 commits (Joisco's #333, installer/channels_test.go only, disjoint). Check behind_by first, then merge.
+- #275 merged main again for the AttackerUnit.java overlap with #325 (44ba9abd; both edits independent narrowing conditions; coordinator round PASS); waits on CI 40706874661.
+- #321 root cause found: the block test's spot at template y 2 is the arena's grass floor ("not air: minecraft:grass_block" at all 4 spots); 4388cd48 clears it first; coordinator round PASS; waits on CI 40698639742 + green 40698630635.
+- #331 waits on stress 40681753960 / 40681837370 (gate: no stress run yet for its 2 new tests). #145 waits on stress 40686491320. #203 waits on CI 40690111782 + stress 40690103949.
