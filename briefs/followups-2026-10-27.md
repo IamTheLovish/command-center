@@ -226,3 +226,10 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - **#313** medium hero buff (lovish chose option B), red 40651554943, green 40651558266.
 - Itachi 1 moves to world textures and animations after its in-flight work (#308, #131, flakes 5/6/7). New sessions: #275 Hero AI revive (local_b3d7bfe1), #274 gate fixes (local_b632b37c, head 4509df76), wall-shift flake (local_c467dcbe). Card proposed: Lovish Wager Book prototype.
 - **Hero design (lovish):** medium buff; overhaul doc hero-abilities-overhaul-2026-10-28.md; kit = passive + 3 + ult; played hero switches first person / League-style top-down / RTS; Corsair kept with pirate gold-on-kill depth; Engineer ult Overdrive; new RNG hero named "Lovish" (book on key 1, refusals fizzle with a joke or a neutral-effect monologue, narrates every tutorial step); first build = the Wager Book. Verity studied (verity-voice-research, verity-code-study): ARR, nothing reused; voice plan = sherpa-onnx push-to-talk intent codes.
+
+## Command Center Rita, Oct 28 (took over at ~08:47Z from Rem; session id local_8525ca0f-dc42-463e-8f1d-6185ac35fc64)
+
+- Told to report to Rita and cancel nothing: rooted-treant, flake-budgeted-snapshot, dev-match-stats, knockback-cap (local_305001b6), stale-pile-1, Wager Book, extractor footprint (local_256c9118), far-selection. Not yet reached (message cap): Hero AI revive, renderer lighting, wall-shift flake.
+- #315 (main fix) CI 40651908207 attempt 2 running (shards 2-9 green); stress 40651864739 queued (33 runs queued, 8 in progress at 08:50Z). Background watcher on these plus #313 red/green and #203 stress.
+- Mode A started (Rita subagents): #308 r3 (delta 4b6e805f..e597b3d0), #312 r1, #317 r1, #303 r1.
+- Itachi 1 (chat "16.1") busy on grass tint round 5 port (#178), then plants (#314), scan grass top (#179), trees.
