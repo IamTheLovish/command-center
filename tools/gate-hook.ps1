@@ -1,7 +1,7 @@
 # gate-hook.ps1 - Claude Code PreToolUse hook (NOT installed; see install-gate-hook.md). ASCII only, PowerShell 5.1.
 # Reads the hook JSON on stdin. Exit 2 = block the tool call and show stderr to Claude. Exit 0 = allow.
 #  - Bash: blocks killing processes by name/pattern (pkill, killall, taskkill /IM, Stop-Process -Name).
-#  - Task/Agent: runs `cc.ps1 gate start` (no ledger row) on the brief and blocks on FAIL.
+#  - Task/Agent: runs `cc.ps1 gate start` (no ledger row) on the brief and blocks on FAIL. A 'ROLE: reviewer' line adds -Reviewer.
 $ErrorActionPreference = 'Stop'
 $cc = Join-Path $PSScriptRoot 'cc.ps1'
 function Block([string]$m) { [Console]::Error.WriteLine($m); exit 2 }
@@ -23,6 +23,8 @@ if ($tool -eq 'Task' -or $tool -eq 'Agent') {
   if ($all -match '(?i)\.github[\\/]workflows') { $a += '-EditsWorkflows' }
   if ($all -match '(?i)\bxhigh\b') { $a += '-Heavy' }
   if ($all -match '(?i)\b(open|create|new)\s+(a\s+)?(pull request|PR)\b') { $a += '-NewPr' }
+  # M17: a brief with a 'ROLE: reviewer' line is read-only review work; recent activity on the branch is then a WARN
+  if ($prompt -match '(?im)^\s*ROLE:\s*reviewer\b') { $a += '-Reviewer' }
   $fm = @([regex]::Matches($all, '[A-Za-z0-9_./-]+\.(java|py|yml|yaml|json|gradle)\b') | ForEach-Object { $_.Value } | Where-Object { $_ -match '/' } | Select-Object -Unique)
   if ($fm.Count -gt 0) { $a += @('-Files', ($fm -join ',')) }
   $out = (& powershell -NoProfile -ExecutionPolicy Bypass -File $cc @a 2>&1 | Out-String)

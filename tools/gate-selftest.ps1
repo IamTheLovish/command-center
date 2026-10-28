@@ -30,6 +30,11 @@ function St-Stub([string]$tmp, [string]$name, [string]$fx, [string]$auth) {
   Copy-Item (Join-Path $fx 'AGENTS.excerpt.md') (Join-Path $s 'AGENTS.md')
   return $s
 }
+function St-Stress289([string]$stubDir, [string]$fx) {
+  Copy-Item (Join-Path $fx 'pr289.real.json') (Join-Path $stubDir 'pr289.json')
+  Copy-Item (Join-Path $fx 'pr289.real.diff') (Join-Path $stubDir 'pr289.diff')
+  foreach ($f in @(Get-ChildItem -LiteralPath $fx -Filter 'stress-*.real.txt')) { Copy-Item $f.FullName (Join-Path $stubDir ($f.Name -replace '\.real\.txt$', '.txt')) }
+}
 function St-Ctx([string]$root, [string]$stub, $now) { return (New-GateCtx @{ Root = $root; Repo = $root; Stub = $stub; NoLog = $true; Now = $now }) }
 function St-ModeA([string]$root, [string]$n, [string]$sha, [string]$reviewer, [string]$mtimeUtc) {
   $p = Join-Path $root ('reviews\pr-' + $n + '-modeA.md')
@@ -41,7 +46,22 @@ function St-Fix247([string]$stubDir, [string]$mode) {
   $t = Read-Text $p
   if ($mode -match 'open') { $t = [regex]::Replace($t, '"state":\s*"MERGED"', '"state":  "OPEN"'); $t = [regex]::Replace($t, '"mergedAt":\s*"[^"]*"', '"mergedAt":  null') }
   if ($mode -match 'authors') { $t = [regex]::Replace($t, '"email":\s*"noreply@anthropic.com"', '"email":  "IamTheLovish@users.noreply.github.com"'); $t = [regex]::Replace($t, '"name":\s*"Claude"', '"name":  "IamTheLovish"') }
-  if ($mode -match 'stress') { $t = [regex]::Replace($t, '"comments":\s*\[\s*\]', '"comments":  [{"body":"[Stress] flake-stress 30 runs: 0 with any failure","createdAt":"2026-10-27T03:00:00Z"}]') }
+  if ($mode -match 'acctnoreply') { $t = [regex]::Replace($t, '"email":\s*"noreply@anthropic.com"', '"email":  "339019718+IamTheLovish@users.noreply.github.com"'); $t = [regex]::Replace($t, '"name":\s*"Claude"', '"name":  "Lovish"') }
+  if ($mode -match 'otheracct') { $t = [regex]::Replace($t, '"email":\s*"noreply@anthropic.com"', '"email":  "12345+SomeoneElse@users.noreply.github.com"'); $t = [regex]::Replace($t, '"name":\s*"Claude"', '"name":  "Lovish"') }
+  if ($mode -match 'names|stress') {
+    # SYNTHETIC (M20): the saved #247 diff stops at the @GameTest lines, so each gets a method name
+    $script:StK = 0
+    $df = [regex]::Replace((Read-Text (Join-Path $stubDir 'pr247.diff')), '(?m)^(\+\s*@GameTest\b[^\r\n]*)', { param($m) $script:StK++; $m.Groups[1].Value + "`n+    public static void perf_quick_wins_case_" + $script:StK + '(GameTestHelper helper) {' })
+    Write-Text (Join-Path $stubDir 'pr247.diff') $df $false
+  }
+  if ($mode -match 'stress') {
+    $t = [regex]::Replace($t, '"comments":\s*\[\s*\]', '"comments":  [{"body":"[Stress] flake-stress 30 runs: 0 with any failure","createdAt":"2026-10-27T03:00:00Z"}]')
+    # SYNTHETIC (M20): a flake-stress run of #247's branch (found by its run-name title) whose summary passes all six
+    Write-Text (Join-Path $stubDir 'stressruns.json') '[{"databaseId":40500000001,"displayTitle":"flake-stress claude/perf-quick-wins","status":"completed","conclusion":"success","createdAt":"2026-10-27T03:00:00Z"}]' $false
+    $sum = "workflow: flake-stress`nref: claude/perf-quick-wins`n[Stress] 6 runners; 0 with any failure"
+    for ($i = 1; $i -le $script:StK; $i++) { $sum += "`nperf_quick_wins_case_" + $i + ': failed 0, passed 6' }
+    Write-Text (Join-Path $stubDir 'stress-40500000001.txt') $sum $false
+  }
   if ($mode -match 'cmt-(\w+)') { $tag = $Matches[1]; $b = 'VERDICT: PASS\nREVIEWER: opus reviewer'; if ($tag -ne 'none') { $b += (' [id:' + $tag + ']') }; $t = [regex]::Replace($t, '"comments":\s*\[\s*\]', ('"comments":  [{"body":"' + $b + '","createdAt":"2026-10-27T11:47:00Z"}]')) }
   if ($mode -match 'cifail') { $rx = New-Object regex('"conclusion":\s*"SUCCESS"'); $t = $rx.Replace($t, '"conclusion":  "FAILURE"', 1) }
   Write-Text $p $t $false
@@ -95,6 +115,9 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
   St-Assert 'M6 open PR edits the same file' $c 'overlap' 'FAIL' '#216'
   $c = Invoke-GatePreflight (St-Ctx $r2 $s2 $now) @{ Task = 'x'; Files = 'bar/src/main/java/com/solegendary/reignofnether/matchstart/EyesOverlaysScene.java'; AllowOverlap = 'coordinated with 216 owner' }
   St-Assert 'M6 -AllowOverlap downgrades to WARN' $c 'overlap' 'WARN' 'overlap allowed'
+  # M18 (Oct 27, #286): a read-only reviewer edits no file, so another PR touching the same files is only a WARN
+  $c = Invoke-GatePreflight (St-Ctx $r2 $s2 $now) @{ Task = 'x'; Files = 'bar/src/main/java/com/solegendary/reignofnether/matchstart/EyesOverlaysScene.java'; Reviewer = $true }
+  St-Assert 'M18 reviewer: open-PR overlap only warns' $c 'overlap' 'WARN' 'reviewer \(read-only\)'
 
   # ---- M7 PR pile-up
   $c = Invoke-GatePreflight (St-Ctx $r2 $s2 $now) @{ Task = 'x'; NewPr = $true }
@@ -138,6 +161,20 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
     St-Assert $case[3] $c 'branch-check' $case[1] $case[2]
   }
 
+  # ---- M17 reviewers blocked by the 2h rule (Oct 27 overnight: Mode A reviewers could not start on a branch whose
+  #      builder had just pushed, which is exactly when a review is due). A read-only reviewer gets WARN for recent
+  #      activity; a running builder row of another gen still blocks it, and builders are unchanged.
+  $s17 = St-Stub $tmp 'm17' $fx 'auth-noworkflow.txt'
+  St-Fix247 $s17 'open cmt-none'
+  $c = Invoke-GatePreflight (St-Ctx $r16 $s17 $now) @{ Task = 'x'; Pr = '247'; Reviewer = $true }
+  St-Assert 'M17 reviewer: recent comment only warns' $c 'branch-check' 'WARN' 'PR comment'
+  $c = Invoke-GatePreflight (St-Ctx $r16 $s17 $now) @{ Task = 'x'; Pr = '247' }
+  St-Assert 'M17 control: builder still blocked by recent comment' $c 'branch-check' 'FAIL' 'PR comment'
+  $r17 = St-Root $tmp 'm17' $fx $good
+  Write-Text (Join-Path $r17 'usage\ledger-2026-10-27.md') ($ledgerHdr + "| 07:50 | A | 013 | owns #247 fix round 2 | opus | xhigh | - | running | tier: core [id:cc33] |`r`n") $false
+  $c = Invoke-GatePreflight (St-Ctx $r17 $s17 $now) @{ Task = 'x'; Pr = '247'; Reviewer = $true }
+  St-Assert 'M17 control: reviewer still blocked by a running builder row' $c 'branch-check' 'FAIL' 'running ledger row'
+
   # ---- accept: independence, stale sha, old file, gametests, CI
   $s3 = St-Stub $tmp 'pos' $fx 'auth-noworkflow.txt'
   St-Fix247 $s3 'open authors stress'
@@ -171,13 +208,60 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
   St-Assert 'M4+ Mode A file older than the head commit' $c 'modeA-independent' 'FAIL' 'before head commit'
 
   $s4 = St-Stub $tmp 'nostress' $fx 'auth-noworkflow.txt'
-  St-Fix247 $s4 'open authors'
+  St-Fix247 $s4 'open authors names'
   $c = Invoke-GateAccept (St-Ctx $r3 $s4 $now) '247'
-  St-Assert 'new @GameTest without stress evidence' $c 'gametests' 'FAIL' '6 new @GameTest but no flake-stress'
+  St-Assert 'new @GameTest without stress evidence' $c 'gametests' 'FAIL' '6 of 6 new @GameTest in no flake-stress run'
   $s5 = St-Stub $tmp 'cifail' $fx 'auth-noworkflow.txt'
   St-Fix247 $s5 'open authors stress cifail'
   $c = Invoke-GateAccept (St-Ctx $r3 $s5 $now) '247'
   St-Assert 'failing CI check' $c 'ci' 'FAIL' 'failed/cancelled'
+
+  # M21 (Oct 27 night): a review file with several rounds is judged on its LAST round (appended at the bottom)
+  $r21 = St-Root $tmp 'rounds' $fx $good
+  Copy-Item (Join-Path $r3 'usage\ledger-2026-10-27.md') (Join-Path $r21 'usage\ledger-2026-10-27.md')
+  $p21 = Join-Path $r21 'reviews\pr-247-modeA.md'
+  Write-Text $p21 ("VERDICT: BLOCK`r`nREVIEWER: fresh-reviewer-sonnet [id:r222]`r`nSHA: 1111111111111111111111111111111111111111`r`n`r`n## Round 2`r`nVERDICT: PASS`r`nREVIEWER: fresh-reviewer-sonnet [id:r222]`r`nSHA: $head247`r`n") $false
+  St-SetTime $p21 $after
+  $c = Invoke-GateAccept (St-Ctx $r21 $s3 $now) '247'
+  St-Assert 'M21 last round PASS on the head wins over an old BLOCK' $c 'modeA' 'PASS' 'VERDICT PASS'
+  Write-Text $p21 ("VERDICT: PASS`r`nREVIEWER: fresh-reviewer-sonnet [id:r222]`r`nSHA: $head247`r`n`r`n## Round 2`r`nVERDICT: BLOCK`r`nREVIEWER: fresh-reviewer-sonnet [id:r222]`r`nSHA: $head247`r`n") $false
+  St-SetTime $p21 $after
+  $c = Invoke-GateAccept (St-Ctx $r21 $s3 $now) '247'
+  St-Assert 'M21 control: a later BLOCK overrides an earlier PASS' $c 'modeA' 'FAIL' 'VERDICT is BLOCK'
+
+  # M19 (Oct 27 night): lovish's own GitHub-web commits carry the account's numeric noreply address; same account
+  $s19 = St-Stub $tmp 'acct' $fx 'auth-noworkflow.txt'
+  St-Fix247 $s19 'open acctnoreply stress'
+  $c = Invoke-GateAccept (St-Ctx $r3 $s19 $now) '247'
+  St-Assert 'M19 the account numeric noreply is IamTheLovish' $c 'authors' 'PASS' 'authored as IamTheLovish'
+  $s19b = St-Stub $tmp 'acct2' $fx 'auth-noworkflow.txt'
+  St-Fix247 $s19b 'open otheracct stress'
+  $c = Invoke-GateAccept (St-Ctx $r3 $s19b $now) '247'
+  St-Assert 'M19 control: another account numeric noreply still fails' $c 'authors' 'FAIL' 'not authored as IamTheLovish'
+
+  # ---- M20 (Oct 27 night): flake-stress runs 40565576897, 40581759617, 40582259285 and 40582056986 were given bare test
+  #      names, ran 0 tests ("All 0 required tests passed" on every runner) and were posted as "[Stress] 0 with any
+  #      failure"; #273 and #289 merged on them. Real #289 (pr289.real.*) and the real summaries of every run its body and
+  #      comments cite (stress-<id>.real.txt): its new @GameTest sealed_arena_has_no_fluid_after_openGround is in no
+  #      summary of a flake-stress run of its branch (40581759617 ran 0 tests, 40572402176 listed only vanilla_path).
+  $r20 = St-Root $tmp 'm20' $fx $good
+  $s20 = St-Stub $tmp 'm20' $fx 'auth-noworkflow.txt'
+  St-Stress289 $s20 $fx
+  $c = Invoke-GateAccept (St-Ctx $r20 $s20 $now) '289'
+  St-Assert 'M20 #289: a [Stress] comment over a 0-test run is no evidence' $c 'gametests' 'FAIL' 'sealed_arena_has_no_fluid_after_openGround'
+  # SYNTHETIC controls: a run of the branch (run-name title) whose summary names the test passes; the same summary on a
+  # run that checked out main, or with passed 0, does not
+  $one = "workflow: flake-stress`nref: {0}`n[Stress] 6 runners; 0 with any failure`nsealed_arena_has_no_fluid_after_openGround: failed 0, passed {1}"
+  foreach ($case in @(@('ok', 'claude/flake-015b-pathing-arenas', '6', 'PASS', 'passed 6', 'M20 control: a run of the branch naming the test passes'),
+                      @('main', 'main', '6', 'FAIL', 'sealed_arena_has_no_fluid_after_openGround', 'M20 control: the same summary from a run of main does not count'),
+                      @('zero', 'claude/flake-015b-pathing-arenas', '0', 'FAIL', 'sealed_arena_has_no_fluid_after_openGround', 'M20 control: passed 0 is not a pass'))) {
+    $sc = St-Stub $tmp ('m20-' + $case[0]) $fx 'auth-noworkflow.txt'
+    St-Stress289 $sc $fx
+    Write-Text (Join-Path $sc 'stressruns.json') '[{"databaseId":40599999999,"displayTitle":"flake-stress claude/flake-015b-pathing-arenas","status":"completed","conclusion":"success","createdAt":"2026-10-27T22:00:00Z"}]' $false
+    Write-Text (Join-Path $sc 'stress-40599999999.txt') ($one -f $case[1], $case[2]) $false
+    $c = Invoke-GateAccept (St-Ctx $r20 $sc $now) '289'
+    St-Assert $case[5] $c 'gametests' $case[3] $case[4]
+  }
 
   # ---- report-lint
   $rr = St-Root $tmp 'rep' $fx $good

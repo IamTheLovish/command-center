@@ -1,0 +1,13 @@
+workflow: flake-stress
+ref: claude/flake-roots
+[Stress] 10 runners; 7 with any failure
+capture_bounded_when_barrier_hangs: failed 5, passed 5
+stress_target_scans_idle_standoff_and_a_brawl: failed 1, passed 9
+the_budgeted_snapshot_equals_the_one_tick_capture: failed 1, passed 9
+vanilla_path_melee_chaser_runs_down_a_walking_target: failed 1, passed 9
+ac2_a_guard_follows_its_ward_to_the_next_site_and_helps_there: failed 0, passed 10
+ac2_a_guard_standing_on_its_wards_new_footprint_keeps_guarding_and_builds: failed 0, passed 10
+elder_druid_is_a_t2_worker: failed 0, passed 10
+stress_command_queue_executor_stays_in_budget: failed 0, passed 10
+the_snapshot_lists_block_entities_vanilla_has_not_created_yet: failed 0, passed 10
+the_snapshot_of_unloaded_chunks_loads_them_without_blocking_a_tick: failed 0, passed 10

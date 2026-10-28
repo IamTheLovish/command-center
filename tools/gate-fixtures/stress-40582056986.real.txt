@@ -1,0 +1,4 @@
+workflow: flake-stress
+ref: claude/config-reload-race-everywhere
+[Stress] 6 runners; 0 with any failure
+no test failed in any run

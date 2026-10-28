@@ -4,7 +4,7 @@
 # Stub mode (ctx.Stub = folder): gh data is read from files there (openprs.json, auth.txt, pr<N>.json, pr<N>.diff) - used by gate-selftest.
 
 function New-GateCtx([hashtable]$o) {
-  $c = @{ Root = 'D:\Command Center'; Repo = 'D:\BeyondAndTabs-Repo'; Stub = ''; NoCache = $false; NoLog = $false; Verbose = $false; Now = $null; PrCache = @{}; Rows = $null; GhCalls = 0 }
+  $c = @{ Root = 'D:\Command Center'; Repo = 'D:\BeyondAndTabs-Repo'; Stub = ''; NoCache = $false; NoLog = $false; Verbose = $false; Now = $null; PrCache = @{}; StressCache = @{}; Rows = $null; GhCalls = 0 }
   if ($o) { foreach ($k in $o.Keys) { $c[$k] = $o[$k] } }
   return $c
 }
@@ -49,7 +49,7 @@ function Invoke-GhRaw($ctx, [string[]]$a, [bool]$merge) {
 function Get-GateData($ctx, [string]$kind, [string]$arg = '') {
   if ($ctx.Stub) {
     $f = ''
-    switch ($kind) { 'openprs' { $f = 'openprs.json' } 'auth' { $f = 'auth.txt' } 'pr' { $f = 'pr' + $arg + '.json' } 'diff' { $f = 'pr' + $arg + '.diff' } }
+    switch ($kind) { 'openprs' { $f = 'openprs.json' } 'auth' { $f = 'auth.txt' } 'pr' { $f = 'pr' + $arg + '.json' } 'diff' { $f = 'pr' + $arg + '.diff' } 'stressruns' { $f = 'stressruns.json' } 'stressrun' { $f = 'stress-' + $arg + '.txt' } }
     $p = Join-Path $ctx.Stub $f
     if (Test-Path -LiteralPath $p) { return @{ Ok = $true; Text = (Read-Text $p); Cached = $false } }
     return @{ Ok = $false; Text = ''; Err = ('stub file missing: ' + $f); Cached = $false }
@@ -69,6 +69,8 @@ function Get-GateData($ctx, [string]$kind, [string]$arg = '') {
     'auth' { $r = Invoke-GhRaw $ctx @('auth', 'status') $true }
     'pr' { $r = Invoke-GhRaw $ctx @('pr', 'view', $arg, '--json', 'number,title,state,mergedAt,headRefOid,headRefName,body,commits,statusCheckRollup,files,comments') $false }
     'diff' { $r = Invoke-GhRaw $ctx @('pr', 'diff', $arg) $false }
+    'stressruns' { $r = Invoke-GhRaw $ctx @('run', 'list', '--workflow', 'flake-stress.yml', '--limit', '100', '--json', 'databaseId,displayTitle,status,conclusion,createdAt') $false }
+    'stressrun' { return (Get-GateStressRun $ctx $arg) }
   }
   if ($r.Code -ne 0) { return @{ Ok = $false; Text = ''; Err = ('gh ' + $kind + ' failed: ' + (Get-Trunc $r.Out 120)); Cached = $false } }
   $txt = $r.Out
@@ -82,6 +84,82 @@ function Get-GateData($ctx, [string]$kind, [string]$arg = '') {
     } catch { }
   }
   return @{ Ok = $true; Text = $txt; Cached = $false }
+}
+# One flake-stress run as the gate reads it (stub: stress-<id>.txt): "workflow: <name>", then for a completed
+# flake-stress run "ref: <what its stress job checked out>" (the -B branch, or the sha) and its summary job's annotation
+# lines ("[Stress] ...", "<test>: failed X, passed Y"). The run's own title is "flake-stress" for every ref until the
+# workflow names it, so the ref comes from the checkout line of the first stress job's log. Returns @{Ok;Text;Err}.
+function Get-GateStressRun($ctx, [string]$id) {
+  if ($ctx.StressCache.ContainsKey($id)) { return $ctx.StressCache[$id] }
+  $res = @{ Ok = $false; Text = ''; Err = ''; Cached = $false }
+  $r = Invoke-GhRaw $ctx @('run', 'view', $id, '--json', 'name,status,jobs') $false
+  $o = $null; if ($r.Code -eq 0) { $o = ConvertFrom-GJson $r.Out }
+  if ($null -eq $o) { $res.Err = 'gh run view ' + $id + ' failed' }
+  else {
+    $lines = New-Object System.Collections.ArrayList
+    [void]$lines.Add('workflow: ' + [string]$o.name)
+    if ([string]$o.name -eq 'flake-stress' -and [string]$o.status -eq 'completed') {
+      $st = @(@($o.jobs) | Where-Object { ([string]$_.name).StartsWith('stress') }) | Select-Object -First 1
+      $sum = @(@($o.jobs) | Where-Object { [string]$_.name -eq 'summary' }) | Select-Object -First 1
+      $ref = ''
+      if ($st) {
+        $lg = Invoke-GhRaw $ctx @('run', 'view', $id, '--job', [string]$st.databaseId, '--log') $false
+        $m = [regex]::Match($lg.Out, 'git checkout --progress --force (?:-B (\S+)|([0-9a-f]{40}))')
+        if ($m.Success) { $ref = $m.Groups[1].Value + $m.Groups[2].Value }
+      }
+      [void]$lines.Add('ref: ' + $ref)
+      if ($sum) {
+        $an = Invoke-GhRaw $ctx @('api', ('repos/{owner}/{repo}/check-runs/' + [string]$sum.databaseId + '/annotations'), '--jq', '.[].message') $false
+        foreach ($l in ($an.Out -split "\r?\n")) { if ($l.Trim()) { [void]$lines.Add($l) } }
+      }
+    }
+    $res.Ok = $true; $res.Text = ($lines -join "`n")
+  }
+  $ctx.StressCache[$id] = $res
+  return $res
+}
+# M20 (Oct 27 night): flake-stress runs given bare test names ran 0 tests ("All 0 required tests passed" on every runner)
+# and were posted as "[Stress] 0 with any failure"; #273 and #289 merged on them. Every new @GameTest now needs a
+# flake-stress run of the PR's own branch (or one of its commits) whose summary names it: "<name>: failed 0, passed N"
+# with N > 0. A [Stress] comment or ledger row is no longer evidence by itself, only a pointer to run ids to read.
+function Test-GateStress($ctx, $d, [string]$n, [string]$diff, $L) {
+  $added = [regex]::Matches($diff, '(?m)^\+\s*@GameTest\b').Count
+  $names = @([regex]::Matches($diff, '(?ms)^\+\s*@GameTest\b.*?^\+\s*(?:public\s+)?static\s+void\s+(\w+)\s*\(') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+  if ($names.Count -lt $added) { Add-Chk $L 'gametests' 'FAIL' ("{0} new @GameTest but only {1} named in the diff: cannot match them to a flake-stress summary" -f $added, $names.Count); return }
+  $branch = [string]$d.headRefName
+  $oids = @(@($d.commits) | ForEach-Object { [string]$_.oid })
+  $ids = New-Object System.Collections.ArrayList
+  $rl = Get-GateData $ctx 'stressruns'
+  if ($rl.Ok -and $branch) {
+    foreach ($x in @(ConvertFrom-GJson $rl.Text)) {
+      if ([string]$x.displayTitle -match ('(?<![\w/.-])' + [regex]::Escape($branch) + '(?![\w/.-])')) { [void]$ids.Add([string]$x.databaseId) }
+    }
+  }
+  $txt = [string]$d.body
+  foreach ($c in @($d.comments)) { $txt += "`n" + [string]$c.body }
+  foreach ($r in (Get-GRows $ctx)) { $t = $r.Assignment + ' ' + $r.Note; if ($t -match ('#' + [regex]::Escape($n) + '(?!\d)')) { $txt += "`n" + $t } }
+  foreach ($m in [regex]::Matches($txt, '(?<!\d)(\d{10,12})(?!\d)')) { if (-not $ids.Contains($m.Groups[1].Value)) { [void]$ids.Add($m.Groups[1].Value) } }
+  $ok = @{}; $onBranch = New-Object System.Collections.ArrayList; $elsewhere = New-Object System.Collections.ArrayList
+  foreach ($id in @($ids | Select-Object -First 15)) {
+    $s = Get-GateData $ctx 'stressrun' $id
+    if (-not $s.Ok) { continue }
+    if ([regex]::Match($s.Text, '(?m)^workflow:\s*(.*?)\s*$').Groups[1].Value -ne 'flake-stress') { continue }
+    $ref = [regex]::Match($s.Text, '(?m)^ref:\s*(.*?)\s*$').Groups[1].Value
+    $mine = ($ref -and (($ref -eq $branch) -or (($ref.Length -ge 7) -and @($oids | Where-Object { $_.StartsWith($ref) }).Count -gt 0)))
+    if (-not $mine) { if ($ref) { [void]$elsewhere.Add($id + ' (' + $ref + ')') }; continue }
+    [void]$onBranch.Add($id)
+    foreach ($nm in $names) {
+      $m = [regex]::Match($s.Text, '(?m)^' + [regex]::Escape($nm) + ':\s*failed\s+(\d+),\s*passed\s+(\d+)')
+      if ($m.Success -and [int]$m.Groups[1].Value -eq 0 -and [int]$m.Groups[2].Value -gt 0 -and -not $ok.ContainsKey($nm)) { $ok[$nm] = $id + ' passed ' + $m.Groups[2].Value }
+    }
+  }
+  $miss = @($names | Where-Object { -not $ok.ContainsKey($_) })
+  if ($miss.Count -eq 0) { Add-Chk $L 'gametests' 'PASS' ("{0} new @GameTest, each passed in a flake-stress run of {1}: {2}" -f $names.Count, $branch, ((@($names | ForEach-Object { $_ + ' (' + $ok[$_] + ')' })) -join '; ')); return }
+  $seen = 'none'; if ($onBranch.Count -gt 0) { $seen = ($onBranch -join ', ') }
+  $det = @(('flake-stress runs of ' + $branch + ' read: ' + $seen))
+  if ($elsewhere.Count -gt 0) { $det += ('runs of other refs ignored: ' + (($elsewhere | Select-Object -First 6) -join ', ')) }
+  $det += ('a [Stress] comment is not evidence (M20); run: gh workflow run flake-stress.yml -f ref=' + $branch + ' -f tests=test:<name>')
+  Add-Chk $L 'gametests' 'FAIL' ("{0} of {1} new @GameTest in no flake-stress run of {2} as '<name>: failed 0, passed N' with N > 0: {3}" -f $miss.Count, $names.Count, $branch, ($miss -join ', ')) $det
 }
 # live PR view, memoised per run. Returns the parsed object or $null (error in ctx.PrError).
 function Get-GatePr($ctx, [string]$n) {
@@ -109,7 +187,7 @@ function Get-GateCounts($checks) {
 function Write-GateResult($ctx, [string]$title, $checks, $sw) {
   foreach ($c in $checks) {
     Write-Output ('{0} {1}: {2}' -f $c.Status, $c.Name, $c.Reason)
-    if ($ctx.Verbose) { foreach ($d in @($c.Detail)) { if ($d) { Write-Output ('     ' + $d) } } }
+    if ($ctx.Verbose -or $c.Status -eq 'FAIL') { foreach ($d in @($c.Detail)) { if ($d) { Write-Output ('     ' + $d) } } }
   }
   $n = Get-GateCounts $checks
   $v = 'PASS'; if ($n.F -gt 0) { $v = 'FAIL' }
@@ -221,8 +299,10 @@ function Test-GateBranchBusy($ctx, $prObj, [string]$prNum, [string]$branch) {
     $ErrorActionPreference = $old
     if ($null -eq $lastCommit) { $unknown = $true }
   }
-  if ($lastCommit) { $mins = [int]($now - $lastCommit).TotalMinutes; if ($mins -lt 120) { [void]$reasons.Add("commit $mins min ago (<2h, another session may be on it)") } }
-  if ($lastComment) { $mins = [int]($now - $lastComment).TotalMinutes; if ($mins -lt 120) { [void]$reasons.Add("PR comment $mins min ago (<2h)") } }
+  # M17: recent-activity reasons go to $recent; a read-only reviewer only gets a WARN for them (ownership still blocks)
+  $recent = New-Object System.Collections.ArrayList
+  if ($lastCommit) { $mins = [int]($now - $lastCommit).TotalMinutes; if ($mins -lt 120) { [void]$recent.Add("commit $mins min ago (<2h, another session may be on it)") } }
+  if ($lastComment) { $mins = [int]($now - $lastComment).TotalMinutes; if ($mins -lt 120) { [void]$recent.Add("PR comment $mins min ago (<2h)") } }
   $pat = @()
   if ($prNum) { $pat += ('(?<![\w])#' + [regex]::Escape($prNum) + '(?!\d)'); $pat += ('(?i)\bPR\s*#?' + [regex]::Escape($prNum) + '(?!\d)') }
   if ($branch) { $pat += [regex]::Escape($branch) }
@@ -233,9 +313,9 @@ function Test-GateBranchBusy($ctx, $prObj, [string]$prNum, [string]$branch) {
     if ($r.Assignment -match '(?i)boot') { [void]$reasons.Add("gen-$($r.Gen) owns it in a boot row ($($r.Date) $($r.Time))") }
     elseif ($r.Class -eq 'running') { [void]$reasons.Add("gen-$($r.Gen) has a running ledger row for it ($($r.Date) $($r.Time))") }
     $stamp = Get-RowStamp $r
-    if ($stamp) { $age = ($now.DateTime - $stamp).TotalMinutes; if ($age -ge -5 -and $age -lt 120 -and $r.Assignment -notmatch '(?i)boot') { [void]$reasons.Add("gen-$($r.Gen) touched it $([int]$age) min ago per ledger") } }
+    if ($stamp) { $age = ($now.DateTime - $stamp).TotalMinutes; if ($age -ge -5 -and $age -lt 120 -and $r.Assignment -notmatch '(?i)boot') { [void]$recent.Add("gen-$($r.Gen) touched it $([int]$age) min ago per ledger") } }
   }
-  return @{ Reasons = @($reasons | Select-Object -Unique); Unknown = $unknown }
+  return @{ Reasons = @($reasons | Select-Object -Unique); Recent = @($recent | Select-Object -Unique); Unknown = $unknown }
 }
 function Get-PlanHits($ctx, [string[]]$files, [string]$task) {
   $pd = Join-Path $ctx.Root 'plans'
@@ -288,11 +368,14 @@ function Invoke-GatePreflight($ctx, [hashtable]$p) {
       if (-not $branch) { $branch = [string]$o.headRefName }
     }
     $busy = Test-GateBranchBusy $ctx $o $prNum $branch
+    if (-not $p.Reviewer) { $busy.Reasons = @($busy.Reasons) + @($busy.Recent) }
     if (@($busy.Reasons).Count -gt 0) { Add-Chk $L 'branch-check' 'FAIL' ('BLOCKED: ' + ($busy.Reasons -join '; ')) }
+    elseif (@($busy.Recent).Count -gt 0) { Add-Chk $L 'branch-check' 'WARN' ('reviewer (read-only), recent activity: ' + ($busy.Recent -join '; ')) }
     elseif ($busy.Unknown) { Add-Chk $L 'branch-check' 'FAIL' 'UNKNOWN: could not verify commit time (fail closed)' }
     else { Add-Chk $L 'branch-check' 'PASS' 'no other gen touched it within 2h, no boot-row owner' }
   } elseif ($branch) {
     $busy = Test-GateBranchBusy $ctx $null '' $branch
+    $busy.Reasons = @($busy.Reasons) + @($busy.Recent)
     if (@($busy.Reasons).Count -gt 0) { Add-Chk $L 'branch-check' 'FAIL' ('BLOCKED: ' + ($busy.Reasons -join '; ')) }
     elseif ($busy.Unknown) { Add-Chk $L 'branch-check' 'WARN' ("branch {0} has no PR and no git ref (new branch?)" -f $branch) }
     else { Add-Chk $L 'branch-check' 'PASS' ("branch {0}: no other gen touched it" -f $branch) }
@@ -320,6 +403,7 @@ function Invoke-GatePreflight($ctx, [hashtable]$p) {
         $lst = (@($hits.Keys | Sort-Object | ForEach-Object { '#' + $_ + ' (' + (@($hits[$_] | Select-Object -Unique | ForEach-Object { $_.Substring($_.Replace('\', '/').LastIndexOf('/') + 1) }) -join ',') + ')' }) -join ', ')
         $det = @($hits.Keys | Sort-Object | ForEach-Object { '#' + $_ + ': ' + (@($hits[$_] | Select-Object -Unique) -join ', ') })
         if ($p.AllowOverlap) { Add-Chk $L 'overlap' 'WARN' ("overlap allowed (" + (Get-Trunc ([string]$p.AllowOverlap) 80) + "): " + $lst) $det }
+        elseif ($p.Reviewer) { Add-Chk $L 'overlap' 'WARN' ("reviewer (read-only), edits nothing; open PRs on the same files: " + $lst) $det }   # M18
         else { Add-Chk $L 'overlap' 'FAIL' ("{0} open PR(s) edit the same lines/files: {1}. Rebase onto them or use -AllowOverlap ""reason""" -f $hits.Count, $lst) $det }
       }
     }
@@ -432,18 +516,7 @@ function Invoke-GateAccept($ctx, [string]$n) {
     else {
       $added = [regex]::Matches($df.Text, '(?m)^\+\s*@GameTest\b').Count
       if ($added -eq 0) { Add-Chk $L 'gametests' 'PASS' 'diff adds no @GameTest' }
-      else {
-        $ev = ''
-        foreach ($c in @($d.comments)) { if ([string]$c.body -match '\[Stress\]' -and [string]$c.body -match '0 with any failure') { $ev = 'PR comment' } }
-        if (-not $ev) {
-          foreach ($r in (Get-GRows $ctx)) {
-            $t = $r.Assignment + ' ' + $r.Note
-            if ($t -match ('#' + [regex]::Escape($n) + '(?!\d)') -and $t -match '\[Stress\]' -and $t -match '\d{8,}') { $ev = 'ledger row ' + $r.Id }
-          }
-        }
-        if ($ev) { Add-Chk $L 'gametests' 'PASS' ("{0} new @GameTest, flake-stress evidence: {1}" -f $added, $ev) }
-        else { Add-Chk $L 'gametests' 'FAIL' ("{0} new @GameTest but no flake-stress evidence: need a PR comment with '[Stress]' and '0 with any failure', or a ledger row citing #{1}, '[Stress]' and a run id" -f $added, $n) }
-      }
+      else { Test-GateStress $ctx $d $n $df.Text $L }
     }
   }
   # Mode A (M4)
@@ -452,13 +525,14 @@ function Invoke-GateAccept($ctx, [string]$n) {
   if (-not (Test-Path -LiteralPath $ma)) { Add-Chk $L 'modeA' 'FAIL' ("no Mode A review: reviews\pr-{0}-modeA.md is missing (COMMANDER s7: Mode A before every merge)" -f $n) }
   else {
     $t = Read-Text $ma
+    # M21: rounds are appended at the bottom, so the LAST VERDICT / SHA / REVIEWER is the current review
     $why = New-Object System.Collections.ArrayList
-    $vm = [regex]::Match($t, '(?im)^\s*VERDICT:\s*([A-Za-z]+)')
+    $vm = [regex]::Match($t, '(?im)^\s*VERDICT:\s*([A-Za-z]+)', 'RightToLeft, IgnoreCase, Multiline')
     if (-not $vm.Success) { [void]$why.Add('no VERDICT line') } elseif ($vm.Groups[1].Value.ToUpper() -ne 'PASS') { [void]$why.Add('VERDICT is ' + $vm.Groups[1].Value) }
-    $sm = [regex]::Match($t, '(?im)^\s*(?:HEAD\s*)?SHA:\s*([0-9a-f]{7,40})')
+    $sm = [regex]::Match($t, '(?im)^\s*(?:HEAD\s*)?SHA:\s*([0-9a-f]{7,40})', 'RightToLeft, IgnoreCase, Multiline')
     if (-not $sm.Success) { [void]$why.Add('no SHA line') }
     elseif (-not $sha.ToLower().StartsWith($sm.Groups[1].Value.ToLower())) { [void]$why.Add(("stale: file reviewed {0}, PR head is {1}" -f $sm.Groups[1].Value.Substring(0, 8), $sha.Substring(0, 8))) }
-    $rm = [regex]::Match($t, '(?im)^\s*REVIEWER:\s*(.+?)\s*$')
+    $rm = [regex]::Match($t, '(?im)^\s*REVIEWER:\s*(.+?)\s*$', 'RightToLeft, IgnoreCase, Multiline')
     if ($rm.Success) { $reviewer = $rm.Groups[1].Value } else { [void]$why.Add('no REVIEWER line') }
     if ($why.Count -eq 0) { Add-Chk $L 'modeA' 'PASS' ("VERDICT PASS for head {0}" -f $sha.Substring(0, 8)) } else { Add-Chk $L 'modeA' 'FAIL' ($why -join '; ') }
     # independence + freshness
@@ -497,7 +571,10 @@ function Invoke-GateAccept($ctx, [string]$n) {
     foreach ($c in @($d.commits)) {
       $a = $null; if (@($c.authors).Count -gt 0) { $a = @($c.authors)[0] }
       $nm = ''; $em = ''; if ($a) { $nm = [string]$a.name; $em = [string]$a.email }
-      if ($nm.ToLower() -ne $id.Name.ToLower() -or $em.ToLower() -ne $id.Email.ToLower()) { $bad += ('{0} {1} <{2}>' -f ([string]$c.oid).Substring(0, 7), $nm, $em) }
+      # M19: lovish's own GitHub-web commits (merges, "Update branch") carry the same account's numeric noreply
+      # address (<digits>+IamTheLovish@users.noreply.github.com), whatever display name the web UI used
+      $acctNoreply = $em -match ('^\d+\+' + [regex]::Escape($id.Name) + '@users\.noreply\.github\.com$')
+      if (-not $acctNoreply -and ($nm.ToLower() -ne $id.Name.ToLower() -or $em.ToLower() -ne $id.Email.ToLower())) { $bad += ('{0} {1} <{2}>' -f ([string]$c.oid).Substring(0, 7), $nm, $em) }
     }
     $tot = @($d.commits).Count
     if ($bad.Count -eq 0) { Add-Chk $L 'authors' 'PASS' ("all {0} commits authored as {1} <{2}>" -f $tot, $id.Name, $id.Email) }

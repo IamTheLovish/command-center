@@ -1,5 +1,5 @@
 {
-  "required_status_checks": { "strict": false, "contexts": ["mode-a"] },
+  "required_status_checks": { "strict": false, "checks": [ { "context": "mode-a", "app_id": 15368 } ] },
   "enforce_admins": false,
   "required_pull_request_reviews": null,
   "restrictions": null,

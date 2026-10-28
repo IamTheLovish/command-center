@@ -1,0 +1,8 @@
+workflow: flake-stress
+ref: claude/flake-015b-pathing-arenas
+[Stress] 6 runners; 4 with any failure
+capture_bounded_when_barrier_hangs: failed 3, passed 3
+a_move_into_unloaded_chunks_walks_toward_it_never_stands_busy: failed 1, passed 5
+vanilla_path_melee_chaser_runs_down_a_walking_target: failed 0, passed 6
+vanilla_path_shooter_closes_to_range_on_a_shifting_target: failed 0, passed 6
+vanilla_path_wall_detour_beyond_the_short_search_still_arrives: failed 0, passed 6

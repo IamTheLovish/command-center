@@ -1,0 +1,9 @@
+workflow: flake-stress
+ref: main
+[Stress] 6 runners; 4 with any failure
+ac1_shift_queued_build_order_at_the_ghosts_centre_runs_after_the_move: failed 2, passed 4
+capture_bounded_when_barrier_hangs: failed 2, passed 4
+bombard_backs_out_of_its_dead_zone: failed 1, passed 5
+vanilla_path_wall_detour_beyond_the_short_search_still_arrives: failed 1, passed 5
+ac2_a_guard_follows_its_ward_to_the_next_site_and_helps_there: failed 0, passed 6
+ac2_a_guard_standing_on_its_wards_new_footprint_keeps_guarding_and_builds: failed 0, passed 6

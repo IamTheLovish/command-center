@@ -12,7 +12,7 @@ param(
   [string]$Q = '', [int]$MaxTokens = 1500, [switch]$DryRun, [switch]$Force,
   # gate options (preflight / accept / report-lint / gate start|done)
   [string]$Task = '', [string]$Files = '', [string]$AllowOverlap = '', [string]$Override = '', [string]$Report = '', [string]$Stub = '',
-  [switch]$EditsWorkflows, [switch]$Heavy, [switch]$NewPr, [switch]$NoCache, [switch]$NoLog
+  [switch]$EditsWorkflows, [switch]$Heavy, [switch]$NewPr, [switch]$NoCache, [switch]$NoLog, [switch]$Reviewer
 )
 $ErrorActionPreference = 'Stop'
 $GateVerbose = ($VerbosePreference -eq 'Continue'); $VerbosePreference = 'SilentlyContinue'   # -Verbose = gate detail lines, not cmdlet chatter
@@ -531,7 +531,7 @@ function Cmd-ReviewDiff {
 
 # ------------------------------------------------------------------ gates (logic in gate-lib.ps1; no model calls)
 function New-CcGateCtx { return (New-GateCtx @{ Root = $Root; Repo = $Repo; Stub = $Stub; NoCache = [bool]$NoCache; NoLog = [bool]$NoLog; Verbose = $GateVerbose }) }
-function Get-StartParams { return @{ Task = $Task; Pr = $Pr; Branch = $Branch; Files = $Files; EditsWorkflows = [bool]$EditsWorkflows; Heavy = [bool]$Heavy; NewPr = [bool]$NewPr; AllowOverlap = $AllowOverlap; Override = $Override } }
+function Get-StartParams { return @{ Task = $Task; Pr = $Pr; Branch = $Branch; Files = $Files; EditsWorkflows = [bool]$EditsWorkflows; Heavy = [bool]$Heavy; NewPr = [bool]$NewPr; Reviewer = [bool]$Reviewer; AllowOverlap = $AllowOverlap; Override = $Override } }
 function Finish-Gate($ctx, [string]$title, $checks, $sw, [string]$logTitle) {
   Write-GateResult $ctx $title $checks $sw
   Write-GateLedger $ctx $logTitle $checks $sw
@@ -581,7 +581,7 @@ function Cmd-Gate {
     $c = Invoke-GateDone $ctx @{ Pr = $Pr; Report = $Report }
     $t = 'done'; if ($Pr) { $t = 'done #' + $Pr }
     Finish-Gate $ctx $t $c $sw $t
-  } else { Fail 'ERR gate start|done  (start: -Task [-Pr -Branch -Files -EditsWorkflows -Heavy -NewPr]; done: -Pr N [-Report file])' 2 }
+  } else { Fail 'ERR gate start|done  (start: -Task [-Pr -Branch -Files -EditsWorkflows -Heavy -NewPr -Reviewer]; done: -Pr N [-Report file])' 2 }
 }
 function Cmd-GateSelftest {
   . (Join-Path $PSScriptRoot 'gate-selftest.ps1')
