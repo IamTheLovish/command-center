@@ -262,6 +262,14 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
     $c = Invoke-GateAccept (St-Ctx $r20 $sc $now) '289'
     St-Assert $case[5] $c 'gametests' $case[3] $case[4]
   }
+  # SYNTHETIC (Oct 28, #297): a diff that only edits the @GameTest annotation of existing tests (timeoutTicks) adds no
+  # test and needs no stress run; it read "2 new @GameTest but only 0 named in the diff" and failed the gate
+  $s20e = St-Stub $tmp 'm20-edit' $fx 'auth-noworkflow.txt'
+  St-Stress289 $s20e $fx
+  $ed = "diff --git a/bar/src/main/java/x/gametest/FogSnapshotGameTests.java b/bar/src/main/java/x/gametest/FogSnapshotGameTests.java`n@@ -10,3 +10,3 @@`n-    @GameTest(template = ARENA, timeoutTicks = 600, batch = BATCH)`n+    @GameTest(template = ARENA, timeoutTicks = LONG, batch = BATCH)`n     public static void the_budgeted_snapshot_equals_the_one_tick_capture(GameTestHelper helper) {`n@@ -40,3 +40,3 @@`n-    @GameTest(template = ARENA, timeoutTicks = 3000, batch = BATCH)`n+    @GameTest(template = ARENA, timeoutTicks = LONG, batch = BATCH)`n     public static void the_snapshot_of_unloaded_chunks_loads_them(GameTestHelper helper) {`n"
+  Write-Text (Join-Path $s20e 'pr289.diff') $ed $false
+  $c = Invoke-GateAccept (St-Ctx $r20 $s20e $now) '289'
+  St-Assert 'edited @GameTest annotations of existing tests are not new tests' $c 'gametests' 'PASS' 'adds no test'
 
   # ---- report-lint
   $rr = St-Root $tmp 'rep' $fx $good

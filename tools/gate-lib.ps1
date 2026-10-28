@@ -126,8 +126,11 @@ function Get-GateStressRun($ctx, [string]$id) {
 # flake-stress run of the PR's own branch (or one of its commits) whose summary names it: "<name>: failed 0, passed N"
 # with N > 0. A [Stress] comment or ledger row is no longer evidence by itself, only a pointer to run ids to read.
 function Test-GateStress($ctx, $d, [string]$n, [string]$diff, $L) {
-  $added = [regex]::Matches($diff, '(?m)^\+\s*@GameTest\b').Count
+  # an edited annotation of an existing test (#297: only its timeoutTicks changed) is a -@GameTest/+@GameTest pair, not a
+  # new test; a test whose method line is removed too (renamed or rewritten) is still treated as new below
+  $added = [Math]::Max(0, [regex]::Matches($diff, '(?m)^\+\s*@GameTest\b').Count - [regex]::Matches($diff, '(?m)^-\s*@GameTest\b').Count)
   $names = @([regex]::Matches($diff, '(?ms)^\+\s*@GameTest\b.*?^\+\s*(?:public\s+)?static\s+void\s+(\w+)\s*\(') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+  if ($added -eq 0 -and $names.Count -eq 0) { Add-Chk $L 'gametests' 'PASS' 'diff edits @GameTest annotations of existing tests but adds no test'; return }
   if ($names.Count -lt $added) { Add-Chk $L 'gametests' 'FAIL' ("{0} new @GameTest but only {1} named in the diff: cannot match them to a flake-stress summary" -f $added, $names.Count); return }
   $branch = [string]$d.headRefName
   $oids = @(@($d.commits) | ForEach-Object { [string]$_.oid })
