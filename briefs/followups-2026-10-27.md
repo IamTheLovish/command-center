@@ -252,3 +252,10 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - Train PR 328 red on: wager_temporary_blocks_wait_for_their_chunk (#321's own new test; also red on #321's CI twice -> coordinator FAIL round, session fixing), alliance_lock_open_option ("no dry ground for three lobby bases", likely terrain or #203's lobby siteOk - check before #203), bots_reach_tier_2 (known flake).
 - Gate fix 3e65c3d: an edited @GameTest annotation of an existing test is not a new test (#297 false FAIL "2 new @GameTest but only 0 named"); selftest 54/54.
 - Watcher reruns failed jobs automatically (up to attempt 3); cancels nothing. #313 waits on its green stress 40651558266. #331 Treant follow-up r1 PASS ace0eb9a (session may fold in two held-move fixes).
+- **MERGED #313** 6dc464c0, **#301** 3d3d1fcc, **#325** 5cf3f53f, **#307** 3ab0df0b, **#322** 3d951dc0 (gate done PASS each; all were in train PR 328). Tonight in Rita so far: #315 #305 #298 #297 #313 #301 #325 #307 #322.
+- #275 merged main incl. the buff (232eb206): HeroKits.java = main + .cc() on 7 specs; coordinator round PASS; waits on CI 40683810556.
+- #203 test-only fallback (x-1500 when x+1500 has no dry row; stress 40652936389 had failed 2/8 that way) 9a70e86f, coordinator round PASS; waits on CI + stress 40690103949.
+- #145 waits on stress 40686491320 for bone_dragon_turns_and_brakes_into_its_point (body line added). Then #300 retargets to main.
+- #321 head 33eaa04c (sticky thunder test), coordinator round PASS; waits on CI 40683706318 (shard 1 shows the block-test refusal reasons), stress 40683715954, red 40683711784.
+- #331 Treant follow-up r2 PASS 7c6d5814; waits on CI + red 40681753960 / green 40681837370.
+- #324: Rita merged main (d52608b5, merge-only) so the unittest step now has numpy; check the ruff job log shows "Ran 22 ... OK" with 0 skipped. Tell Itachi 2 by morning paste.
