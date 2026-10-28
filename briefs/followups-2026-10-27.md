@@ -263,3 +263,8 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - #275 merged main again for the AttackerUnit.java overlap with #325 (44ba9abd; both edits independent narrowing conditions; coordinator round PASS); waits on CI 40706874661.
 - #321 root cause found: the block test's spot at template y 2 is the arena's grass floor ("not air: minecraft:grass_block" at all 4 spots); 4388cd48 clears it first; coordinator round PASS; waits on CI 40698639742 + green 40698630635.
 - #331 waits on stress 40681753960 / 40681837370 (gate: no stress run yet for its 2 new tests). #145 waits on stress 40686491320. #203 waits on CI 40690111782 + stress 40690103949.
+- **MERGED #331** 44df1af4 (Treant follow-up), **#203** 6e364305 (extractor footprint; stress 40690103949 every_stamped_patch 8/8; CI reds were only ac5/scar/gravel flakes). 13 merged in Rita.
+- Gravel flake cause found (falling gravel in openGround's pocket blocks the aim ray): PR 336 (test-only) r1 PASS code; PR 337 refused-shot r1 PASS. Merge 336 first, then #275 merges main again.
+- PR 338 scar top-face fix r1 PASS d3475a17 (an ac5 test that fails leaves its sky pad); conflicts at `Runnable undoBig` with the ac5 fix branch (session told).
+- Runner starvation: ~5 hosted jobs at once, 34 queued.
+- After #203: tell Itachi 2 (morning paste) to do the T2 site-search fix (Vertos note).
