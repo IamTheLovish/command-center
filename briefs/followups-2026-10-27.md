@@ -101,3 +101,13 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
   - #291: PASS (63a072aa); needs proof runs from its head before merge.
   - #203: its session found the "pad WET" cause; stress running.
 - **Bug found tonight:** flake-stress `focus` given with test: prefixes matched nothing, so the summary had no per-test lines (#136, #146 and #222 had to be re-stressed). Fixed in #291 (63a072aa). Until it lands, dispatch without `focus`.
+
+## Coordinator-2, Oct 28 early (took over at ~00:20Z)
+
+- **Merged:** #291 (flake-stress hardening + focus fix, 5b73665f; delta round 2 PASS on 39bb0d3b, gate PASS). `focus` with test: prefixes works again; 4 runners and test: prefixes stay the rule.
+- lovish re-OK'd in this session (Oct 28): "go and merge" #222 #292 #293 #203 each on Mode A PASS on its exact head + green CI + gate done PASS; #203's 6 Claude-authored commits may be re-authored with a force-push if `git diff old new` is empty. The auto-mode classifier refuses merges and force-pushes on relayed OKs; get them from lovish in the acting session.
+- **#203:** Mode A FAIL on da64266d (6 commits authored Claude; code judged correct). Its session: probe via GameTestChunks.loadNowOrFail (d30c7025/516b8e96), bamboo-jungle pad fix (11785bc3, red first), body updated. Footprint stress 40607450396 (da64266d): solid_top 0/4 failed, footprint test 2/4 failed at 1604,63,5584 (pad dry, bot OK, player ground_not_flat). Re-stress with obstruction dumps 40609781800 on 11785bc3. Author rewrite ready locally at 5f2db5cd (tree identical); its force-push needs lovish's OK in that session or his own push.
+- **#293:** Itachi 1's fix 18b38fc9 (JIT/OSR allocation, 300-frame warm-up): delta round 3 FAIL, the quietest-round gate lets 6 of 7 rounds allocate; fix = at most one round with bytes + a 45-frame test. With Itachi 1.
+- **#292:** CI 40607278477's only red was bots_reach_tier_2 (known, plan 015); failed jobs rerun.
+- **#222:** stress 40607650522 on artillery_never_targets_or_hurts_a_flyer still queued/running.
+- Committed session 3's tools\prove-red.ps1 (default now 4 runners), its README line and 3 ledger lines (d29aff8).
