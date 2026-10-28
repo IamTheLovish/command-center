@@ -241,3 +241,8 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - **MERGED #315** 7299d7a6 (CI 40651908207 attempt 4 green on base 175ec834 = main; coordinator round 2 added the REVIEWER line the gate needs; gate done PASS). Main should now be green.
 - Told to merge main: #305, #297, #298, #307 + #325, #177, #321, #203, #275, #322 sessions. Subagent merges main into #313 and #301 (no sessions).
 - #275 Hero AI v2 r2 PASS 3428e5fd (posted). Flake sessions: ac5 queue (local_bf2be6fa, red 40670519657 / green 40670585000), scar top face (local_07812b3a: an ac5 test leaves its stone sky pad at y 54 over the scar arena; red 40670841503 / green 40670913459). #324 r2 review running (delta 8a304b7a..fb52381d).
+- **lovish OKs in Rita (~10:55Z):** "Merge #145 and #300 on the rule too; no in-game look needed." "Yes: author-only force-push rewrites with lease on claude/ branches are OK when git diff old new is empty, starting with #203."
+- Merge-only coordinator rounds (PR files byte-identical old vs new head) posted: #322 1527529c, #298 69f04e1c, #313 1fd1316f, #301 8e6822d7, #297 3e6f5ff1, #305 3d7447c8, #275 d3e99d53, #307 c54a4765, #325 8720a019. All wait on CI on the new head, then gate + merge.
+- #203 author rewrite pushed: 98c8de3d -> 21248f6a (0 diff lines, no anthropic authors). Waits on CI + stress 40652936389.
+- #324 r2 PASS fb52381d (posted); CI tests skip without numpy until #322 lands, then merge main and re-check "Ran 22 ... OK". #321 delta review running (head 4393a0b5). Bone dragon session merging main into #145, then retargets #300 to main.
+- Gate needs a REVIEWER line in the newest round (#315 round 1 had none).
