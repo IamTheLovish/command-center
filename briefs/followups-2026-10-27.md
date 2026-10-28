@@ -286,3 +286,7 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - Queue: #339 (stress 40754533386; CI shard 1 alliance_lock, watcher reruns), #275 (CI 40754281306), #308 #312 #317 (CI), #341 fixing, bots tier-2 flake.
 - Closing merge-train PR 328 was blocked by the auto-mode check: needs lovish's OK.
 - Itachi 2 brainstorm (building tiers) reviewed for lovish; its doc lives only in Itachi 2's claude.ai project.
+- lovish OK (~21:10Z): released Itachi 2's breath-phase claim on issue 91; closed merge-train PR 328. building_tiers.md: Itachi 2 commits it itself (lovish).
+- New PRs: 343 alliance_lock dry-ground (test-only; dryCentre searches 18 centres; r1 PASS code fd5f8e98; red 40765133031 / green 40765186334 queued; reviewer: an 8/8 green alone is weak, get a red that fails or a second green). 344 refused-shot edges (venting Machine click holds before the cooldown; r1 PASS code 87439f0c; red 40765449077 must fail the venting test, green 40765483964).
+- #341 r2 FAIL 5bc3bb08: the forced-repath clamp can hold a stuck unit forever (rescue every 80 ticks vs own repath 81+ ticks after backoff). Sent to local_c467dcbe.
+- **MERGED #275** 75490044 (Hero AI v2; CI 40754281306 green after shard-8 rerun; no overlap with later main commits). 2 merged in Abigail. No open PR shares a file with it.
