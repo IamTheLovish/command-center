@@ -273,3 +273,6 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - **MERGED #318** bed88bd5 (far selection; lovish checks the HUD/long-queue path in game), **#340** ec47d475 (ac5 queue flake; game fix in BuildingPlacement.onBuilt + test chunk wait; red 8/8, green 0 of 24). 17 merged in Rita.
 - Held: #336 gravel (its own stress still failed a_crew_hopped_* 1/8 each: the aim ray hits gravel at foot level 0-5 blocks ahead; artillery session diagnosing with pitch/floor/falling-block logs, run 40729344872), #337 refused shot (same flake), #275 (waits for that fix), #145 (red proof did not reproduce; needs extra stress 40740629874 green), #339 (unstick fix folded in, c5867add, red 40739977531 / green 40740073636).
 - bots_reach_tier_2 now fails ~4/8 (biggest remaining flake): #317 owns part of it.
+- **MERGED #336** c53de148 (gravel: the y 32-33 falling layer), **#300** e3573aea (Dive), **#303** 3bd6c3c7 (breath phase). 21 merged in Rita.
+- #308 author-rewritten to 197c39bd (tree = 88d2d9aa, r4 code PASS); #312 / #317 main merged by Rita (06ade966 / 77c58f78), rounds posted. lovish: leave #294 / #299 open.
+- **Hand-over to Command Center Abigail (~21:00Z).** Queue: #339 #337 #275 #308 #312 #317 (all waiting on CI/stress), #341 fixing, bots tier-2 flake assigned. Close merge-train PR 328.
