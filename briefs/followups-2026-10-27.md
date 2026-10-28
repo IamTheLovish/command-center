@@ -209,3 +209,12 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - Reran failed jobs (no cancels): #309 CI 40638286450 (shard 9, one required test) and #298 CI 40617687211 (summary job only).
 - **MERGED #295** a436b1e6, **#296** 33238eac, **#257** 3aec04f7 (gate done PASS each). #296/#257 first failed the gate only because their green stress ids were not in the PR body; appended 40619387355 / 40625408707.
 - Runners ~06:45Z: 6 in progress, 33 queued. Still queued: #297 red/green, #203 stress, #300 green, #305 red, #307 red/green, #309 red/green.
+- **#305** round 3 PASS a00f6336 (sonnet; Rootbound stacking effect added in the session on lovish's rule), posted issuecomment-6462419619. Waits on green 40643921395, red 40643859770, and #309.
+- **#307** round 2 PASS d33dccdc (Vertos, posted). Waits on red 40639926104, green 40640168459; CI 40639915026 red only on bots_reach_tier_2 (rerun).
+- **#300** round 5 PASS 547788fa (Vertos, posted). Waits on green stress 40638833361; CI reds are ac1 and a raid timing flake.
+- **#298** CI attempt 2 red only on ac1 (shard 1). Rerun after #309 merges.
+- **#297** CI 40638083212: fog_snapshot tests pass; reds are ac1, bots_play_each_other (soak stall) and raid_destroyed_extractor (water). Waits on red 40638112356 / green 40638090592.
+- **far-selection** (keep-units-selected): old proofs invalid (headless view distance 0). New head 56731565; red 40643719868, fix 40643723101. PR after they land.
+- **Design #310:** Vertos pushed the Fable revision (L1-L4 15/23/31/41 wide, 22/40/60/84 tall; home metal 7 at 52-76, none within 48, build ground 50; creep radius 44/56/68/80; Ascension tech 4).
+- **lovish design answers in Rem (~07:00Z), all the recommended option:** Q5 Ashborn creep = our own ash blocks (End blocks go to Hivebound); Q6 vehicle lab needs only the capitol; Q7 Sunforged/Gravebound labs come with their first vehicle; Q8 tech steps on labs = drawn parts, glow and particles; Q9 walls stop low flyers; Q10 Treant 1.5 s / 1 s and a 30% cut; Rootbound 3 stacks, 4 s, 12% slow + 1 dmg/s per stack; capitol L4 41 wide, 84 tall.
+- Itachi 1 paste given (#308 climb-cap fix test-first, plus the sprint-jump artillery red; hands off #309 and #301; report #294 stress).
