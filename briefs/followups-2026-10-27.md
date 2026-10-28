@@ -88,3 +88,16 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - **Reviews:** #204 round 2 PASS (a9428c4a); #146 Mode A running. The reviewer left a partial clone at D:\bt-204-review (safe to delete).
 - **Session 3:** the a_move_into_unloaded_chunks PR waits on the pr-budget override; it is asking lovish directly.
 - **Itachi 1 (chat 14):** the stress-check PR goes from claude/flake-stress-runname-entries (session 1's entries check and run-name, stacked on Itachi 1's dfb06a44 0-test guard), then the a_pile flake (lead: the pile test skips SkirmishGameTests.openGround). Its link to lovish's PC shows "Not connected", so it works from the cloud. Messages typed while it is busy queue up ("Send now").
+- **Merged:** #204 (installer cat bubble, ce551321), #221 (slower T2, 2d51b82e). #196 got main merged in (c47b8f09, PR diff unchanged).
+- **#222** rounds 5-6 BLOCK, both client-cheat holes now closed tests-first: a faked sprint-jump (bda2718f red, ee5a55f7 fix: serverShove only from the server's own velocity) and keys momentum (b11e1cbb red, c27cb144 fix: claimsLastTick). 13/13 ArtilleryGameTests locally; round 7 running; stress 40600855397. Pre-existing, separate issue: under continuous claims a possessed unit never reads on-ground (travel's move(0) after applyClaim), so airTicks keeps climbing, the honest sprint-jump boost rarely applies, and the hover rule can force a fall.
+- **#146** round 1 BLOCK (fragile new tests) fixed in 1539a669 (pad chunk ring, hurt-worker judged after the first hit); round 2 PASS; stress 40598837754.
+- **New flake candidate:** JUnit AnimationCostBench.livingArmyTick (timing budget 1.0 us/unit, got 1.41 on a CI runner; #146 run 40598844824). A wall-clock budget in JUnit on shared runners will flake; it needs a margin or a non-CI gate.
+- **capture_bounded_when_barrier_hangs** failed about half of all shard-1 runs tonight (#206 twice, #287, #133, #196, #290). Joisco's #272 fixes it; asked lovish whether a red that is only this test may merge.
+- **Merged later in the night:** #287 (1dd70f96), #136 (e8940e7b), #206 (02426303), #272 Joisco's capture_bounded fix (ffda3533, lovish OK'd; gate exceptions recorded on the PR), #146 (07808f31), #133 (cf3c972d). 11 merged tonight in all, counting #289 by session 2.
+- **Open at hand-over:**
+  - #222: round 7 PASS (c27cb144). Its CI red is capture_bounded only. The gate wants stress for artillery_never_targets_or_hurts_a_flyer: run 40607650522.
+  - #292: merged main after #136 (66e728a7), round 2 PASS; CI 40607278477.
+  - #293: PASS, but the JUnit zero-allocation gate is red (4000 bytes from the new rounds harness); Itachi 1 is fixing it.
+  - #291: PASS (63a072aa); needs proof runs from its head before merge.
+  - #203: its session found the "pad WET" cause; stress running.
+- **Bug found tonight:** flake-stress `focus` given with test: prefixes matched nothing, so the summary had no per-test lines (#136, #146 and #222 had to be re-stressed). Fixed in #291 (63a072aa). Until it lands, dispatch without `focus`.
