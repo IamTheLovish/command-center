@@ -322,3 +322,12 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - lovish siege rev 2 (~02:30Z): range 15 Rocko, walls at defence rate (54/shell), HLT anti-siege tower as a separate PR after, T2 weapons fine. Sent to the siege session (go: doc, then test-first draft PR).
 - 341 evidence read: red 8/8 failed both cadence tests; green 0 fails on all 11; shard-1 only alliance_lock 1/8, 2/8 (343's flake); double-repath red passed (that part rests on code review; coordinator round 5 posted). gate done PASS. Auto mode blocked the merge; lovish re-confirmed the merge rule in Levus (~02:40Z). **MERGED #341 ad1a6de8.** 1 merged in Levus.
 - 308 gate FAIL: no flake-stress of its 5 new tests on claude/possession-on-ground; dispatched 40807480328 (ids added to body).
+- ~03:00Z queue state:
+  - 343 HELD: green 40784924432 INVALID (7/8 runners OOM in passive_ai_never_attacks... right after alliance_lock); reported tests all pass; red-on-main 40784969465 two_human_lobby/bots_play 0/8 failed (no sea in those seeds). Diag: 40806673031 (branch), 40806684090 (main), 40806695207 (touched tests).
+  - 177 HELD: own new test overflowing_graveyard_units_walk_out_to_the_rally failed 2/8 (40769583532) + 1/8 (40627300155) = real defect; sent back to stale-pile-2 with the RtsPathingLease cleanup fix.
+  - 347 HELD: hero_ai_v2_target_pick_skips_an_enemy_its_side_cannot_see "Shade Ranger did not cloak" 6/32 with vision change vs 0/16 without; diag 40802881865. Reds/greens otherwise good (vision 8/8 red; artillery sight 8/8 red, 8/8 green).
+  - 345: reds good; green 40795051343 all hero_ai_v2_ 0 fails; CI shard 9 bots_reach_tier_2 only, rerun attempt 2. Then gate, merge.
+  - 352 GameTest cleanup audit (f44e997c): opus Mode A running; runs before/after shard-1 40796775413/40798471729, touched 40798540632/40798537606, red 40798482363.
+  - bots tier-2 flake: cause found (easy bot places annexes before tech-energy wind; fix 309d4e81), greens 40806850709/40806858215 (16 runners). No PR yet.
+  - Bone dragon yaw: red proven 8/8 on both new tests (40797857373), green 40797860434; re-stress 40806878179/40806880340; draft PR coming. Its request to delete branches claude/dragon-r13-yawproof and claude/dragon-dive-redproof was refused by its own classifier: left for lovish (not done by Levus).
+  - 308: stress 40807480328 pending (gate needs it).
