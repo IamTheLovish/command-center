@@ -8,7 +8,7 @@
 # SUPERSEDED by lovish "no max population" (~21:40Z; claude/no-max-population): 374 be4e1d0779f365ba1e5df77607c66e7357e51afe red=40877672279 green=40877695389
 # SUPERSEDED (r5 12ecad96) 372 567fcc131e860ac9e27154e2f9ac08042da77484 red=40889424129 green=40889441183
 370 a8ae422bdfb2b39f8ec20ae9ba072413c55cc68e red=40833988401,40834471352 green=none
-# WAITS green 40947110161 read (merge-only round on 7a48e747 posted): 372 7a48e747e98cfaf8846e05f88106d00c07a2fdaa red=40947093480 green=none
+372 7a48e747e98cfaf8846e05f88106d00c07a2fdaa red=40947093480 green=none
 # WAITS green 40947140815 read (merge-only round on 3ae71846 posted): 380 3ae718468e68be304a937be624dba3ed8738c625 red=40947135645 green=none
 # WAITS green 40950117679 read (merge-only round on 85b0a454 posted): 362 85b0a45448e797c337b52f84dcddf6647725ab51 red=40950113361 green=none
 177 bf3475041a6524182d8bfae134d10a13f3f069b3 red=none green=40953400719
