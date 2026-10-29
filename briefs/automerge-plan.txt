@@ -9,7 +9,7 @@
 # SUPERSEDED (r5 12ecad96) 372 567fcc131e860ac9e27154e2f9ac08042da77484 red=40889424129 green=40889441183
 370 a8ae422bdfb2b39f8ec20ae9ba072413c55cc68e red=40833988401,40834471352 green=none
 372 7a48e747e98cfaf8846e05f88106d00c07a2fdaa red=40947093480 green=none
-# BAD EVIDENCE (red keep test passed 2/2 + INVALID; green fog_bank 2/8) - back to builder: 380 3ae718468e68be304a937be624dba3ed8738c625 red=40947135645 green=none
+# WAITS red 40964852451 + green 40964855165 read (r3 PASS): 380 2d7036b0f0019886c9cc0e4f2d84d7c91ec57f56
 # WAITS green 40950117679 read (merge-only round on 85b0a454 posted): 362 85b0a45448e797c337b52f84dcddf6647725ab51 red=40950113361 green=none
 # WAITS green 40953400719 read (merge-only round on a94b7bb1 posted): 177 a94b7bb1fe8d18a6955d99f0d1cb8d7beb1a2fe3 red=none green=none
 # WAITS green 40952359012 read (merge-only round on 4f5eec9e posted): 365 4f5eec9e1665d37b393cc453820b8591ba24e8e1 red=40952335236 green=none
