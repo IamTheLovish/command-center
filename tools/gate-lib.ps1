@@ -129,7 +129,10 @@ function Test-GateStress($ctx, $d, [string]$n, [string]$diff, $L) {
   # an edited annotation of an existing test (#297: only its timeoutTicks changed) is a -@GameTest/+@GameTest pair, not a
   # new test; a test whose method line is removed too (renamed or rewritten) is still treated as new below
   $added = [Math]::Max(0, [regex]::Matches($diff, '(?m)^\+\s*@GameTest\b').Count - [regex]::Matches($diff, '(?m)^-\s*@GameTest\b').Count)
-  $names = @([regex]::Matches($diff, '(?ms)^\+\s*@GameTest\b.*?^\+\s*(?:public\s+)?static\s+void\s+(\w+)\s*\(') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+  # a new test = an added @GameTest followed DIRECTLY (other annotation lines allowed) by an ADDED method line. An edited
+  # annotation of an existing test has an unchanged method line and names nothing. The old lazy '.*?' skipped past such a
+  # context method line to the next added 'static void' (PR 352: a TestCleanup helper "entities" was taken for a test). Archon, Oct 29.
+  $names = @([regex]::Matches($diff, '(?m)^\+\s*@GameTest\b[^\r\n]*\r?\n(?:[+ ]\s*@[^\r\n]*\r?\n)*\+\s*(?:public\s+)?static\s+void\s+(\w+)\s*\(') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
   if ($added -eq 0 -and $names.Count -eq 0) { Add-Chk $L 'gametests' 'PASS' 'diff edits @GameTest annotations of existing tests but adds no test'; return }
   if ($names.Count -lt $added) { Add-Chk $L 'gametests' 'FAIL' ("{0} new @GameTest but only {1} named in the diff: cannot match them to a flake-stress summary" -f $added, $names.Count); return }
   $branch = [string]$d.headRefName
