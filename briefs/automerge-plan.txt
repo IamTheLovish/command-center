@@ -11,7 +11,7 @@
 372 7a48e747e98cfaf8846e05f88106d00c07a2fdaa red=40947093480 green=none
 # BAD EVIDENCE (red keep test passed 2/2 + INVALID; green fog_bank 2/8) - back to builder: 380 3ae718468e68be304a937be624dba3ed8738c625 red=40947135645 green=none
 # WAITS green 40950117679 read (merge-only round on 85b0a454 posted): 362 85b0a45448e797c337b52f84dcddf6647725ab51 red=40950113361 green=none
-# WAITS main merge after #372 (ProductionPlacement): 177 bf3475041a6524182d8bfae134d10a13f3f069b3 red=none green=40953400719
+# WAITS green 40953400719 read (merge-only round on a94b7bb1 posted): 177 a94b7bb1fe8d18a6955d99f0d1cb8d7beb1a2fe3 red=none green=none
 # WAITS green 40952359012 read (merge-only round on 4f5eec9e posted): 365 4f5eec9e1665d37b393cc453820b8591ba24e8e1 red=40952335236 green=none
 382 2285c67917701422d9e1cef7174f741e2fbc0dd3 red=none green=none
 375 130b7925ae5312f43268b46cf6d2d2c76bc627d0 red=none green=none
