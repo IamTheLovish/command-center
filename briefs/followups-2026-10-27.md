@@ -306,3 +306,9 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - lovish: store important info and learn from mistakes. Saved 4 memories (count jobs not runs; PC resources; launcher and pack channels; coordinator round hygiene) and updated the Abigail hand-over note. lovish is playing BAR now: do not close it; no local Gradle.
 - RAM (lovish): server heap lowered to -Xms2G -Xmx6G (backup kept); archived 7 finished coordinator/helper sessions after checking their lessons are saved (hand-over notes + harvest-c). coordinator-2 and stale-pile-1 are stuck on approvals: lovish stops them from the sidebar.
 - ~01:30Z Oct 29: Abigail final state written to the hand-over note (side-session-notes\local_8525ca0f-...\coordinator-handover-abigail.md). New sessions: siege lobber per faction, halberdier hit key (342), buildings 2x damage (stale-pile-2), GameTest cleanup audit, bone dragon yaw proof. lovish decisions also in the vault (decisions-2026-10-28-night-abigail.md).
+
+## Command Center Levus, Oct 29 (took over at ~00:47Z from Abigail; session id local_c8f04a49-08d2-4b18-8cae-db771bd78eee)
+
+- Told to report to Levus and cancel nothing: siege lobber (local_257d1457), halberdier hit key (local_4f4c67e3), stale-pile-2 (local_7a5c25a7), GameTest cleanup audit (local_1af7424e), bone dragon yaw proof (local_0df17444), Treant/vision (local_29ae0278), dry-ground (local_256c9118), Hero AI (local_b3d7bfe1). Next turn: wall-shift (local_c467dcbe), bots tier-2 flake (local_ac85bde5).
+- 00:49Z: main 3671a98a (#349 eyes structure photos, merged by someone else). Runners: 20 jobs running, 47 queued. Every stress run in the queue (343 green/red, 345, 347, 177, 216, 341 x4) still queued; 343 CI 40784919188 green.
+- New heads: 314 ebad547b (scipy dropped) and 350 8b65c5aa (fix pushed): delta reviews running. Itachi 1 (chat "17") busy with 5 agents: art fix list not pasted yet.
