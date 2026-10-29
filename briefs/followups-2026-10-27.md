@@ -366,3 +366,7 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - 355 r1 PASS 4eb4f3fb (opus; all spec numbers match; posted). Merge preconditions: stress 40820267606 (siege 0/8, raid timing) and CI rerun (shard 1 alliance_lock only). For lovish: wall time is 20.5 s / gate 15.5 s (design + JUnit), not ~24 s as noted; lobbers also join bot raids on eco buildings at half rate; Brassworks bots now get a siege unit.
 - Essence casters approved (~05:45Z); PR 1 builder session local_b3f501e5 (essence wisps + Empower). 357 CI green aa1cb843 (waits on red/green stress).
 - 308 stress 40807480328 (checked out 684445cb): "[Stress] 6 runners; 0 with any failure", all 5 new possession tests 0/6. Coordinator evidence round posted; gate done PASS (1 warn: no owner row). **MERGED #308 d2fb33f0.** 2 merged in Rust.
+- 351 green 40807695097 (checked out 411fa89): 8 runners, 0 failures on both tests. Evidence round posted; gate PASS. **MERGED #351 362a7197.** 3 merged in Rust.
+- 177 HELD again: graveyard runs 40809128233 (l1 1/10, l3 1/10) and 40809242881 (l2 blocked 1/8, overflowing 1/8): units stranded inside. Sent to stale-pile-2 with a main comparison ask.
+- 360 essence: r1 FAIL (3 free summons dropped wisps) -> fixed f87386d8; r2 PASS (sonnet). Waits on red 40823610222 (new test), old red 40821753337, green 40823621319 (10 runners), CI 40823581213. Open for lovish: capture-camp wolves and bought totems still drop essence.
+- 347 diag 40807924370 finished; asked the Treant session for its read. lovish (~06:20Z): Fable allowed when needed.
