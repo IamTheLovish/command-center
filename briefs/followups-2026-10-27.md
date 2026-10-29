@@ -575,3 +575,6 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - automerge: Archon's copy was still running (orphan pid 180156, started 15:48Z, sleeping between silent passes); stopped it during its sleep so exactly one copy runs. tools/automerge.sh evidence-round REVIEWER renamed to Erin. Plan rewritten (merged lines dropped; done file keeps them): 177 FLAGGED, 374 FLAGGED, 372 HELD. Erin's copy started 20:07Z: `bash tools/automerge.sh briefs/automerge-plan.txt 15 48`.
 - lovish asked: PRs done since 6 am EDT (10:00Z): 12 (357 216 339 384 373 363 376 381 347 355 352 359). None since 15:47Z.
 - 20:07Z: 362 Verdant retargeted to main (builder acting on Archon's send); 390 new draft (placement checks skip unreachable buildings).
+- 20:08Z runners: 0 jobs running, 0 queued (the queue fully drained). 386 CI green on caac4c92. 362/380/390 have 1 failing check each.
+- Sent (2/10 on lovish's typed message): shader local_27868f94 (386: normal main merge + relax test_pack_no_complementary to Complementary only, then eyes A/B on the new head after bar compiles, ids to Erin; delta review of the merge commit); stale-pile-2 local_7a5c25a7 (387 6-runner diagnostic may run now; 177 decision unchanged).
+- Hand-over draft: side-session-notes\local_e497f2eb-...\coordinator-handover-erin.md.
