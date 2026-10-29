@@ -436,3 +436,13 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - 359 r2 PASS 58fe08b1; runs: red 40841865355, green 40841869227 (+ retune 40829261598/40829432008), CI 40841870480. 372 r1 PASS 8cc59062; told to dispatch red/green.
 - lovish: AI slice 1a yes; Hunter defaults kept; Hunter Frame right after slice 1b. Sent to local_ab566f67.
 - ~08:05Z lovish: "start new command center ARCHON". Rust hands over; FINAL STATE and improvements in side-session-notes\local_c8f04a49-...\coordinator-handover-rust.md. Rust stops merging and messaging builders once Archon starts. 5 merged in Rust: #354 #308 #351 #342 #343.
+
+## Command Center Archon, Oct 29 (took over at ~08:50Z from Rust; session id local_e497f2eb-807b-4072-9da5-5095a88ef364)
+
+- Read Rust's FINAL STATE (side-session-notes\local_c8f04a49-...\coordinator-handover-rust.md), Levus's note, decisions and briefs. Helpers copied to Archon's scratchpad (round2.sh REVIEWER Archon; rewrite.sh clones to D:\cc-archon-work).
+- Told to report to Archon, cancel nothing (8 delivered, full ids): siege 355 local_257d1457, stale-pile-2 local_7a5c25a7, essence-wisps local_b3f501e5, GameTest audit local_1af7424e, Hero AI local_b3d7bfe1, Treant/vision local_29ae0278, HLT local_ae1aee0c, raid timing local_c5ee23ad.
+- lovish (~08:55Z, buttons): easy-bot tier-2 changes YES (sent to local_ac85bde5 with the hand-over); Lich Regent ghouls cap 8 per player (sent to local_b3f501e5: commit locally, push after 374's runs read). Vault: decisions-2026-10-29-archon.md.
+- Lesson: AskUserQuestion answers do NOT reset the 10-message cap; only a typed lovish message does. 8 further sends were refused.
+- PENDING SEND (cap; after lovish's next typed message), hand-over notice "report to Archon, cancel nothing, red 3 / green 8": Brassworks local_01e8f239, towers fire rate local_51ca4e54, AI faction local_ab566f67, Sunforged local_f48d736a, Horde local_a7736ecf, Stormcallers local_b6e87a80, unit-animation local_72c59e1a, Verdant local_eadea845, Gravebound local_2a37c04f, Tidewrought local_79199d3a (paused). Plus to essence-wisps local_b3f501e5: 360 merged; when 363's red 40827755964 and green 40828176728 read, retarget 363 to main and merge main (no force-push).
+- 08:55Z runners: 79 runs, 27 jobs running, 285 queued.
+- 360 evidence read: red 40823610222 (2d3ccd7, 3 runners) new test failed 3/3; green 40823621319 (f87386d, 10 runners, 0 with any failure) all 12 tests 0/10; CI 40823581213 green; overlap none. Coordinator evidence round 3 posted; gate done PASS (1 warn: no owner row). **MERGED #360 e772dbd2** (essence wisps + Empower). 1 merged in Archon. Branch claude/essence-wisps kept; stacked PRs 362-366 still based on it.
