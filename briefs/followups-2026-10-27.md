@@ -568,3 +568,10 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - Gate parser bug fixed (gate-lib.ps1: an edited @GameTest annotation borrowed a later helper's name 'entities'); selftest 54/54; gate on 352 now PASS (1 new test, stress pass). 359 merged main again (25e22d53, 31 files hunks identical); round posted; plan updated. 372 HELD: CI bar shard 1 assembly_works_trains_every_brassworks_t2_unit 'should train eight units, found 9' 3/3 (deterministic: Soul Engineer adds a 9th T2 unit; the test needs updating) -> pending send to Brassworks.
 - **MERGED #352 c968e2b7** (TestCleanup) by automerge 15:25Z. 13 merged in Archon (#360 #179 #357 #216 #339 #384 #373 #363 #376 #381 #347 #355 #352). Follow-up from 352: dive tests need the same entities-ready wait (dive_in_flight_survives_a_reload 1/8 on a slow runner); Levus's 3 follow-up items (Tidewrought sweep zone, DragonDive hover past sweep reach, stale 'next test at this slot' comments).
 - **MERGED #359 fef25cf8** (anti-siege tower) by automerge 15:47Z. 14 merged in Archon.
+
+## Command Center Erin, Oct 29 (took over at ~20:05Z from Archon; lovish typed "name ur self erin and start new command center")
+
+- Read Archon's FINAL STATE + improvements 1-11, Rust's note, Archon tracking, decisions, lessons. Helpers copied to Erin's scratchpad (round2.sh REVIEWER Erin; rewrite.sh clones to D:\cc-erin-work).
+- automerge: Archon's copy was still running (orphan pid 180156, started 15:48Z, sleeping between silent passes); stopped it during its sleep so exactly one copy runs. tools/automerge.sh evidence-round REVIEWER renamed to Erin. Plan rewritten (merged lines dropped; done file keeps them): 177 FLAGGED, 374 FLAGGED, 372 HELD. Erin's copy started 20:07Z: `bash tools/automerge.sh briefs/automerge-plan.txt 15 48`.
+- lovish asked: PRs done since 6 am EDT (10:00Z): 12 (357 216 339 384 373 363 376 381 347 355 352 359). None since 15:47Z.
+- 20:07Z: 362 Verdant retargeted to main (builder acting on Archon's send); 390 new draft (placement checks skip unreachable buildings).

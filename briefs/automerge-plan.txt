@@ -1,32 +1,9 @@
-# automerge plan (Command Center Archon, Oct 29). Format: PR FULL_HEAD red=RUNIDS|none green=RUNIDS|none
+# automerge plan (Command Center Erin, Oct 29, from Archon's). Format: PR FULL_HEAD red=RUNIDS|none green=RUNIDS|none
 # green runs must have checked out the head; red runs must show every runner failing. CI-only heads use none/none.
 # Order = merge order (one merge per pass, then every PR is re-checked against the new main).
-# 352 f4cb78e14cf0f73978325e983df5995297b32ac0 red=none green=40825509632
-357 aa1cb843379f0d069ed78163efb6cb6bf3594850 red=none green=40826055702,40826063202
-# 347 379b5dd704f35b5067006df21e73dab40a587753 red=none green=40824711616,40824714160,40824716651
-376 1b9de3cb3ca58b997ba64800345dddd9459e98d0 red=40835771693 green=40835774695
-# 359 58fe08b12f4ba0f7d5fe26436d6c6818a34612f8 red=40829261598,40841865355 green=40841869227
-216 01e528b9f31883bd92571a010d230260b2339cf3 red=none green=none
-339 f87f5426df1a786b5f186651029ef4a99878ea85 red=none green=none
-# 355 d5644c962aa92f1576433552e362cef9e2ab3b5c red=none green=none
-373 1f168b3dda091d7a0ced82f9e22449b6dc9a7288 red=none green=none
-384 a115d6c19531f8666ad720e9a2c62fc8e8c7118b red=none green=none
-363 c5295a56e79d667a820bc93288b0500bbf607297 red=40827755964 green=none
-# 347 c9a934137533dd8c3f4aabbdc3d4459ef40e3e88 red=none green=none
+# Merged lines are in logs/automerge.done (14 in Archon: 360 179 357 216 339 384 373 363 376 381 347 355 352 359).
+# FLAGGED (green 40868016260 2/8; no test moves without main evidence, baseline 40824403225):
 177 cbc8a7b72c50d9a0581c5f7af41e79d22f4f4a1d red=none green=40868016260
-# 355 90767c2a833833dea1abbaceb00f89160371124d red=none green=none
-# 352 15cc53fe7d55428cf4e4dcfaba36d79a6c4353bd red=none green=40871732997
-381 fa5045d0fe5c1a0fb15fb78b354eeb6022d600a7 red=40857533412 green=40871647570
-# 347 d68ddfe744c7677a106fada7dbd0eac0db667818 red=none green=none
+# FLAGGED (CI shard 9 bots_reach_tier_2 3/3; waits the easy-bot tier-2 PR or a main-vs-374 comparison):
 374 be4e1d0779f365ba1e5df77607c66e7357e51afe red=40877672279 green=40877695389
-# 359 0913a3cf41e1a8c6eeece771db1653fda44c2ef1 red=none green=none
-347 b2a3e8f99afc1baad3318a16cd0fa4d20dc2530b red=none green=none
-# 355 2f6c47b7caf213d2b21b04b2f3b72ef609281609 red=none green=none
-# 372 956a88159bf808ae3d8f27a36e033433da0f3e2f red=40885594903 green=40885612821
-# 359 4adfdb22ae7fc0a3b9360a3ea76591b66532e57b red=none green=none
-# 352 b629457ba6770945057044001cfad40616620778 red=none green=40887783493
-# HELD (assembly_works expects 8, finds 9 after main merge) 372 567fcc131e860ac9e27154e2f9ac08042da77484 red=40889424129 green=40889441183
-355 e2449e05e6e959963ea92e82b99faa9428f82057 red=none green=none
-# 352 0e310aee5b6fd430b3884d3d47f525188fc14529 red=none green=40893436110,40894814512
-352 d8ab311ddd7ff79ac745499f73d4a9c351024ca4 red=none green=none
-359 25e22d53cb426a255aeddaf0ca0a7cd283ec7083 red=none green=none
+# HELD (assembly_works expects 8, finds 9 after main merge; Brassworks to fix) 372 567fcc131e860ac9e27154e2f9ac08042da77484 red=40889424129 green=40889441183
