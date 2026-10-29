@@ -23,7 +23,7 @@ tally() {
   local id=$1 j s
   j=$(gh run view $id -R $R --json jobs --jq '.jobs[]|select(.name=="summary")|.databaseId' 2>/dev/null)
   s=$(gh run view $id -R $R --json jobs --jq '.jobs[]|select(.name|test("^stress"))|.databaseId' 2>/dev/null | head -1)
-  echo "CHECKOUT $(gh run view $id -R $R --log --job $s 2>/dev/null | grep -oE 'HEAD is now at [0-9a-f]{7,}' | head -1 | awk '{print $4}')"
+  echo "CHECKOUT $(gh run view $id -R $R --log --job $s 2>/dev/null | grep -oE 'HEAD is now at [0-9a-f]{7,}' | head -1 | awk '{print $5}')"
   gh run view $id -R $R --log --job $j 2>/dev/null | sed -E 's/^[^\t]*\t[^\t]*\t[0-9TZ:.-]+ //' \
     | grep -E "\[Stress\]|Fail rate per test|INVALID|NO SAMPLE|: failed [0-9]+, passed [0-9]+|no test failed" | grep -v "##\[group\]" \
     | sed -E 's/^summary\tFail rate per test\t//; s/^##\[notice\]//'
