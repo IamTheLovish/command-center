@@ -393,3 +393,5 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - **MERGED #342 b04b9d20** (halberdier keyed thrust; merge-only round posted, gate PASS). 4 merged in Rust. For lovish in game: the hit lands 5 ticks after the swing starts; HeldBlow.REACH_TOLERANCE 1.0 to tune.
 - Casters: Verdant draft PR 362 (9e91be4c, Revision 1 applied; 4 stress runs queued). Sunforged PR 364 (melee-hits-archer test in; red 40828739925). Gravebound PR 366 becomes PR A (Tombcaller, tombstones, creep, Grave Tide, Empower); old-design runs 40828443555/40828910637 stale; PR B Grave Adept on claude/essence-base-r1 after.
 - Raid timing session: Verdant T1 times range 5.1-27.9 s: suspects how the fight's start/end is detected (clock from first lost block to "destroyed"), not raider speed.
+- Raid timing: flake PREDATES #341 (40819473983 on ad1a6de8^ + diagnostics: 1/10 red). Not the wall-shift change. Session measuring blocks lost per hit (40830462779).
+- Horde caster draft PR 365 (Revision 1 applied; runs queued). HLT PR 359 re-done to lovish's numbers: red 40829261598 (1ed9d38), green 40829432008 (952a7ff).
