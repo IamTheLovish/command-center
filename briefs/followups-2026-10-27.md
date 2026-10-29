@@ -378,3 +378,4 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - 357 red 40810708865 (6 runners): the 2 new tests 6/6 failed; hold_position_is_respected 1/6 on the red base (note). Green 40810711531 pending.
 - 347 r4 PASS 379b5dd7 (merge-only clean; sky pad y 210 shared with two shard-8 building tests, less exposed than the floor). Note for lovish: AI hero perception now sees 36 blocks (was 24). Waits greens 40824711616/40824714160/40824716651.
 - 355 CI 40817941116 red on attempts 1-3, only alliance_lock_open_option "no dry ground ... x=-2432" (same spot each time: deterministic on this branch). Waits on 343, then merge main for fresh CI. Stress 40820267606 queued.
+- Hand-over draft (kept current): side-session-notes\local_c8f04a49-...\coordinator-handover-rust.md. 352 r3 PASS f4cb78e1 (posted); 342 merged main bfcf696c (merge-only verified), CI running.
