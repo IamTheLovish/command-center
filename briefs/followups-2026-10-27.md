@@ -435,3 +435,4 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - 355 stress 40820267606: "[Stress] 8 runners; 3 with any failure": all 5 siege_lobber_ tests 0/8, raid_infantry 0/8, brassworks_are_live 0/8; only alliance_lock_by_default 2/8 and open_option 1/8 (the 343 family, fixed now). 355 waits on its main merge + fresh CI, then evidence round + gate + merge.
 - 359 r2 PASS 58fe08b1; runs: red 40841865355, green 40841869227 (+ retune 40829261598/40829432008), CI 40841870480. 372 r1 PASS 8cc59062; told to dispatch red/green.
 - lovish: AI slice 1a yes; Hunter defaults kept; Hunter Frame right after slice 1b. Sent to local_ab566f67.
+- ~08:05Z lovish: "start new command center ARCHON". Rust hands over; FINAL STATE and improvements in side-session-notes\local_c8f04a49-...\coordinator-handover-rust.md. Rust stops merging and messaging builders once Archon starts. 5 merged in Rust: #354 #308 #351 #342 #343.
