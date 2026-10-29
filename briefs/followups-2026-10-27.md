@@ -692,3 +692,4 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - Gate hook blocked an Agent brief that named "PR #386 (branch ...)" (branch-check: commit <2h). Lesson repeated: no PR numbers / branch names in non-review Agent briefs; use gh search.
 - lovish (~00:25Z): "each unit should get its own icon" -> opus design subagent drafting design-draft-unit-icons-2026-10-30.md.
 - lovish (~00:30Z): icon tiers T1 small, T2 more detail, T3 larger + detailed, T4 rainbow + player-colour diamond border -> sent to the icon designer.
+- HAND-OVER to Command Center Eris (~00:00Z Oct 30; lovish: "start new command center Eris"). Runners 18 running / 76 queued. Merged in Erin: #370 #372 #382 #375. FINAL STATE + improvements 1-14: side-session-notes\local_e497f2eb-...\coordinator-handover-erin.md. Erin's merger stopped at hand-over; Eris restarts it.
