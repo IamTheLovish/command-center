@@ -345,3 +345,14 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - 352 build red: shard 5 asset download timeout, shard 1 dry-ground, shard 8 raid_infantry_party_times_against_eco_buildings (also red on main ad1a6de8 = #341's merge; T1 27.9 s there looks slow: possible #341 regression). Reran failed jobs. Stress of that test on main c20fca27: 40815182688 (40815170847 was dispatched with a wrong short SHA by me: it will find nothing).
 - Itachi 2 schematics prepared: D:\Itachi2-Schematics\Itachi2-schematics.zip (15 builds + 12 houses + SOURCES.md; 8 are legacy MCEdit .schematic).
 - ~05:35Z lovish: new coordinator "Rust" (local_ba489985-988c-41cc-8152-675bd817862a) started from Levus; queue and paused-merge state in the Levus hand-over note's FINAL STATE section. Levus stops merging and messaging sessions.
+
+## Command Center Rust, Oct 29 (took over at ~04:30Z from Levus; session id local_ba489985-988c-41cc-8152-675bd817862a)
+
+- MERGES PAUSED (carried from Levus): lovish said GitHub "flagged our account". Asked him for the notice text and whether merging may resume. Org mirror ILovishThe/beyond-and-tabs-ci not touched.
+- Told to report to Rust, cancel nothing (all 8 delivered, full ids): dry-ground 343 local_256c9118, stale-pile-2 local_7a5c25a7, GameTest audit 352 local_1af7424e, Hero AI 357 local_b3d7bfe1, halberdier 342 local_4f4c67e3, bone dragon 354 local_0df17444, siege 355 local_257d1457, Treant/vision local_29ae0278. Next message: bots tier-2 flake local_ac85bde5.
+- 04:31Z: main c20fca27. Runners: 25 runs, 20 jobs running, 81 queued.
+- 354 green 40806880340 read: "[Stress] 8 runners; 0 with any failure", all 15 bone_dragon_ tests 0/8 (incl. both new yaw tests). CI 40806951904 green; overlap none; coordinator round 2 PASS posted. Gate PASS (Levus). Ready to merge when the pause lifts.
+- 357 CI 40810770105 red only on shard 8 raid_infantry_party_times_against_eco_buildings ("Verdant T2 extractor 22.0 s should be about twice the T1's 15.8 s"): the same test red on main since #341. Reran failed job. Main stress of that test: 40815182688 (queued).
+- New 355 head 4eb4f3fb (CI running). 352 CI now green (rerun). 339 and 274 bar red (339: CI attempts exhausted; waits 343).
+- All other evidence runs still queued: 342 red 40810486026; 351 green 40807695097; 343 A/B 40817312777/40817314978; 177 40809128233/40809242881/40809252789; 352 40809938864/40809941227/40809933494/40809936078; 357 red/green 40810708865/40810711531; 308 40807480328; 347 diag 40807924370.
+- Itachi 1 (~04:35Z) is in chat "17.2" (not "17"), busy on 314 mist/oak/tufts with a hand-off task list. Art fix list still not pasted.
