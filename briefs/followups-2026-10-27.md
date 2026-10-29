@@ -315,3 +315,6 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - lovish (~00:52Z): "make sure the 20 runners are going". Checked: 37 open runs, 19-20 hosted jobs running, 46 queued (runners.sh now retries failed API calls; a network blip had shown 2). Nothing cancelled.
 - 350 r2 PASS 8b65c5aa (fix pushed; red test green; settings-only; Complementary credit still missing pack-wide). Shard 9 red only on bots_reach_tier_2: failed job rerun (run 40782239769). Art: waits on lovish's look; merge 350 before 326.
 - Cross-session cap: two first messages went to guessed session ids and failed, but still counted; the wall-shift and bots-flake messages wait for lovish's next message.
+- lovish (~01:00Z) siege lobber answers: half damage to non-defence buildings, but walls must stay strong; 1 s set-up OK; bots use it; other artillery stays anti-army; names placeholders. Tower range: "pairs win" here vs Rocko model in Abigail: session writes both, lovish picks. Vault: decisions-2026-10-29-levus.md.
+- 274 r3 PASS 4509df76 (no blocking; bar red is RtsSavesSourceTest on its old base, fixed on main: needs a merge of main; then lovish's OK and a throwaway-PR test before branch protection). Posted.
+- New: 351 buildings 2x damage (stale-pile-2, 72dde9bc): opus Mode A running; runs red 40796803457, green 40796524878, touched 40796805912, build 40796796969.
