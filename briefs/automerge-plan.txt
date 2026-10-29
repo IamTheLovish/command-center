@@ -6,5 +6,6 @@
 177 cbc8a7b72c50d9a0581c5f7af41e79d22f4f4a1d red=none green=40868016260
 # FLAGGED (CI shard 9 bots_reach_tier_2 3/3; waits the easy-bot tier-2 PR or a main-vs-374 comparison):
 374 be4e1d0779f365ba1e5df77607c66e7357e51afe red=40877672279 green=40877695389
-# HELD (assembly_works expects 8, finds 9 after main merge; Brassworks to fix) 372 567fcc131e860ac9e27154e2f9ac08042da77484 red=40889424129 green=40889441183
+# SUPERSEDED (r5 12ecad96) 372 567fcc131e860ac9e27154e2f9ac08042da77484 red=40889424129 green=40889441183
 370 a8ae422bdfb2b39f8ec20ae9ba072413c55cc68e red=40833988401,40834471352 green=none
+372 12ecad966e90874849e0c7e78d034ddc46604adf red=40947093480 green=40947110161
