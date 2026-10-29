@@ -690,3 +690,4 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - 386 r6 FAIL 54bc9fe1 (posted): every ours value in band (day 0.67/0.48/0.34, dusk 0.64/0.47/0.23, night 0.59/0.45/0.14); only blocker: the body claims an out-of-band count that table() does not produce -> add it (sent 5/10).
 - lovish (~00:20Z): T1 casters 115 M / 120 E. Brassworks builder (6/10): one follow-up PR after 397 + the caster PRs merge, all seven casters, plus the docs pass and a test that T1 caster metal < T2 thresholds.
 - Gate hook blocked an Agent brief that named "PR #386 (branch ...)" (branch-check: commit <2h). Lesson repeated: no PR numbers / branch names in non-review Agent briefs; use gh search.
+- lovish (~00:25Z): "each unit should get its own icon" -> opus design subagent drafting design-draft-unit-icons-2026-10-30.md.
