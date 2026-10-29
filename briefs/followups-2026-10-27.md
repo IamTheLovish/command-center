@@ -425,3 +425,9 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - **MERGED #343 e0aaad3f** (dry-ground test fix; A/B 40817312777 vs 40817314978 both bots_play 1/10; coordinator evidence round; gate PASS). 5 merged in Rust. Told 355, 339, 216 owners to merge main.
 - 370 Stormcallers r1 PASS 3811f7b6 (opus; non-blocking: chain lightning misses cruising flyers (lovish call), Spark always casts before Thunderhead, blink onto roofs). 359 HLT r1 FAIL 952a7ff1 (villagers Defence tab 16 vs 15 in BuildGroupGameTests/groups.md; stale body). Pre-existing bug found: towers fire every 3.0 s not 2.5 s (DefenceTower.java:252 skips the zero tick; :255 scans every 10th tick; Beamer too): needs its own fix PR.
 - lovish AI faction: Light Grid; keep what makes sense; convert in place; caster = "a terminator that evolves". Sent to design session local_ab566f67 (PR 379).
+- 216 merged main: head 01e528b9 (merge-only: 0 differing PR files vs 3737e7ab). Waits CI 40841804128, then round2.sh, gate, merge.
+- 372 Brassworks Soul Engineer draft PR (8cc59062; red 716bbdd3 on claude/caster-brassworks-red): needs a Mode A review.
+- 370 red 40833988401: all 10 spell tests failed 3/3 (good); green 40838131854 queued. 365 compiles; red 40840128205, green 40840131301 queued. 374: red 40840988848, green 40841003701 on 42b24628.
+- Bots tier-2: 98023a77 2/16 (easy only); fix 66b5b865 (T2-lab builders picked last), greens 40839157707/40839167566. A remaining easy-bot worker-pathing stall (all workers stuck at one spot) needs its own task. Behaviour changes still need lovish's OK (rule order, starve-saving, T2-lab builder protection).
+- 343 A/B detail: branch failure was soak_kingdom metal_extractor no footprint; main's was soak_storm jade_pagoda no progress: both in-match stalls. lovish may delete D:\red2.log (left by the dry-ground session).
+- 359: old red 40819779294 confirmed (3 tests failed 4/4).
