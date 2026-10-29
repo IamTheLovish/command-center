@@ -377,3 +377,4 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - 352 runs: shard-1 after 40809938864 only alliance_lock x2 2/8 (343 family); touched 40809941227 4 runners 0 failures; red1/red2 cleanup test 1/1 failed each. Overlap: #354 changed DragonFlightGameTests.java: session asked to merge main + bone_dragon_ stress.
 - 357 red 40810708865 (6 runners): the 2 new tests 6/6 failed; hold_position_is_respected 1/6 on the red base (note). Green 40810711531 pending.
 - 347 r4 PASS 379b5dd7 (merge-only clean; sky pad y 210 shared with two shard-8 building tests, less exposed than the floor). Note for lovish: AI hero perception now sees 36 blocks (was 24). Waits greens 40824711616/40824714160/40824716651.
+- 355 CI 40817941116 red on attempts 1-3, only alliance_lock_open_option "no dry ground ... x=-2432" (same spot each time: deterministic on this branch). Waits on 343, then merge main for fresh CI. Stress 40820267606 queued.
