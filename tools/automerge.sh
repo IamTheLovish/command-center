@@ -36,6 +36,7 @@ check_runs() {  # kind ids head -> prints evidence lines; returns 0 ok, 1 wait, 
     st=$(gh run view $id -R $R --json status --jq .status 2>/dev/null)
     [ "$st" = completed ] || { echo "WAIT $kind $id $st"; return 1; }
     t=$(tally $id); hdr=$(echo "$t" | grep "\[Stress\]" | head -1); co=$(echo "$t" | grep '^CHECKOUT' | awk '{print $2}')
+    [ -n "$hdr" ] || { echo "WAIT $kind $id log not readable yet (empty [Stress] header)"; return 1; }   # a failed log fetch is not evidence
     echo "$t" | grep -qE "INVALID|NO SAMPLE" && { echo "BAD $kind $id INVALID/NO SAMPLE: $hdr"; return 2; }
     if [ "$kind" = red ]; then
       n=$(echo "$hdr" | sed -nE 's/.*\[Stress\] ([0-9]+) runners; ([0-9]+) with any failure.*/\1 \2/p')
