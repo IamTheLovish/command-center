@@ -16,3 +16,4 @@
 382 2285c67917701422d9e1cef7174f741e2fbc0dd3 red=none green=none
 375 130b7925ae5312f43268b46cf6d2d2c76bc627d0 red=none green=none
 # 377 2a6420a9 (merge-only identical, 382 lines): add after #375 merges and 377 is retargeted to main + merged main
+# WAITS reds (40956778841 + second-skeleton red) and greens 40956765258 (7c1279bf) / 40960638437 read: 366 302af3495553ef42dd785fb6947773b42bdba618
