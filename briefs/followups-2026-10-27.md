@@ -331,3 +331,5 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
   - bots tier-2 flake: cause found (easy bot places annexes before tech-energy wind; fix 309d4e81), greens 40806850709/40806858215 (16 runners). No PR yet.
   - Bone dragon yaw: red proven 8/8 on both new tests (40797857373), green 40797860434; re-stress 40806878179/40806880340; draft PR coming. Its request to delete branches claude/dragon-r13-yawproof and claude/dragon-dive-redproof was refused by its own classifier: left for lovish (not done by Levus).
   - 308: stress 40807480328 pending (gate needs it).
+- lovish OK (~03:15Z): deleted claude/dragon-r13-yawproof (tip a9625be8) and claude/dragon-dive-redproof (tip d779daa6, red proof only). Checked first: their PRs (#145, #300) were squash-merged, and the tip commits' tests are on main. Bone dragon yaw proof is now draft PR 354 (claude/dragon-yaw-red-proof).
+- 351 r1 fixes pushed (411fa89e): delta review running; green 40807695097, build 40807683923.
