@@ -390,3 +390,4 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - 363 essence base r1 (66b58ce2): r1 PASS (opus; non-blocking: autocast test does not prove the essence gate). Waits red 40827755964, green 40828176728, CI 40828226935; merges after 360.
 - 364 Sunforged Angel Caller (763616ab): archer flight 3, sword 8, mender 6 (session's call); new shared opt-in Unit.meleeReachableHeight() + FlyingMoveToTargetGoal altitude param (touches combat target scans: review with care). Reds 40828191525, 40828739925 queued; green not yet dispatched.
 - 352 CI 40825514152 a1 red only on bots_reach_tier_2 + raid timing (T1 5.1 s: too fast this time); rerun. 342 CI green on bfcf696c.
+- **MERGED #342 b04b9d20** (halberdier keyed thrust; merge-only round posted, gate PASS). 4 merged in Rust. For lovish in game: the hit lands 5 ticks after the swing starts; HeldBlow.REACH_TOLERANCE 1.0 to tune.
