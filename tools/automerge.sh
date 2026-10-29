@@ -103,7 +103,10 @@ for pass in $(seq 1 $MAX); do
       [ -n "$both" ] && shared="$shared ${c:0:8}:[$both]"
     done
     [ -z "$shared" ] || { flag $pr "overlap with main since CI ($cit):$shared -> merge main + merge-only check"; continue; }
-    # evidence round (coordinator), post, gate
+    # gate FIRST (it needs only the reviewer's PASS on the head); a round is written only when the gate passes
+    g=$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\\Command Center\\tools\\cc.ps1" gate done -Pr $pr 2>&1 | tr -d '\r')
+    echo "$g" | grep -q "GATE done #$pr: PASS" || { flag $pr "gate not PASS: $(echo "$g" | grep -E '^FAIL|GATE' | tr '\n' ' ')"; continue; }
+    # evidence round (coordinator), post
     k=$(( $(grep -c "^## Round" "$f") + 1 ))
     { printf "\n## Round %s (coordinator evidence check, automerge, %s)\nVERDICT: PASS\nSHA: %s\nREVIEWER: Command Center Archon automerge.sh (coordinator, not the builder), %s\n\n" "$k" "${head:0:8}" "$head" "$(date -u +%b\ %d)"
       echo "Code unchanged since the last review round. CI on the head: all checks green. Overlap: no main commit since $cit shares a file. Per-test tally lines:"
@@ -112,8 +115,6 @@ for pass in $(seq 1 $MAX); do
       echo "$ev_r$ev_g" | grep -E "^RUN|^    " | sed -E 's/^RUN /- /'; } >> "$f"
     { printf "[Mode A review, round %s]\n\n" "$k"; awk -v k="$k" '/^## Round/{n++} n==k' "$f"; } > "$CC/logs/automerge-post-$pr.md"
     gh pr comment $pr -R $R -F "$CC/logs/automerge-post-$pr.md" >/dev/null 2>&1 || log "WARN PR$pr comment failed"
-    g=$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\\Command Center\\tools\\cc.ps1" gate done -Pr $pr 2>&1 | tr -d '\r')
-    echo "$g" | grep -q "GATE done #$pr: PASS" || { flag $pr "gate not PASS: $(echo "$g" | grep -E '^FAIL|GATE' | tr '\n' ' ')"; continue; }
     gh pr ready $pr -R $R >/dev/null 2>&1
     now=$(gh api repos/$R/commits/main --jq .sha)
     [ "$now" = "$mainsha" ] || { log "WAIT PR$pr main moved during checks"; continue; }
