@@ -431,3 +431,7 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - Bots tier-2: 98023a77 2/16 (easy only); fix 66b5b865 (T2-lab builders picked last), greens 40839157707/40839167566. A remaining easy-bot worker-pathing stall (all workers stuck at one spot) needs its own task. Behaviour changes still need lovish's OK (rule order, starve-saving, T2-lab builder protection).
 - 343 A/B detail: branch failure was soak_kingdom metal_extractor no footprint; main's was soak_storm jade_pagoda no progress: both in-match stalls. lovish may delete D:\red2.log (left by the dry-ground session).
 - 359: old red 40819779294 confirmed (3 tests failed 4/4).
+- 360 red 40821753337 (8446e7f): all 11 essence_/empower_ tests failed 3/3 (good). Still needs red 40823610222 (new test) + green 40823621319 (f87386d8).
+- 355 stress 40820267606: "[Stress] 8 runners; 3 with any failure": all 5 siege_lobber_ tests 0/8, raid_infantry 0/8, brassworks_are_live 0/8; only alliance_lock_by_default 2/8 and open_option 1/8 (the 343 family, fixed now). 355 waits on its main merge + fresh CI, then evidence round + gate + merge.
+- 359 r2 PASS 58fe08b1; runs: red 40841865355, green 40841869227 (+ retune 40829261598/40829432008), CI 40841870480. 372 r1 PASS 8cc59062; told to dispatch red/green.
+- lovish: AI slice 1a yes; Hunter defaults kept; Hunter Frame right after slice 1b. Sent to local_ab566f67.
