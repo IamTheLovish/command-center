@@ -691,3 +691,4 @@ Every run below predates #273, so `elder_druid_is_a_t2_worker` is in all of them
 - lovish (~00:20Z): T1 casters 115 M / 120 E. Brassworks builder (6/10): one follow-up PR after 397 + the caster PRs merge, all seven casters, plus the docs pass and a test that T1 caster metal < T2 thresholds.
 - Gate hook blocked an Agent brief that named "PR #386 (branch ...)" (branch-check: commit <2h). Lesson repeated: no PR numbers / branch names in non-review Agent briefs; use gh search.
 - lovish (~00:25Z): "each unit should get its own icon" -> opus design subagent drafting design-draft-unit-icons-2026-10-30.md.
+- lovish (~00:30Z): icon tiers T1 small, T2 more detail, T3 larger + detailed, T4 rainbow + player-colour diamond border -> sent to the icon designer.
