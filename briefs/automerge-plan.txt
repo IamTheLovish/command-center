@@ -10,9 +10,9 @@
 370 a8ae422bdfb2b39f8ec20ae9ba072413c55cc68e red=40833988401,40834471352 green=none
 # WAITS green 40947110161 read (merge-only round on 7a48e747 posted): 372 7a48e747e98cfaf8846e05f88106d00c07a2fdaa red=40947093480 green=none
 # WAITS green 40947140815 read (merge-only round on 3ae71846 posted): 380 3ae718468e68be304a937be624dba3ed8738c625 red=40947135645 green=none
-# WAITS main merge after #370 (new head -> merge-only check): 362 14dbdf2e468eb1aac01d6cc6b1ac4e9484bb97dd red=40950113361 green=40950117679
+# WAITS green 40950117679 read (merge-only round on 85b0a454 posted): 362 85b0a45448e797c337b52f84dcddf6647725ab51 red=40950113361 green=none
 177 bf3475041a6524182d8bfae134d10a13f3f069b3 red=none green=40953400719
-# WAITS main merge after #370 (new head -> merge-only check): 365 71104f7ce590846abc883eb5c1588f88eee9b36f red=40952335236 green=40952359012
+# WAITS green 40952359012 read (merge-only round on 4f5eec9e posted): 365 4f5eec9e1665d37b393cc453820b8591ba24e8e1 red=40952335236 green=none
 382 2285c67917701422d9e1cef7174f741e2fbc0dd3 red=none green=none
 375 130b7925ae5312f43268b46cf6d2d2c76bc627d0 red=none green=none
 # 377 2a6420a9 (merge-only identical, 382 lines): add after #375 merges and 377 is retargeted to main + merged main
