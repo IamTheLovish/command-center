@@ -108,7 +108,7 @@ for pass in $(seq 1 $MAX); do
     echo "$g" | grep -q "GATE done #$pr: PASS" || { flag $pr "gate not PASS: $(echo "$g" | grep -E '^FAIL|GATE' | tr '\n' ' ')"; continue; }
     # evidence round (coordinator), post
     k=$(( $(grep -c "^## Round" "$f") + 1 ))
-    { printf "\n## Round %s (coordinator evidence check, automerge, %s)\nVERDICT: PASS\nSHA: %s\nREVIEWER: Command Center Erin automerge.sh (coordinator, not the builder), %s\n\n" "$k" "${head:0:8}" "$head" "$(date -u +%b\ %d)"
+    { printf "\n## Round %s (coordinator evidence check, automerge, %s)\nVERDICT: PASS\nSHA: %s\nREVIEWER: Command Center Eris automerge.sh (coordinator, not the builder), %s\n\n" "$k" "${head:0:8}" "$head" "$(date -u +%b\ %d)"
       echo "Code unchanged since the last review round. CI on the head: all checks green. Overlap: no main commit since $cit shares a file. Per-test tally lines:"
       [ "$red" = none ] && echo "- red: none required for this head (proof on an earlier head or merge-only)"
       [ "$green" = none ] && echo "- green: none required (CI is the proof for this head)"

@@ -1,20 +1,16 @@
-# automerge plan (Command Center Erin, Oct 29, from Archon's). Format: PR FULL_HEAD red=RUNIDS|none green=RUNIDS|none
+# automerge plan (Command Center Eris, Oct 30, from Erin's). Format: PR FULL_HEAD red=RUNIDS|none green=RUNIDS|none
 # green runs must have checked out the head; red runs must show every runner failing. CI-only heads use none/none.
 # Order = merge order (one merge per pass, then every PR is re-checked against the new main).
-# Merged lines are in logs/automerge.done (14 in Archon: 360 179 357 216 339 384 373 363 376 381 347 355 352 359).
+# Merged lines are in logs/automerge.done (14 in Archon: 360 179 357 216 339 384 373 363 376 381 347 355 352 359).  Erin: 370 372 382 375.
 # FLAGGED (green 40868016260 2/8; no test moves without main evidence, baseline 40824403225):
 # SUPERSEDED (r5 PASS bf347504; waits green 8, dispatch needs lovish) 177 cbc8a7b72c50d9a0581c5f7af41e79d22f4f4a1d red=none green=40868016260
 # FLAGGED (CI shard 9 bots_reach_tier_2 3/3; waits the easy-bot tier-2 PR or a main-vs-374 comparison):
 # SUPERSEDED by lovish "no max population" (~21:40Z; claude/no-max-population): 374 be4e1d0779f365ba1e5df77607c66e7357e51afe red=40877672279 green=40877695389
 # SUPERSEDED (r5 12ecad96) 372 567fcc131e860ac9e27154e2f9ac08042da77484 red=40889424129 green=40889441183
-370 a8ae422bdfb2b39f8ec20ae9ba072413c55cc68e red=40833988401,40834471352 green=none
-372 7a48e747e98cfaf8846e05f88106d00c07a2fdaa red=40947093480 green=none
 # WAITS red 40964852451 + green 40964855165 read (r3 PASS): 380 2d7036b0f0019886c9cc0e4f2d84d7c91ec57f56
 # WAITS green 40950117679 read (merge-only round on 85b0a454 posted): 362 85b0a45448e797c337b52f84dcddf6647725ab51 red=40950113361 green=none
 # WAITS green 40953400719 read (merge-only round on a94b7bb1 posted): 177 a94b7bb1fe8d18a6955d99f0d1cb8d7beb1a2fe3 red=none green=none
 # WAITS green 40952359012 read (merge-only round on 4f5eec9e posted): 365 4f5eec9e1665d37b393cc453820b8591ba24e8e1 red=40952335236 green=none
-382 2285c67917701422d9e1cef7174f741e2fbc0dd3 red=none green=none
-375 130b7925ae5312f43268b46cf6d2d2c76bc627d0 red=none green=none
 # 377 2a6420a9 (merge-only identical, 382 lines): add after #375 merges and 377 is retargeted to main + merged main
 # WAITS reds 40956778841 + 40960844851 (590da80c, second skeleton) and greens 40956765258 (7c1279bf) / 40960638437 read: 366 302af3495553ef42dd785fb6947773b42bdba618
 # WAITS red 40971717143 + green 40971719732 read (r7 PASS): 364 a3a698f2a01bf6bd2944281fa1a02dde7351d456
@@ -23,3 +19,6 @@
 # WAITS red 40971420765 (ca85afc0) + green 40971440715 read (r3 PASS): 394 0010e140c57f723c6bd37e4115a6fea23bd63b35
 396 2bf7663cb39b3c148b1c1d08fea00d7bdeabad51 red=40966226838 green=40966229854
 397 bcb1908b2100a58f0c7a5a946a80ddbb2c78d582 red=40968180326 green=40968183756
+# Eris 00:15Z Oct 30: every parked run below is still QUEUED (none read yet). Uncomment only after tally.sh shows every per-test line as expected.
+# WAITS red 40969301107 + green 40969304023 read (r3 PASS tier 1; supersedes the 85b0a454 line): 362 040b7649
+# 386 4ffaf27a (shader slice 1, tools-only delta 54bc9fe1..4ffaf27a): Eris checks the count change, coordinator round, then manual merge (art permission). Not in the plan.
