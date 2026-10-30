@@ -335,6 +335,20 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
   [void](Invoke-GGit $gr ($id + @('merge', '-q', '--no-ff', '-m', 's1', $g1))); [void](Invoke-GGit $gr ($id + @('merge', '-q', '--no-ff', '-m', 's2', $g3)))
   $t5 = Get-GateBatchTree $gc ((Invoke-GGit $gr @('rev-parse', 'HEAD')).Out + '|' + $gb + '|' + $g1 + ',' + $g3)
   St-Case 'batch tree: stacked members are refused (real git)' ($t5 -match 'stacked') 'stacked' $t5
+  # criss-cross (round-3 review): Y is shared by m5 and m6, main moved to X, and both merged main, so they have two merge
+  # bases (Y off main, X on main); plain `git merge-base` returns one of them, the disjoint-commits rule refuses the pair
+  [void](Invoke-GGit $gr @('checkout', '-q', '-b', 'y', $gb)); Write-Text (Join-Path $gr 'y.txt') 'y' $false; [void](Invoke-GGit $gr @('add', '.'))
+  [void](Invoke-GGit $gr ($id + @('commit', '-q', '-m', 'Y'))); $gy = (Invoke-GGit $gr @('rev-parse', 'HEAD')).Out
+  [void](Invoke-GGit $gr @('checkout', '-q', '-b', 'x', $gb)); Write-Text (Join-Path $gr 'x.txt') 'x' $false; [void](Invoke-GGit $gr @('add', '.'))
+  [void](Invoke-GGit $gr ($id + @('commit', '-q', '-m', 'X'))); $gx = (Invoke-GGit $gr @('rev-parse', 'HEAD')).Out
+  [void](Invoke-GGit $gr @('checkout', '-q', '-b', 'm5', $gy)); [void](Invoke-GGit $gr ($id + @('merge', '-q', '--no-ff', '-m', 'm5 merges main', $gx))); $g5 = (Invoke-GGit $gr @('rev-parse', 'HEAD')).Out
+  [void](Invoke-GGit $gr @('checkout', '-q', '-b', 'm6', $gy)); Write-Text (Join-Path $gr 'w.txt') 'w' $false; [void](Invoke-GGit $gr @('add', '.'))
+  [void](Invoke-GGit $gr ($id + @('commit', '-q', '-m', 'm6'))); [void](Invoke-GGit $gr ($id + @('merge', '-q', '--no-ff', '-m', 'm6 merges main', $gx))); $g6 = (Invoke-GGit $gr @('rev-parse', 'HEAD')).Out
+  [void](Invoke-GGit $gr @('update-ref', 'refs/remotes/origin/main', $gx))
+  [void](Invoke-GGit $gr @('checkout', '-q', '-b', 'batch4', $gx))
+  [void](Invoke-GGit $gr ($id + @('merge', '-q', '--no-ff', '-m', 'c1', $g5))); [void](Invoke-GGit $gr ($id + @('merge', '-q', '--no-ff', '-m', 'c2', $g6)))
+  $t6 = Get-GateBatchTree $gc ((Invoke-GGit $gr @('rev-parse', 'HEAD')).Out + '|' + $gx + '|' + $g5 + ',' + $g6)
+  St-Case 'batch tree: criss-cross stacked members (both merged main) are refused (real git)' ($t6 -match 'stacked') 'stacked' $t6
   # SYNTHETIC (Oct 28, #297): a diff that only edits the @GameTest annotation of existing tests (timeoutTicks) adds no
   # test and needs no stress run; it read "2 new @GameTest but only 0 named in the diff" and failed the gate
   $s20e = St-Stub $tmp 'm20-edit' $fx 'auth-noworkflow.txt'

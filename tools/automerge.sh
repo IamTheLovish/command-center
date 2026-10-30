@@ -208,7 +208,8 @@ for pass in $(seq 1 $MAX); do
     if gh pr merge $pr -R $R --squash --match-head-commit "$head" >/dev/null 2>&1; then
       mc=$(gh pr view $pr -R $R --json mergeCommit --jq .mergeCommit.oid)
       echo "$pr" >> "$DONE"; log "MERGED PR$pr ${mc:0:8} (head ${head:0:8})"; MERGED="$MERGED $pr"
-      if [ -n "$batch" ]; then   # main must now hold exactly the batch tree after this member
+      if [ -n "$batch" ]; then   # the squash sits right on the pinned main, and main holds exactly the batch tree after this member
+        [ "$(gh api repos/$R/commits/$mc --jq '.parents[0].sha')" = "$mainsha" ] || flag $pr "merge commit ${mc:0:8} is not on the checked main ${mainsha:0:8}: stop the batch, check main"
         tw=$(gh api repos/$R/commits/$(echo "$ev_b" | sed -n 's/^THIS //p') --jq .commit.tree.sha); tm=$(gh api repos/$R/commits/$mc --jq .commit.tree.sha)
         [ -n "$tw" ] && [ "$tw" = "$tm" ] && log "BATCH ${batch:0:8}: main tree == batch tree after PR$pr"           || flag $pr "after the merge, main's tree $tm is not the batch tree $tw: stop the batch, check main"
       fi

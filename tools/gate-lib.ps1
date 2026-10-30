@@ -157,10 +157,17 @@ function Get-GateBatchTree($ctx, [string]$arg) {
     $cur = $pl[1]
   }
   if ($cur -ne $base) { return ('the walk ends at ' + $cur + ', not the base ' + $base) }
-  # no stacked members: a commit shared by two members outside main squashes into main differently from the batch merge
+  # no stacked members: a commit shared by two members outside main squashes into main differently from the batch merge.
+  # The members' commits outside the base must be disjoint ("the merge base is on main" misses criss-cross histories:
+  # two stacked members that both merged main have a second merge base off main)
+  $own = @()
+  for ($i = 0; $i -lt $mem.Count; $i++) {
+    $rl = Invoke-GGit $dir @('rev-list', ('^' + $base), $mem[$i])
+    if ($rl.Code -ne 0) { return ('rev-list of member ' + ($i + 1) + ' failed') }
+    $own += , @($rl.Out -split '\s+' | Where-Object { $_ })
+  }
   for ($i = 0; $i -lt $mem.Count; $i++) { for ($j = $i + 1; $j -lt $mem.Count; $j++) {
-    $mb = (Invoke-GGit $dir @('merge-base', $mem[$i], $mem[$j])).Out
-    if (-not $mb -or (Invoke-GGit $dir @('merge-base', '--is-ancestor', $mb, $base)).Code -ne 0) { return ('members ' + ($i + 1) + ' and ' + ($j + 1) + ' share commits outside main (stacked)') }
+    if (@($own[$i] | Where-Object { $own[$j] -contains $_ }).Count -gt 0) { return ('members ' + ($i + 1) + ' and ' + ($j + 1) + ' share commits outside main (stacked)') }
   } }
   if ((Invoke-GGit $dir @('merge-base', '--is-ancestor', $base, 'origin/main')).Code -ne 0) { return ('base ' + $base.Substring(0, 8) + ' is not on main') }
   return 'ok'

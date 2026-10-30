@@ -153,7 +153,7 @@ union=$(for pr in "${PRS[@]}"; do echo "${TESTS[$pr]}" | tr , '\n'; done | sort 
 
 # ------------------------------------------------------------------ 2-3. the batch branch and its draft PR
 bsha=$(st_get bsha)
-if [ -z "$(st_get bpr)" ] && [ -n "$bsha" ]; then die "batch $(st_get branch) is pushed but has no PR: open it by hand (draft, label ci-here), add bpr=<n> to $STATE, --resume" 2; fi
+if [ -z "$(st_get bpr)" ] && [ -n "$bsha" ]; then die "batch $(st_get branch) has no PR: if 'git ls-remote origin $(st_get branch)' shows it pushed, open the PR by hand (draft, label ci-here) and add bpr=<n> to $STATE; if the push failed, delete $STATE and start again; then --resume" 2; fi
 if [ -z "$bsha" ]; then
   case "$WORK $(cd "$WORK" 2>/dev/null && pwd -W 2>/dev/null)" in *[Bb]eyond[Aa]nd[Tt]abs-[Rr]epo*) die "work clone must not be D:\\BeyondAndTabs-Repo" 2;; esac
   [ -d "$WORK/.git" ] || git clone -q --filter=blob:none "https://github.com/$R.git" "$WORK" || die "clone failed"
@@ -162,9 +162,11 @@ if [ -z "$bsha" ]; then
   git fetch -q origin main $(for pr in "${PRS[@]}"; do echo "pull/$pr/head"; done) || die "fetch failed"
   base=$(git rev-parse origin/main)
   # no stacked members: two members that share a commit outside main would squash into main differently from their
-  # batch merge (the shared commit's later edits); every pair's merge base must already be on main
+  # batch merge (the shared commit's later edits). The members' commits outside the base must be disjoint (not just
+  # "the merge base is on main": a criss-cross history after both merged main has a second merge base off main)
   for a in "${PRS[@]}"; do for c in "${PRS[@]}"; do [ "$a" -lt "$c" ] || continue
-    mb=$(git merge-base "${HEAD[$a]}" "${HEAD[$c]}") && git merge-base --is-ancestor "$mb" "$base" \
+    ra=$(git rev-list "^$base" "${HEAD[$a]}") && rc=$(git rev-list "^$base" "${HEAD[$c]}") || die "rev-list failed for #$a / #$c" 3
+    [ -z "$(comm -12 <(echo "$ra" | sort) <(echo "$rc" | sort) | grep .)" ] \
       || die "#$a and #$c share commits outside main (stacked): batch them only after the lower one merged" 3
   done; done
   git checkout -q -B "$branch" "$base" || die "checkout failed"
