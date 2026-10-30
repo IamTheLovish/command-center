@@ -15,7 +15,6 @@
 # WAITS reds 40956778841 + 40960844851 (590da80c, second skeleton) and greens 40956765258 (7c1279bf) / 40960638437 read: 366 302af3495553ef42dd785fb6947773b42bdba618
 # WAITS red 40971717143 + green 40971719732 read (r7 PASS): 364 a3a698f2a01bf6bd2944281fa1a02dde7351d456
 377 d616fdf7258b73927a6567bae0b7cf183fd07748 red=none green=none
-# WAITS red 40972849144 + green 40972868269 read (r6 PASS tier 1): 365 1f76caf9b746a87b632c4d71d710c5b307c9b470
 # WAITS red 40971420765 (ca85afc0) + green 40971440715 read (r3 PASS): 394 0010e140c57f723c6bd37e4115a6fea23bd63b35
 396 2bf7663cb39b3c148b1c1d08fea00d7bdeabad51 red=40966226838 green=40966229854
 397 bcb1908b2100a58f0c7a5a946a80ddbb2c78d582 red=40968180326 green=40968183756
@@ -25,3 +24,4 @@
 386 4ffaf27ac44ed77ed42e6a6655b331a23f077672 red=none green=none
 # 399 anim finish-tune: r1 PASS code + r2 PASS look (opus, eyes 40978023283 vs 40874612621). CI-only line; one BoneMaps line conflicts with 377 (builder merges main into the second).
 399 b586fc2699d2bec86bc51cfa15832f14f8d46dcc red=none green=none
+# WAITS reads (r8 PASS merge-only fe444026; code = aa38fd2a r7): T1 red 40972849144 + green 40972868269 (1f76caf9) + voodoo_ green 40979445467 (aa38fd2a); then: 365 fe4440262fa4f92d081ff80d2ce4c11ae00105da red=none green=none (CI on fe444026 incl. shard 9 bots)
