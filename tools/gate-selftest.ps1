@@ -262,6 +262,103 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
     $c = Invoke-GateAccept (St-Ctx $r20 $sc $now) '289'
     St-Assert $case[5] $c 'gametests' $case[3] $case[4]
   }
+  # SYNTHETIC (Oct 30, batch greens, tools/batchgreen.sh): a flake-stress run of a throwaway batch head counts for #289
+  # only when #289 names it ("[batch green] batch head <sha> base <sha> members <h1>,<h2>"), #289's head is a member and
+  # the batch tree check says ok. Without the marker, a marker for another head, a head that is not a member, a bad or
+  # unreadable tree check: the run stays "another ref" and the gate FAILs as before.
+  $bh = 'b0a7c4e5d6f708192a3b4c5d6e7f8091a2b3c4d5'; $h289 = 'ac55939ea4daa19ba2c7809460d19690082b23a9'
+  $bb = '0123456789abcdef0123456789abcdef01234567'; $hx = 'fedcba9876543210fedcba9876543210fedcba98'
+  $mk = '[batch green] batch head {0} base ' + $bb + ' members {1}; Green: flake-stress run 40599999990, checked out {0}'
+  foreach ($case in @(@('ok', $bh, ($h289 + ',' + $hx), 'ok', 'PASS', 'batch b0a7c4e5', 'batch green: marker + member + tree ok passes'),
+                      @('nomark', '', '', 'ok', 'FAIL', 'sealed_arena_has_no_fluid_after_openGround', 'batch green: a batch run without the marker does not count'),
+                      @('other', 'c0ffee5d6f708192a3b4c5d6e7f8091a2b3c4d5e', ($h289 + ',' + $hx), 'ok', 'FAIL', 'sealed_arena_has_no_fluid_after_openGround', 'batch green: a marker naming another batch head does not count'),
+                      @('notmember', $bh, ($hx + ',' + $bb), 'ok', 'FAIL', 'sealed_arena_has_no_fluid_after_openGround', 'batch green: a PR head that is not a member does not count'),
+                      @('badtree', $bh, ($h289 + ',' + $hx), 'tree of b0a7c4e5 is not the merge of its parents', 'FAIL', 'sealed_arena_has_no_fluid_after_openGround', 'batch green: a batch tree that is not base + members does not count'),
+                      @('notree', $bh, ($h289 + ',' + $hx), '', 'FAIL', 'sealed_arena_has_no_fluid_after_openGround', 'batch green: an unreadable tree check does not count (fail closed)'))) {
+    $sc = St-Stub $tmp ('batch-' + $case[0]) $fx 'auth-noworkflow.txt'
+    St-Stress289 $sc $fx
+    $j = Read-Text (Join-Path $sc 'pr289.json')
+    $body = 'batch evidence: flake-stress run 40599999990'
+    if ($case[1]) { $body = $mk -f $case[1], $case[2] }
+    $j = $j.Replace('"comments":[{', ('"comments":[{"body":"' + $body + '","createdAt":"2026-10-30T05:00:00Z"},{'))
+    Write-Text (Join-Path $sc 'pr289.json') $j $false
+    Write-Text (Join-Path $sc 'stress-40599999990.txt') ($one -f $bh, '8') $false
+    if ($case[3]) { Write-Text (Join-Path $sc ('batchtree-' + $bh + '.txt')) $case[3] $false }
+    $cx = St-Ctx $r20 $sc $now; $cx.Batch = $bh
+    $c = Invoke-GateAccept $cx '289'
+    St-Assert $case[6] $c 'gametests' $case[4] $case[5]
+    if ($case[0] -eq 'ok') {
+      # round-5 review: the same marker, tree and passing run, but the merge names no batch (the PR merges alone)
+      $c = Invoke-GateAccept (St-Ctx $r20 $sc $now) '289'
+      St-Assert 'batch green: without -Batch (a member merging alone) the batch run does not count' $c 'gametests' 'FAIL' 'sealed_arena_has_no_fluid_after_openGround'
+      $cx = St-Ctx $r20 $sc $now; $cx.Batch = 'c0ffee5d6f708192a3b4c5d6e7f8091a2b3c4d5e'
+      $c = Invoke-GateAccept $cx '289'
+      St-Assert 'batch green: -Batch naming another batch does not count this one' $c 'gametests' 'FAIL' 'sealed_arena_has_no_fluid_after_openGround'
+    }
+  }
+  # a failed batch is evidence for no member, even where the member's own line reads failed 0 (another member failed)
+  $sc = St-Stub $tmp 'batch-failedrun' $fx 'auth-noworkflow.txt'
+  St-Stress289 $sc $fx
+  $j = Read-Text (Join-Path $sc 'pr289.json')
+  $j = $j.Replace('"comments":[{', ('"comments":[{"body":"' + ($mk -f $bh, ($h289 + ',' + $hx)) + '","createdAt":"2026-10-30T05:00:00Z"},{'))
+  Write-Text (Join-Path $sc 'pr289.json') $j $false
+  Write-Text (Join-Path $sc 'stress-40599999990.txt') ("workflow: flake-stress`nref: $bh`n[Stress] 8 runners; 2 with any failure`nsealed_arena_has_no_fluid_after_openGround: failed 0, passed 8`nother_members_test: failed 2, passed 6") $false
+  Write-Text (Join-Path $sc ('batchtree-' + $bh + '.txt')) 'ok' $false
+  $cx = St-Ctx $r20 $sc $now; $cx.Batch = $bh
+  $c = Invoke-GateAccept $cx '289'
+  St-Assert 'batch green: a batch run with any failure is evidence for no member' $c 'gametests' 'FAIL' 'sealed_arena_has_no_fluid_after_openGround'
+  # REAL git (Oct 30): Get-GateBatchTree on a tiny local repo: base + h1 + h2 merged in order is ok; a hand-edited merge,
+  # the members in the wrong order, and a base that is not on origin/main are refused
+  $gr = Join-Path $tmp 'batchrepo'; New-Item -ItemType Directory -Force -Path $gr | Out-Null
+  $id = @('-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'core.autocrlf=false')
+  [void](Invoke-GGit $gr @('init', '-q', '-b', 'main'))
+  Write-Text (Join-Path $gr 'base.txt') 'base' $false; [void](Invoke-GGit $gr (@('add', '.')))
+  [void](Invoke-GGit $gr ($id + @('commit', '-q', '-m', 'base'))); $gb = (Invoke-GGit $gr @('rev-parse', 'HEAD')).Out
+  [void](Invoke-GGit $gr @('checkout', '-q', '-b', 'm1')); Write-Text (Join-Path $gr 'a.txt') 'a' $false; [void](Invoke-GGit $gr @('add', '.'))
+  [void](Invoke-GGit $gr ($id + @('commit', '-q', '-m', 'm1'))); $g1 = (Invoke-GGit $gr @('rev-parse', 'HEAD')).Out
+  [void](Invoke-GGit $gr @('checkout', '-q', '-b', 'm2', $gb)); Write-Text (Join-Path $gr 'b.txt') 'b' $false; [void](Invoke-GGit $gr @('add', '.'))
+  [void](Invoke-GGit $gr ($id + @('commit', '-q', '-m', 'm2'))); $g2 = (Invoke-GGit $gr @('rev-parse', 'HEAD')).Out
+  [void](Invoke-GGit $gr @('checkout', '-q', '-b', 'batch', $gb))
+  [void](Invoke-GGit $gr ($id + @('merge', '-q', '--no-ff', '-m', 'b1', $g1))); [void](Invoke-GGit $gr ($id + @('merge', '-q', '--no-ff', '-m', 'b2', $g2)))
+  $gok = (Invoke-GGit $gr @('rev-parse', 'HEAD')).Out
+  Write-Text (Join-Path $gr 'evil.txt') 'x' $false; [void](Invoke-GGit $gr @('add', '.')); [void](Invoke-GGit $gr ($id + @('commit', '-q', '--amend', '-m', 'b2')))
+  $gevil = (Invoke-GGit $gr @('rev-parse', 'HEAD')).Out
+  [void](Invoke-GGit $gr @('update-ref', 'refs/remotes/origin/main', $gb))
+  $gc = New-GateCtx @{ BatchClone = $gr; NoLog = $true }
+  $t1 = Get-GateBatchTree $gc ($gok + '|' + $gb + '|' + $g1 + ',' + $g2)
+  St-Case 'batch tree: base + members in order is ok (real git)' ($t1 -eq 'ok') 'ok' $t1
+  $t2 = Get-GateBatchTree $gc ($gevil + '|' + $gb + '|' + $g1 + ',' + $g2)
+  St-Case 'batch tree: a hand-edited merge is refused (real git)' ($t2 -match 'not the merge of its parents') 'not the merge of its parents' $t2
+  $t3 = Get-GateBatchTree $gc ($gok + '|' + $gb + '|' + $g2 + ',' + $g1)
+  St-Case 'batch tree: members in the wrong order are refused (real git)' ($t3 -match 'not member') 'not member' $t3
+  [void](Invoke-GGit $gr @('update-ref', 'refs/remotes/origin/main', $g1))
+  [void](Invoke-GGit $gr @('checkout', '-q', '--orphan', 'other')); [void](Invoke-GGit $gr ($id + @('commit', '-q', '-m', 'unrelated')))
+  [void](Invoke-GGit $gr @('update-ref', 'refs/remotes/origin/main', (Invoke-GGit $gr @('rev-parse', 'HEAD')).Out))
+  $t4 = Get-GateBatchTree $gc ($gok + '|' + $gb + '|' + $g1 + ',' + $g2)
+  St-Case 'batch tree: a base that is not on main is refused (real git)' ($t4 -match 'not on main') 'not on main' $t4
+  # stacked members (round-2 review): m3 is built on m1's commit; base + m1 + m3 merges cleanly, but a squash of m3 into
+  # main would carry m1's commit from the old merge base, so the batch tree is not what main gets
+  [void](Invoke-GGit $gr @('update-ref', 'refs/remotes/origin/main', $gb))
+  [void](Invoke-GGit $gr @('checkout', '-q', '-b', 'm3', $g1)); Write-Text (Join-Path $gr 'c.txt') 'c' $false; [void](Invoke-GGit $gr @('add', '.'))
+  [void](Invoke-GGit $gr ($id + @('commit', '-q', '-m', 'm3'))); $g3 = (Invoke-GGit $gr @('rev-parse', 'HEAD')).Out
+  [void](Invoke-GGit $gr @('checkout', '-q', '-b', 'batch3', $gb))
+  [void](Invoke-GGit $gr ($id + @('merge', '-q', '--no-ff', '-m', 's1', $g1))); [void](Invoke-GGit $gr ($id + @('merge', '-q', '--no-ff', '-m', 's2', $g3)))
+  $t5 = Get-GateBatchTree $gc ((Invoke-GGit $gr @('rev-parse', 'HEAD')).Out + '|' + $gb + '|' + $g1 + ',' + $g3)
+  St-Case 'batch tree: stacked members are refused (real git)' ($t5 -match 'stacked') 'stacked' $t5
+  # criss-cross (round-3 review): Y is shared by m5 and m6, main moved to X, and both merged main, so they have two merge
+  # bases (Y off main, X on main); plain `git merge-base` returns one of them, the disjoint-commits rule refuses the pair
+  [void](Invoke-GGit $gr @('checkout', '-q', '-b', 'y', $gb)); Write-Text (Join-Path $gr 'y.txt') 'y' $false; [void](Invoke-GGit $gr @('add', '.'))
+  [void](Invoke-GGit $gr ($id + @('commit', '-q', '-m', 'Y'))); $gy = (Invoke-GGit $gr @('rev-parse', 'HEAD')).Out
+  [void](Invoke-GGit $gr @('checkout', '-q', '-b', 'x', $gb)); Write-Text (Join-Path $gr 'x.txt') 'x' $false; [void](Invoke-GGit $gr @('add', '.'))
+  [void](Invoke-GGit $gr ($id + @('commit', '-q', '-m', 'X'))); $gx = (Invoke-GGit $gr @('rev-parse', 'HEAD')).Out
+  [void](Invoke-GGit $gr @('checkout', '-q', '-b', 'm5', $gy)); [void](Invoke-GGit $gr ($id + @('merge', '-q', '--no-ff', '-m', 'm5 merges main', $gx))); $g5 = (Invoke-GGit $gr @('rev-parse', 'HEAD')).Out
+  [void](Invoke-GGit $gr @('checkout', '-q', '-b', 'm6', $gy)); Write-Text (Join-Path $gr 'w.txt') 'w' $false; [void](Invoke-GGit $gr @('add', '.'))
+  [void](Invoke-GGit $gr ($id + @('commit', '-q', '-m', 'm6'))); [void](Invoke-GGit $gr ($id + @('merge', '-q', '--no-ff', '-m', 'm6 merges main', $gx))); $g6 = (Invoke-GGit $gr @('rev-parse', 'HEAD')).Out
+  [void](Invoke-GGit $gr @('update-ref', 'refs/remotes/origin/main', $gx))
+  [void](Invoke-GGit $gr @('checkout', '-q', '-b', 'batch4', $gx))
+  [void](Invoke-GGit $gr ($id + @('merge', '-q', '--no-ff', '-m', 'c1', $g5))); [void](Invoke-GGit $gr ($id + @('merge', '-q', '--no-ff', '-m', 'c2', $g6)))
+  $t6 = Get-GateBatchTree $gc ((Invoke-GGit $gr @('rev-parse', 'HEAD')).Out + '|' + $gx + '|' + $g5 + ',' + $g6)
+  St-Case 'batch tree: criss-cross stacked members (both merged main) are refused (real git)' ($t6 -match 'stacked') 'stacked' $t6
   # SYNTHETIC (Oct 28, #297): a diff that only edits the @GameTest annotation of existing tests (timeoutTicks) adds no
   # test and needs no stress run; it read "2 new @GameTest but only 0 named in the diff" and failed the gate
   $s20e = St-Stub $tmp 'm20-edit' $fx 'auth-noworkflow.txt'
