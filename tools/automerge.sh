@@ -73,6 +73,9 @@ check_batch() {  # pr head batch -> 0 ok, 1 wait, 2 bad (last line says why)
   [ ${#b} = 40 ] || { echo "BAD batch= must be the full 40-character batch head"; return 2; }
   [ "$green" != none ] || { echo "BAD batch= needs green=<the batch's flake-stress run>"; return 2; }
   members=($(awk -v b="batch=$b" '$1 !~ /^#/ && $5 == b {print $1}' "$PLAN"))
+  # a member's head = the head on ITS batch= line (never another line for the same PR); this PR's line must be that line
+  mhead() { awk -v p="$1" -v bb="batch=$b" '$1 !~ /^#/ && $1 == p && $5 == bb {print $2}' "$PLAN" | tail -1; }
+  [ "$(mhead "$pr")" = "$head" ] || { echo "BAD #$pr: its batch= line head is $(mhead "$pr"), this line's head is $head"; return 2; }
   n=${#members[@]}
   [ $n -ge 2 ] || { echo "BAD batch ${b:0:8} has fewer than 2 plan lines"; return 2; }
   k=0; for m in "${members[@]}"; do k=$((k+1)); [ "$m" = "$pr" ] && break; done
@@ -81,13 +84,13 @@ check_batch() {  # pr head batch -> 0 ok, 1 wait, 2 bad (last line says why)
     # it must have merged the head the batch tested (done also records PRs someone merged by hand, at any head)
     got=$(gh pr view $m -R $R --json state,headRefOid --jq '"\(.state) \(.headRefOid)"' 2>/dev/null)
     [ -n "$got" ] || { echo "WAIT #$m not readable"; return 1; }
-    [ "$got" = "MERGED $(awk -v p="$m" '$1 == p {print $2}' "$PLAN" | tail -1)" ] || { echo "BAD batch member #$m merged as '$got', not its planned head"; return 2; }
+    [ "$got" = "MERGED $(mhead "$m")" ] || { echo "BAD batch member #$m merged as '$got', not its planned head"; return 2; }
   done
   # every later member must still be able to follow (open, planned head): main must not stop on a part of the batch tree
   for m in "${members[@]:$k}"; do
     got=$(gh pr view $m -R $R --json state,headRefOid --jq '"\(.state) \(.headRefOid)"' 2>/dev/null)
     [ -n "$got" ] || { echo "WAIT #$m not readable"; return 1; }
-    [ "$got" = "OPEN $(awk -v p="$m" '$1 == p {print $2}' "$PLAN" | tail -1)" ] || { echo "BAD later batch member #$m is '$got', not open at its planned head: the batch cannot complete"; return 2; }
+    [ "$got" = "OPEN $(mhead "$m")" ] || { echo "BAD later batch member #$m is '$got', not open at its planned head: the batch cannot complete"; return 2; }
   done
   # the batch head = base + member 1 .. n merged in plan order: walk its first parents, second parent = that member's head
   cur=$b; merges=()
@@ -95,7 +98,7 @@ check_batch() {  # pr head batch -> 0 ok, 1 wait, 2 bad (last line says why)
     par=$(gh api "repos/$R/commits/$cur" --jq '[.parents[].sha]|join(" ")' 2>/dev/null)
     [ -n "$par" ] || { echo "WAIT commit ${cur:0:8} not readable"; return 1; }
     set -- $par
-    m=$(awk -v p="${members[$i]}" '$1 == p {print $2}' "$PLAN" | tail -1)
+    m=$(mhead "${members[$i]}")
     [ $# = 2 ] && [ "$2" = "$m" ] || { echo "BAD batch ${b:0:8}: ${cur:0:8} is not the merge of #${members[$i]} ${m:0:8} (parents: $par)"; return 2; }
     merges[$i]=$cur; cur=$1
   done
@@ -103,7 +106,7 @@ check_batch() {  # pr head batch -> 0 ok, 1 wait, 2 bad (last line says why)
   # the same tree check the gate uses (cc.ps1 batchtree = Get-GateBatchTree), on every batch line: each merge's tree is
   # the merge of its parents, the members share no commit outside the base (no stacked members), and the base is on
   # main - so a batch= line that batchgreen.sh did not build (or a hand-edited merge) never merges
-  hs=$(for m in "${members[@]}"; do awk -v p="$m" '$1 == p {print $2}' "$PLAN" | tail -1; done | paste -sd, -)
+  hs=$(for m in "${members[@]}"; do mhead "$m"; done | paste -sd, -)
   got=$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\\Command Center\\tools\\cc.ps1" batchtree "$b|$base|$hs" 2>&1 | tr -d '\r' | grep '^BATCHTREE' | tail -1)
   [ "$got" = "BATCHTREE ok" ] || { echo "BAD batch ${b:0:8} tree check: ${got:-no answer from cc.ps1 batchtree}"; return 2; }
   sq=""; for m in "${members[@]:0:$((k-1))}"; do sq="$sq $(gh pr view $m -R $R --json mergeCommit --jq .mergeCommit.oid)"; done

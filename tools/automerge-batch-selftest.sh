@@ -53,6 +53,9 @@ P2="$M1 $HA";           t 2 "batch merges the wrong head" 2 $HC $B; P2="$M1 $HC"
 P1="$BASE";             t 2 "not a merge at the bottom" 2 $HC $B; P1="$BASE $HA"
 printf '2 %s red=2 green=9 batch=%s\n' $HC $B > $PLAN
                         t 2 "a member's line removed from the plan" 2 $HC $B; plan2
+# round-6 review: PR 2's batch= line names FX, a later plain line names HC (the head the batch really contains)
+printf '1 %s red=1 green=9 batch=%s\n2 %s red=2 green=9 batch=%s\n2 %s red=2 green=9\n' $HA $B $FX $B $HC > $PLAN
+                        t 2 "a later plain line for the same PR does not change the batch member's head" 2 $FX $B; plan2
 CI="completed failure x 777";   t 2 "batch CI red" 2 $HC $B
 CI="in_progress null x 777";    t 1 "batch CI running" 2 $HC $B; CI="completed success 2026-10-30T05:00:00Z 777"
 JOBS="1 0";             t 2 "batch CI green with bar-tests skipped (mirror route)" 2 $HC $B
