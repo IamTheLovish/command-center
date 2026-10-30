@@ -21,4 +21,5 @@
 397 bcb1908b2100a58f0c7a5a946a80ddbb2c78d582 red=40968180326 green=40968183756
 # Eris 00:15Z Oct 30: every parked run below is still QUEUED (none read yet). Uncomment only after tally.sh shows every per-test line as expected.
 # WAITS red 40969301107 + green 40969304023 read (r3 PASS tier 1; supersedes the 85b0a454 line): 362 040b7649
-# 386 4ffaf27a (shader slice 1, tools-only delta 54bc9fe1..4ffaf27a): Eris checks the count change, coordinator round, then manual merge (art permission). Not in the plan.
+# 386 shader slice 1: r7 PASS 4ffaf27a (tools-only delta, checked by Eris); eyes stills read by Erin on 1ed3c986 (no shader change since); art permission. CI-only line.
+386 4ffaf27ac44ed77ed42e6a6655b331a23f077672 red=none green=none
