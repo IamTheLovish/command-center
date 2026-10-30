@@ -262,6 +262,29 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
     $c = Invoke-GateAccept (St-Ctx $r20 $sc $now) '289'
     St-Assert $case[5] $c 'gametests' $case[3] $case[4]
   }
+  # SYNTHETIC (Oct 30, batch greens, tools/batchgreen.sh): a flake-stress run of a throwaway batch head (main + 2-4 PASSed
+  # heads) counts for #289 only when #289 itself carries "[batch green] batch head <that sha>" AND the batch head contains
+  # #289's head (compare ahead/identical). Without the marker, with a marker naming another batch, or when the batch
+  # does not contain the head, the run stays "another ref" and the gate FAILs as before.
+  $bh = 'b0a7c4e5d6f708192a3b4c5d6e7f8091a2b3c4d5'; $h289 = 'ac55939ea4daa19ba2c7809460d19690082b23a9'
+  $mk = '[batch green] batch head {0}; Green: flake-stress run 40599999990, checked out {0}'
+  foreach ($case in @(@('ok', $bh, 'ahead', 'PASS', 'batch b0a7c4e5', 'batch green: the marker + a batch head containing the PR head passes'),
+                      @('nomark', '', 'ahead', 'FAIL', 'sealed_arena_has_no_fluid_after_openGround', 'batch green: a descendant run without the marker does not count'),
+                      @('other', 'c0ffee5d6f708192a3b4c5d6e7f8091a2b3c4d5e', 'ahead', 'FAIL', 'sealed_arena_has_no_fluid_after_openGround', 'batch green: a marker naming another batch head does not count'),
+                      @('diverged', $bh, 'diverged', 'FAIL', 'sealed_arena_has_no_fluid_after_openGround', 'batch green: a batch head that does not contain the PR head does not count'),
+                      @('nocmp', $bh, '', 'FAIL', 'sealed_arena_has_no_fluid_after_openGround', 'batch green: an unreadable compare does not count (fail closed)'))) {
+    $sc = St-Stub $tmp ('batch-' + $case[0]) $fx 'auth-noworkflow.txt'
+    St-Stress289 $sc $fx
+    $j = Read-Text (Join-Path $sc 'pr289.json')
+    $body = 'batch evidence: flake-stress run 40599999990'
+    if ($case[1]) { $body = $mk -f $case[1] }
+    $j = $j.Replace('"comments":[{', ('"comments":[{"body":"' + $body + '","createdAt":"2026-10-30T05:00:00Z"},{'))
+    Write-Text (Join-Path $sc 'pr289.json') $j $false
+    Write-Text (Join-Path $sc 'stress-40599999990.txt') ($one -f $bh, '8') $false
+    if ($case[2]) { Write-Text (Join-Path $sc ('compare-' + $h289 + '-' + $bh + '.txt')) $case[2] $false }
+    $c = Invoke-GateAccept (St-Ctx $r20 $sc $now) '289'
+    St-Assert $case[5] $c 'gametests' $case[3] $case[4]
+  }
   # SYNTHETIC (Oct 28, #297): a diff that only edits the @GameTest annotation of existing tests (timeoutTicks) adds no
   # test and needs no stress run; it read "2 new @GameTest but only 0 named in the diff" and failed the gate
   $s20e = St-Stub $tmp 'm20-edit' $fx 'auth-noworkflow.txt'

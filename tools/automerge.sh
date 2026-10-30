@@ -2,14 +2,19 @@
 # automerge.sh - overnight merger for lovish's evidence rule (lovish Oct 29: "merge everything create a tool if you have to
 # allow prs to be tested and merged while I sleep").
 # usage: automerge.sh PLANFILE [minutes-between-passes] [max-passes]
-# PLANFILE lines (# comments ok):  PR FULL_HEAD_SHA red=RUNID,RUNID|none green=RUNID,RUNID|none
+# PLANFILE lines (# comments ok):  PR FULL_HEAD_SHA red=RUNID,RUNID|none green=RUNID,RUNID|none [batch=BATCH_HEAD_SHA]
+#   batch= (tools/batchgreen.sh): the green ran on a throwaway batch branch = main + 2-4 PASSed heads merged in plan-line
+#   order; the members merge back to back in that order. Checked instead of "green checkout == head" (4b below).
 # Per PR, every pass, in order; any failed check leaves the PR alone (WAIT) or reports it (FLAG):
 #   1. PR open, base main, head == planned SHA (else FLAG: new head needs a review)
 #   2. reviews\pr-N-modeA.md last VERDICT PASS with SHA == head (else FLAG)
 #   3. PR checks all done and green; a red check is rerun (failed jobs only) up to attempt 3, then FLAG
 #   4. every red run: completed, not INVALID, "[Stress] N runners; N with any failure" (all runners failed)
-#      every green run: completed, checkout == head, not INVALID / NO SAMPLE, "0 with any failure"
-#   5. overlap: no main commit since the newest CI run on the head shares a file with the PR (else FLAG)
+#      every green run: completed, checkout == head (batch: == the batch head), not INVALID / NO SAMPLE, "0 with any failure"
+#   4b. batch lines only: every member above it in the plan merged; the batch head contains this head; the batch holds
+#      no file outside its members' PR files; the batch PR's build CI on the batch head completed green
+#   5. overlap: no main commit since the newest CI run on the head shares a file with the PR (else FLAG); batch lines:
+#      since the batch CI, not counting the squash commits of the batch's own members
 #   6. coordinator evidence round appended + posted, gate done PASS, gh pr ready, main unchanged, merge --match-head-commit
 # Exits after a pass that merged something or raised a new FLAG (so the coordinator wakes), or after max-passes.
 R=IamTheLovish/Beyond-and-Tabs
@@ -29,8 +34,8 @@ tally() {
     | sed -E 's/^summary\tFail rate per test\t//; s/^##\[notice\]//'
 }
 
-check_runs() {  # kind ids head -> prints evidence lines; returns 0 ok, 1 wait, 2 bad
-  local kind=$1 ids=$2 head=$3 id st t hdr co
+check_runs() {  # kind ids head [green checkout] -> prints evidence lines; returns 0 ok, 1 wait, 2 bad
+  local kind=$1 ids=$2 head=$3 want=${4:-$3} id st t hdr co
   [ "$ids" = none ] && return 0
   for id in ${ids//,/ }; do
     st=$(gh run view $id -R $R --json status --jq .status 2>/dev/null)
@@ -42,12 +47,40 @@ check_runs() {  # kind ids head -> prints evidence lines; returns 0 ok, 1 wait, 
       n=$(echo "$hdr" | sed -nE 's/.*\[Stress\] ([0-9]+) runners; ([0-9]+) with any failure.*/\1 \2/p')
       [ -n "$n" ] && [ "${n% *}" = "${n#* }" ] && [ "${n% *}" != 0 ] || { echo "BAD red $id not all runners failed: $hdr"; return 2; }
     else
-      [ "${head:0:7}" = "${co:0:7}" ] || { echo "BAD green $id checked out $co, head ${head:0:7}"; return 2; }
+      [ "${want:0:7}" = "${co:0:7}" ] || { echo "BAD green $id checked out $co, wanted ${want:0:7}"; return 2; }
       echo "$hdr" | grep -q "; 0 with any failure" || { echo "BAD green $id: $hdr"; return 2; }
     fi
     echo "RUN $kind $id (checked out $co) $hdr"
     echo "$t" | grep -E ": failed [0-9]+, passed [0-9]+" | sed 's/^/    /'
   done
+  return 0
+}
+
+# batch member checks (4b); prints "SINCE <batch CI createdAt>" and "SKIP <merge commit of a merged member>" lines
+check_batch() {  # pr head batch -> 0 ok, 1 wait, 2 bad (last line says why)
+  local pr=$1 head=$2 b=$3 members m st mf bf extra ci
+  [ ${#b} = 40 ] || { echo "BAD batch= must be the full 40-character batch head"; return 2; }
+  [ "$green" != none ] || { echo "BAD batch= needs green=<the batch's flake-stress run>"; return 2; }
+  members=$(awk -v b="batch=$b" '$1 !~ /^#/ && $5 == b {print $1}' "$PLAN")
+  [ "$(echo "$members" | wc -w)" -ge 2 ] || { echo "BAD batch ${b:0:8} has fewer than 2 plan lines"; return 2; }
+  for m in $members; do
+    [ "$m" = "$pr" ] && break
+    grep -qx "$m" "$DONE" || { echo "WAIT batch order: #$m merges before #$pr"; return 1; }
+  done
+  st=$(gh api "repos/$R/compare/$head...$b" --jq .status 2>/dev/null)
+  case "$st" in ahead|identical) ;; '') echo "WAIT compare ${head:0:8}...${b:0:8} failed"; return 1;;
+    *) echo "BAD batch ${b:0:8} does not contain the head ${head:0:8} ($st)"; return 2;; esac
+  mf=$(for m in $members; do gh api "repos/$R/pulls/$m/files?per_page=100" --paginate --jq '.[].filename'; done | sort -u)
+  bf=$(gh api "repos/$R/compare/main...$b" --jq '.files[].filename' 2>/dev/null | sort -u)
+  [ -n "$bf" ] || { echo "WAIT batch files not readable"; return 1; }
+  extra=$(comm -23 <(echo "$bf") <(echo "$mf") | paste -sd' ' -)
+  [ -z "$extra" ] || { echo "BAD batch ${b:0:8} changes files no member changes: $extra"; return 2; }
+  ci=$(gh run list -R $R --workflow build.yml --event pull_request --commit "$b" --limit 5 --json status,conclusion,createdAt,databaseId --jq '.[0]|"\(.status) \(.conclusion) \(.createdAt) \(.databaseId)"' 2>/dev/null)
+  set -- $ci
+  [ "$1" = completed ] || { echo "WAIT batch CI ${4:-none} ${1:-not found}"; return 1; }
+  [ "$2" = success ] || { echo "BAD batch CI $4 is $2"; return 2; }
+  echo "SINCE $3"; echo "BATCHCI $4"
+  for m in $members; do [ "$m" = "$pr" ] && break; echo "SKIP $(gh pr view $m -R $R --json mergeCommit --jq .mergeCommit.oid)"; done
   return 0
 }
 
@@ -58,10 +91,10 @@ flag() {  # pr msg : report once per (pr,msg)
 
 for pass in $(seq 1 $MAX); do
   MERGED=""; NEWFLAG=""
-  while read -r pr head red green; do
+  while read -r pr head red green batch; do
     [ -z "$pr" ] && continue; case "$pr" in \#*) continue;; esac
     grep -qx "$pr" "$DONE" && continue
-    red=${red#red=}; green=${green#green=}
+    red=${red#red=}; green=${green#green=}; batch=${batch#batch=}
     info=$(gh pr view $pr -R $R --json state,baseRefName,headRefOid --jq '"\(.state) \(.baseRefName) \(.headRefOid)"' 2>/dev/null) || { log "WAIT PR$pr: gh pr view failed"; continue; }
     set -- $info
     [ "$1" = MERGED ] && { echo "$pr" >> "$DONE"; log "PR$pr already merged"; continue; }
@@ -88,17 +121,26 @@ for pass in $(seq 1 $MAX); do
     ev_r=$(check_runs red "$red" "$head"); rc=$?
     [ $rc = 1 ] && { echo "$(date -u +%H:%MZ) WAIT PR$pr $(echo "$ev_r" | tail -1)" >> "$LOG"; continue; }
     [ $rc = 2 ] && { flag $pr "$(echo "$ev_r" | grep ^BAD)"; continue; }
-    ev_g=$(check_runs green "$green" "$head"); rc=$?
+    ev_b=""; skip=""
+    if [ -n "$batch" ]; then
+      ev_b=$(check_batch $pr "$head" "$batch"); rc=$?
+      [ $rc = 1 ] && { echo "$(date -u +%H:%MZ) WAIT PR$pr $(echo "$ev_b" | tail -1)" >> "$LOG"; continue; }
+      [ $rc = 2 ] && { flag $pr "$(echo "$ev_b" | tail -1)"; continue; }
+      skip=$(echo "$ev_b" | sed -n 's/^SKIP //p')
+    fi
+    ev_g=$(check_runs green "$green" "$head" "$batch"); rc=$?
     [ $rc = 1 ] && { echo "$(date -u +%H:%MZ) WAIT PR$pr $(echo "$ev_g" | tail -1)" >> "$LOG"; continue; }
     [ $rc = 2 ] && { flag $pr "$(echo "$ev_g" | grep ^BAD)"; continue; }
     # overlap since the newest CI run on the head
     b=$(gh pr view $pr -R $R --json headRefName --jq .headRefName)
     cit=$(gh run list -R $R --branch "$b" --event pull_request --limit 20 --json headSha,createdAt,workflowName --jq "[.[]|select(.headSha==\"$head\" and .workflowName==\"build\")][0].createdAt")
+    [ -n "$batch" ] && cit=$(echo "$ev_b" | sed -n 's/^SINCE //p')   # the batch CI tested main + every member at its start
     [ -n "$cit" ] && [ "$cit" != null ] || { flag $pr "no build CI run found on the head"; continue; }
     mainsha=$(gh api repos/$R/commits/main --jq .sha)
     pf=$(gh api "repos/$R/pulls/$pr/files?per_page=100" --paginate --jq '.[].filename' | sort)
     shared=""
     for c in $(gh api "repos/$R/commits?sha=main&since=$cit&per_page=50" --jq '.[].sha'); do
+      echo "$skip" | grep -qx "$c" && continue   # a batch member merged before this one: in the tested batch tree
       both=$(comm -12 <(echo "$pf") <(gh api repos/$R/commits/$c --jq '.files[].filename' | sort) | tr '\n' ' ')
       [ -n "$both" ] && shared="$shared ${c:0:8}:[$both]"
     done
@@ -112,6 +154,7 @@ for pass in $(seq 1 $MAX); do
       echo "Code unchanged since the last review round. CI on the head: all checks green. Overlap: no main commit since $cit shares a file. Per-test tally lines:"
       [ "$red" = none ] && echo "- red: none required for this head (proof on an earlier head or merge-only)"
       [ "$green" = none ] && echo "- green: none required (CI is the proof for this head)"
+      [ -n "$batch" ] && echo "- batch green: batch head $batch (members in plan order merged before this one; batch CI $(echo "$ev_b" | sed -n 's/^BATCHCI //p') green; overlap counted since that CI, without the members' own merges)"
       echo "$ev_r$ev_g" | grep -E "^RUN|^    " | sed -E 's/^RUN /- /'; } >> "$f"
     { printf "[Mode A review, round %s]\n\n" "$k"; awk -v k="$k" '/^## Round/{n++} n==k' "$f"; } > "$CC/logs/automerge-post-$pr.md"
     gh pr comment $pr -R $R -F "$CC/logs/automerge-post-$pr.md" >/dev/null 2>&1 || log "WARN PR$pr comment failed"

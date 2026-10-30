@@ -49,7 +49,7 @@ function Invoke-GhRaw($ctx, [string[]]$a, [bool]$merge) {
 function Get-GateData($ctx, [string]$kind, [string]$arg = '') {
   if ($ctx.Stub) {
     $f = ''
-    switch ($kind) { 'openprs' { $f = 'openprs.json' } 'auth' { $f = 'auth.txt' } 'pr' { $f = 'pr' + $arg + '.json' } 'diff' { $f = 'pr' + $arg + '.diff' } 'stressruns' { $f = 'stressruns.json' } 'stressrun' { $f = 'stress-' + $arg + '.txt' } }
+    switch ($kind) { 'openprs' { $f = 'openprs.json' } 'auth' { $f = 'auth.txt' } 'pr' { $f = 'pr' + $arg + '.json' } 'diff' { $f = 'pr' + $arg + '.diff' } 'stressruns' { $f = 'stressruns.json' } 'stressrun' { $f = 'stress-' + $arg + '.txt' } 'compare' { $f = 'compare-' + ($arg -replace '\.\.\.', '-') + '.txt' } }
     $p = Join-Path $ctx.Stub $f
     if (Test-Path -LiteralPath $p) { return @{ Ok = $true; Text = (Read-Text $p); Cached = $false } }
     return @{ Ok = $false; Text = ''; Err = ('stub file missing: ' + $f); Cached = $false }
@@ -71,6 +71,7 @@ function Get-GateData($ctx, [string]$kind, [string]$arg = '') {
     'diff' { $r = Invoke-GhRaw $ctx @('pr', 'diff', $arg) $false }
     'stressruns' { $r = Invoke-GhRaw $ctx @('run', 'list', '--workflow', 'flake-stress.yml', '--limit', '100', '--json', 'databaseId,displayTitle,status,conclusion,createdAt') $false }
     'stressrun' { return (Get-GateStressRun $ctx $arg) }
+    'compare' { $r = Invoke-GhRaw $ctx @('api', ('repos/{owner}/{repo}/compare/' + $arg), '--jq', '.status') $false }
   }
   if ($r.Code -ne 0) { return @{ Ok = $false; Text = ''; Err = ('gh ' + $kind + ' failed: ' + (Get-Trunc $r.Out 120)); Cached = $false } }
   $txt = $r.Out
@@ -146,6 +147,7 @@ function Test-GateStress($ctx, $d, [string]$n, [string]$diff, $L) {
   }
   $txt = [string]$d.body
   foreach ($c in @($d.comments)) { $txt += "`n" + [string]$c.body }
+  $prTxt = $txt
   foreach ($r in (Get-GRows $ctx)) { $t = $r.Assignment + ' ' + $r.Note; if ($t -match ('#' + [regex]::Escape($n) + '(?!\d)')) { $txt += "`n" + $t } }
   foreach ($m in [regex]::Matches($txt, '(?<!\d)(\d{10,12})(?!\d)')) { if (-not $ids.Contains($m.Groups[1].Value)) { [void]$ids.Add($m.Groups[1].Value) } }
   $ok = @{}; $onBranch = New-Object System.Collections.ArrayList; $elsewhere = New-Object System.Collections.ArrayList
@@ -155,6 +157,14 @@ function Test-GateStress($ctx, $d, [string]$n, [string]$diff, $L) {
     if ([regex]::Match($s.Text, '(?m)^workflow:\s*(.*?)\s*$').Groups[1].Value -ne 'flake-stress') { continue }
     $ref = [regex]::Match($s.Text, '(?m)^ref:\s*(.*?)\s*$').Groups[1].Value
     $mine = ($ref -and (($ref -eq $branch) -or (($ref.Length -ge 7) -and @($oids | Where-Object { $_.StartsWith($ref) }).Count -gt 0)))
+    # batch green (tools/batchgreen.sh, Oct 30): a run of a throwaway batch head = main + 2-4 PASSed heads counts for a
+    # member only when the PR itself names that exact head ("[batch green] batch head <40 hex>", posted by the tool) AND
+    # the batch head contains the PR's head (compare: ahead or identical). Any other descendant (a stacked branch, a
+    # later fix) still counts as another ref. automerge.sh checks the merge order, the batch's files and its CI.
+    if (-not $mine -and $ref -match '^[0-9a-f]{40}$' -and $d.headRefOid -and $prTxt -match ('\[batch green\] batch head ' + $ref + '(?![0-9a-f])')) {
+      $cmp = Get-GateData $ctx 'compare' ([string]$d.headRefOid + '...' + $ref)
+      if ($cmp.Ok -and @('ahead', 'identical') -contains ([string]$cmp.Text).Trim()) { $mine = $true; $id = $id + ' batch ' + $ref.Substring(0, 8) }
+    }
     if (-not $mine) { if ($ref) { [void]$elsewhere.Add($id + ' (' + $ref + ')') }; continue }
     [void]$onBranch.Add($id)
     foreach ($nm in $names) {
