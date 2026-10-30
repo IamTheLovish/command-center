@@ -6,13 +6,20 @@ sed -n '/^check_batch() {/,/^}/p; /^check_runs() {/,/^}/p' "$D/automerge.sh" > "
 R=x/y; source "$T/fns.sh"
 B=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; M1=1111111111111111111111111111111111111111; BASE=0000000000000000000000000000000000000000
 HA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; HC=cccccccccccccccccccccccccccccccccccccccc; SQ=5555555555555555555555555555555555555555
-FX=9999999999999999999999999999999999999999
+FX=9999999999999999999999999999999999999999; MS=6666666666666666666666666666666666666666
+TBASE=t000000000000000000000000000000000000000; TM1=t111111111111111111111111111111111111111
 PLAN=$T/plan.txt; DONE=$T/done.txt
 P2="$M1 $HC"; P1="$BASE $HA"; MAINC=identical; CI="completed success 2026-10-30T05:00:00Z 777"; JOBS="9 0"; PR1="MERGED $HA"
+PR2="OPEN $HC"; TMAIN=$TBASE
 gh() { case "$*" in
+  "api repos/x/y/commits/main "*) echo $MS;;
+  "api repos/x/y/commits/$MS --jq .commit.tree.sha"*) echo $TMAIN;;
+  "api repos/x/y/commits/$BASE --jq .commit.tree.sha"*) echo $TBASE;;
+  "api repos/x/y/commits/$M1 --jq .commit.tree.sha"*) echo $TM1;;
+  "pr view 2 -R x/y --json state,headRefOid"*) echo "$PR2";;
   "api repos/x/y/commits/$B "*) echo "$P2";;
   "api repos/x/y/commits/$M1 "*) echo "$P1";;
-  "api repos/x/y/compare/"*main*) echo "$MAINC";;
+  "api repos/x/y/compare/"*) echo "$MAINC";;
   "run list"*) echo "$CI";;
   "run view 777 "*) echo "$JOBS";;
   "pr view 1 -R x/y --json state,headRefOid"*) echo "$PR1";;
@@ -26,9 +33,12 @@ plan2; green=9
 : > $DONE;              t 0 "first member, main == base" 1 $HA $B
 MAINC="ahead $SQ";      t 2 "first member, main moved" 1 $HA $B; MAINC=identical
                         t 1 "second waits for the first" 2 $HC $B
+PR2="CLOSED $HC";       t 2 "first member while a later member is closed" 1 $HA $B; PR2="OPEN $HC"
+TMAIN=$TM1;             t 2 "first member: main's tree is not the base tree" 1 $HA $B
 echo 1 > $DONE; MAINC="ahead $SQ"
 out=$(check_batch 2 $HC $B); t 0 "second after the first merged, main == base + its squash" 2 $HC $B
-echo "$out" | grep -q "^SKIP $SQ" && echo "$out" | grep -q "^BASE $BASE" && ok=$((ok+1)) || { bad=$((bad+1)); echo "MISS SKIP/BASE lines: $out"; }
+echo "$out" | grep -q "^SKIP $SQ" && echo "$out" | grep -q "^BASE $BASE" && echo "$out" | grep -q "^MAIN $MS" && echo "$out" | grep -q "^THIS $B" && ok=$((ok+1)) || { bad=$((bad+1)); echo "MISS SKIP/BASE lines: $out"; }
+TMAIN=$TBASE;           t 2 "second: main's tree is not the batch tree after the first (stacked squash)" 2 $HC $B; TMAIN=$TM1
 MAINC="ahead $SQ $FX";  t 2 "a foreign commit after the first member = drift" 2 $HC $B
 MAINC="ahead $FX $SQ";  t 2 "a foreign commit before the first member's squash = drift" 2 $HC $B
 MAINC="ahead $SQ"

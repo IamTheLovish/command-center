@@ -62,11 +62,13 @@ check_runs() {  # kind ids head [green checkout] -> prints evidence lines; retur
   return 0
 }
 
-# batch member checks (4b); prints "SINCE <batch CI createdAt>", "BATCHCI <id>", "BASE <sha>" and "SKIP <squash commit
-# of an earlier member>" lines. The batch proof is for one exact tree, so main must be EXACTLY the batch base plus the
-# squash commits of the members before this one, in order: any other commit on main (even one sharing no file) = FLAG.
+# batch member checks (4b); prints "SINCE <batch CI createdAt>", "BATCHCI <id>", "BASE <sha>", "MAIN <pinned main sha>",
+# "THIS <batch merge of this member>" and "SKIP <squash commit of an earlier member>" lines. The batch proof is for one
+# exact tree, so (with main read ONCE and pinned until the merge): main must be EXACTLY the batch base + the squash
+# commits of the members before this one, in order (any other commit, even one sharing no file = FLAG), and main's
+# tree must equal the batch's tree after those members (a stacked member's squash can differ from its batch merge).
 check_batch() {  # pr head batch -> 0 ok, 1 wait, 2 bad (last line says why)
-  local pr=$1 head=$2 b=$3 members m n k cur par i base sq got ci
+  local pr=$1 head=$2 b=$3 members merges m n k cur par i base sq got ci msha prev
   [ ${#b} = 40 ] || { echo "BAD batch= must be the full 40-character batch head"; return 2; }
   [ "$green" != none ] || { echo "BAD batch= needs green=<the batch's flake-stress run>"; return 2; }
   members=($(awk -v b="batch=$b" '$1 !~ /^#/ && $5 == b {print $1}' "$PLAN"))
@@ -80,22 +82,34 @@ check_batch() {  # pr head batch -> 0 ok, 1 wait, 2 bad (last line says why)
     [ -n "$got" ] || { echo "WAIT #$m not readable"; return 1; }
     [ "$got" = "MERGED $(awk -v p="$m" '$1 == p {print $2}' "$PLAN" | tail -1)" ] || { echo "BAD batch member #$m merged as '$got', not its planned head"; return 2; }
   done
+  # every later member must still be able to follow (open, planned head): main must not stop on a part of the batch tree
+  for m in "${members[@]:$k}"; do
+    got=$(gh pr view $m -R $R --json state,headRefOid --jq '"\(.state) \(.headRefOid)"' 2>/dev/null)
+    [ -n "$got" ] || { echo "WAIT #$m not readable"; return 1; }
+    [ "$got" = "OPEN $(awk -v p="$m" '$1 == p {print $2}' "$PLAN" | tail -1)" ] || { echo "BAD later batch member #$m is '$got', not open at its planned head: the batch cannot complete"; return 2; }
+  done
   # the batch head = base + member 1 .. n merged in plan order: walk its first parents, second parent = that member's head
-  cur=$b
+  cur=$b; merges=()
   for ((i=n-1; i>=0; i--)); do
     par=$(gh api "repos/$R/commits/$cur" --jq '[.parents[].sha]|join(" ")' 2>/dev/null)
     [ -n "$par" ] || { echo "WAIT commit ${cur:0:8} not readable"; return 1; }
     set -- $par
     m=$(awk -v p="${members[$i]}" '$1 == p {print $2}' "$PLAN" | tail -1)
     [ $# = 2 ] && [ "$2" = "$m" ] || { echo "BAD batch ${b:0:8}: ${cur:0:8} is not the merge of #${members[$i]} ${m:0:8} (parents: $par)"; return 2; }
-    cur=$1
+    merges[$i]=$cur; cur=$1
   done
   base=$cur
   sq=""; for m in "${members[@]:0:$((k-1))}"; do sq="$sq $(gh pr view $m -R $R --json mergeCommit --jq .mergeCommit.oid)"; done
-  got=$(gh api "repos/$R/compare/$base...main" --jq '[.status] + [.commits[].sha] | join(" ")' 2>/dev/null)
-  [ -n "$got" ] || { echo "WAIT compare ${base:0:8}...main failed"; return 1; }
+  msha=$(gh api "repos/$R/commits/main" --jq .sha 2>/dev/null)
+  [ ${#msha} = 40 ] || { echo "WAIT main not readable"; return 1; }
+  got=$(gh api "repos/$R/compare/$base...$msha" --jq '[.status] + [.commits[].sha] | join(" ")' 2>/dev/null)
+  [ -n "$got" ] || { echo "WAIT compare ${base:0:8}...${msha:0:8} failed"; return 1; }
   if [ $k = 1 ]; then [ "$got" = identical ] || { echo "BAD main drift: main is not the batch base ${base:0:8} ($got)"; return 2; }
   else [ "$got" = "ahead$sq" ] || { echo "BAD main drift: main is not batch base ${base:0:8} + members before #$pr (want ahead$sq, got $got)"; return 2; }; fi
+  prev=$base; [ $k -ge 2 ] && prev=${merges[$((k-2))]}
+  got="$(gh api "repos/$R/commits/$msha" --jq .commit.tree.sha 2>/dev/null) $(gh api "repos/$R/commits/$prev" --jq .commit.tree.sha 2>/dev/null)"
+  [ ${#got} = 81 ] || { echo "WAIT trees not readable"; return 1; }
+  [ "${got% *}" = "${got#* }" ] || { echo "BAD main's tree ${got% *} is not the batch tree before #$pr (${prev:0:8}: ${got#* }): the squash merges did not reproduce the batch"; return 2; }
   ci=$(gh run list -R $R --workflow build.yml --event pull_request --commit "$b" --limit 5 --json status,conclusion,createdAt,databaseId --jq '.[0]|"\(.status) \(.conclusion) \(.createdAt) \(.databaseId)"' 2>/dev/null)
   set -- $ci
   [ "$1" = completed ] || { echo "WAIT batch CI ${4:-none} ${1:-not found}"; return 1; }
@@ -105,7 +119,7 @@ check_batch() {  # pr head batch -> 0 ok, 1 wait, 2 bad (last line says why)
   got=$(gh run view $4 -R $R --json jobs --jq '[.jobs[]|select(.name=="bar" or (.name|startswith("bar-tests")))] | "\(length) \([.[]|select(.conclusion!="success")]|length)"' 2>/dev/null)
   set -- $ci
   [ -n "$got" ] && [ "${got% *}" -ge 2 ] && [ "${got#* }" = 0 ] || { echo "BAD batch CI $4: GameTests did not all run and pass here (bar + bar-tests jobs, not-success: '$got')"; return 2; }
-  echo "SINCE $3"; echo "BATCHCI $4"; echo "BASE $base"
+  echo "SINCE $3"; echo "BATCHCI $4"; echo "BASE $base"; echo "MAIN $msha"; echo "THIS ${merges[$((k-1))]}"
   for m in $sq; do echo "SKIP $m"; done
   return 0
 }
@@ -164,6 +178,8 @@ for pass in $(seq 1 $MAX); do
     [ -n "$batch" ] && cit=$(echo "$ev_b" | sed -n 's/^SINCE //p')   # the batch CI tested main + every member at its start
     [ -n "$cit" ] && [ "$cit" != null ] || { flag $pr "no build CI run found on the head"; continue; }
     mainsha=$(gh api repos/$R/commits/main --jq .sha)
+    # batch: the main that check_batch proved exact; the merge below happens only if main is still that commit
+    [ -n "$batch" ] && mainsha=$(echo "$ev_b" | sed -n 's/^MAIN //p')
     pf=$(gh api "repos/$R/pulls/$pr/files?per_page=100" --paginate --jq '.[].filename' | sort)
     shared=""
     for c in $(gh api "repos/$R/commits?sha=main&since=$cit&per_page=50" --jq '.[].sha'); do
@@ -178,7 +194,7 @@ for pass in $(seq 1 $MAX); do
     echo "$g" | grep -q "GATE done #$pr: PASS" || { flag $pr "gate not PASS: $(echo "$g" | grep -E '^FAIL|GATE' | tr '\n' ' ')"; continue; }
     # evidence round (coordinator), post
     k=$(( $(grep -c "^## Round" "$f") + 1 ))
-    { printf "\n## Round %s (coordinator evidence check, automerge, %s)\nVERDICT: PASS\nSHA: %s\nREVIEWER: Command Center Eris.1 automerge.sh (coordinator, not the builder), %s\n\n" "$k" "${head:0:8}" "$head" "$(date -u +%b\ %d)"
+    { printf "\n## Round %s (coordinator evidence check, automerge, %s)\nVERDICT: PASS\nSHA: %s\nREVIEWER: Command Center Eris.3 automerge.sh (coordinator, not the builder), %s\n\n" "$k" "${head:0:8}" "$head" "$(date -u +%b\ %d)"
       echo "Code unchanged since the last review round. CI on the head: all checks green. Overlap: no main commit since $cit shares a file. Per-test tally lines:"
       [ "$red" = none ] && echo "- red: none required for this head (proof on an earlier head or merge-only)"
       [ "$green" = none ] && echo "- green: none required (CI is the proof for this head)"
@@ -192,6 +208,10 @@ for pass in $(seq 1 $MAX); do
     if gh pr merge $pr -R $R --squash --match-head-commit "$head" >/dev/null 2>&1; then
       mc=$(gh pr view $pr -R $R --json mergeCommit --jq .mergeCommit.oid)
       echo "$pr" >> "$DONE"; log "MERGED PR$pr ${mc:0:8} (head ${head:0:8})"; MERGED="$MERGED $pr"
+      if [ -n "$batch" ]; then   # main must now hold exactly the batch tree after this member
+        tw=$(gh api repos/$R/commits/$(echo "$ev_b" | sed -n 's/^THIS //p') --jq .commit.tree.sha); tm=$(gh api repos/$R/commits/$mc --jq .commit.tree.sha)
+        [ -n "$tw" ] && [ "$tw" = "$tm" ] && log "BATCH ${batch:0:8}: main tree == batch tree after PR$pr"           || flag $pr "after the merge, main's tree $tm is not the batch tree $tw: stop the batch, check main"
+      fi
       break   # main moved: re-check every other PR's overlap from scratch next pass
     else flag $pr "merge command failed"; fi
   done < "$PLAN"

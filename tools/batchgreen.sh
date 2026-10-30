@@ -153,6 +153,7 @@ union=$(for pr in "${PRS[@]}"; do echo "${TESTS[$pr]}" | tr , '\n'; done | sort 
 
 # ------------------------------------------------------------------ 2-3. the batch branch and its draft PR
 bsha=$(st_get bsha)
+if [ -z "$(st_get bpr)" ] && [ -n "$bsha" ]; then die "batch $(st_get branch) is pushed but has no PR: open it by hand (draft, label ci-here), add bpr=<n> to $STATE, --resume" 2; fi
 if [ -z "$bsha" ]; then
   case "$WORK $(cd "$WORK" 2>/dev/null && pwd -W 2>/dev/null)" in *[Bb]eyond[Aa]nd[Tt]abs-[Rr]epo*) die "work clone must not be D:\\BeyondAndTabs-Repo" 2;; esac
   [ -d "$WORK/.git" ] || git clone -q --filter=blob:none "https://github.com/$R.git" "$WORK" || die "clone failed"
@@ -160,6 +161,12 @@ if [ -z "$bsha" ]; then
   [ -z "$(git status --porcelain)" ] || die "work clone $WORK has local changes"
   git fetch -q origin main $(for pr in "${PRS[@]}"; do echo "pull/$pr/head"; done) || die "fetch failed"
   base=$(git rev-parse origin/main)
+  # no stacked members: two members that share a commit outside main would squash into main differently from their
+  # batch merge (the shared commit's later edits); every pair's merge base must already be on main
+  for a in "${PRS[@]}"; do for c in "${PRS[@]}"; do [ "$a" -lt "$c" ] || continue
+    mb=$(git merge-base "${HEAD[$a]}" "${HEAD[$c]}") && git merge-base --is-ancestor "$mb" "$base" \
+      || die "#$a and #$c share commits outside main (stacked): batch them only after the lower one merged" 3
+  done; done
   git checkout -q -B "$branch" "$base" || die "checkout failed"
   i=0
   for pr in "${PRS[@]}"; do
@@ -179,16 +186,17 @@ if [ -z "$bsha" ]; then
     say "DRY RUN: merges clean; would push $branch, open a draft batch PR, then dispatch flake-stress ref=$bsha runners=$RUNNERS tests=$union"
     exit 0
   fi
+  st_set base "$base"; st_set bsha "$bsha"
   git push -q origin "$branch" || die "push failed"
   body=$(printf '%s\n' "Do not merge without lovish's OK." "" "**Batch proof only - never merge.** Throwaway batch branch for ONE shared CI + green (tools/batchgreen.sh in the Command Center). Closed only with lovish's OK." "" \
     "Members in merge order (each keeps its own Mode A review and red):" \
-    $(for pr in "${PRS[@]}"; do echo "- #$pr ${HEAD[$pr]}"; done) "" "Base: main $base" "Batch head: $bsha" "Tests: $union" "" \
+    "$(for pr in "${PRS[@]}"; do echo "- #$pr ${HEAD[$pr]}"; done)" "" "Base: main $base" "Batch head: $bsha" "Tests: $union" "" \
     "🤖 Generated with [Claude Code](https://claude.com/claude-code)")
   # label ci-here: the batch's GameTests must run here (tools/ci_route.py would otherwise send them to the org mirror and
   # skip bar / bar-tests in this run)
   bpr=$(gh pr create -R $R --draft --label ci-here --base main --head "$branch" --title "Batch green: $(for pr in "${PRS[@]}"; do printf '#%s ' $pr; done)(throwaway, do not merge)" --body "$body" | grep -oE '[0-9]+$')
   [ -n "$bpr" ] || die "gh pr create failed (branch $branch is pushed: open the PR by hand, then add bpr= to $STATE)"
-  st_set base "$base"; st_set bsha "$bsha"; st_set bpr "$bpr"
+  st_set bpr "$bpr"
   say "batch PR #$bpr opened on $branch (${bsha:0:8})"
 fi
 base=$(st_get base); bpr=$(st_get bpr)
@@ -249,7 +257,8 @@ declare -A VERD LINES
 pass=(); fail=(); idx=0
 for pr in "${PRS[@]}"; do
   l=$(pr_lines "$t" "${TESTS[$pr]}"); LINES[$pr]=$l
-  if [ -z "$l" ]; then VERD[$pr]="NO LINES (none of ${TESTS[$pr]} in the summary)"; broken="${broken:-#$pr has no tally line}"
+  miss=""; for e in ${TESTS[$pr]//,/ }; do [ -n "$(pr_lines "$t" "$e")" ] || miss="$miss $e"; done
+  if [ -n "$miss" ]; then VERD[$pr]="NO LINES for$miss"; broken="${broken:-#$pr has no tally line for$miss}"
   elif lines_pass "$l" $RUNNERS; then VERD[$pr]=PASS; pass+=($pr)
   else VERD[$pr]=FAIL; fail+=($pr); fi
 done

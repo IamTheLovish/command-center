@@ -157,6 +157,11 @@ function Get-GateBatchTree($ctx, [string]$arg) {
     $cur = $pl[1]
   }
   if ($cur -ne $base) { return ('the walk ends at ' + $cur + ', not the base ' + $base) }
+  # no stacked members: a commit shared by two members outside main squashes into main differently from the batch merge
+  for ($i = 0; $i -lt $mem.Count; $i++) { for ($j = $i + 1; $j -lt $mem.Count; $j++) {
+    $mb = (Invoke-GGit $dir @('merge-base', $mem[$i], $mem[$j])).Out
+    if (-not $mb -or (Invoke-GGit $dir @('merge-base', '--is-ancestor', $mb, $base)).Code -ne 0) { return ('members ' + ($i + 1) + ' and ' + ($j + 1) + ' share commits outside main (stacked)') }
+  } }
   if ((Invoke-GGit $dir @('merge-base', '--is-ancestor', $base, 'origin/main')).Code -ne 0) { return ('base ' + $base.Substring(0, 8) + ' is not on main') }
   return 'ok'
 }
@@ -208,6 +213,8 @@ function Test-GateStress($ctx, $d, [string]$n, [string]$diff, $L) {
         else {
           $bt = Get-GateData $ctx 'batchtree' ($ref + '|' + $bm.Groups[1].Value + '|' + ($mem -join ','))
           $btt = ''; if ($bt.Ok) { $btt = ([string]$bt.Text).Trim() } else { $btt = [string]$bt.Err }
+          # a batch run is evidence only when the whole batch passed (a failed batch is evidence for no member)
+          if ($btt -eq 'ok' -and $s.Text -notmatch '\[Stress\] \d+ runners; 0 with any failure') { $btt = 'the batch run has failures' }
           if ($btt -eq 'ok') { $mine = $true; $id = $id + ' batch ' + $ref.Substring(0, 8) } else { $why = 'batch: ' + $btt }
         }
       }

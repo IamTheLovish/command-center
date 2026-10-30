@@ -287,6 +287,16 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
     $c = Invoke-GateAccept (St-Ctx $r20 $sc $now) '289'
     St-Assert $case[6] $c 'gametests' $case[4] $case[5]
   }
+  # a failed batch is evidence for no member, even where the member's own line reads failed 0 (another member failed)
+  $sc = St-Stub $tmp 'batch-failedrun' $fx 'auth-noworkflow.txt'
+  St-Stress289 $sc $fx
+  $j = Read-Text (Join-Path $sc 'pr289.json')
+  $j = $j.Replace('"comments":[{', ('"comments":[{"body":"' + ($mk -f $bh, ($h289 + ',' + $hx)) + '","createdAt":"2026-10-30T05:00:00Z"},{'))
+  Write-Text (Join-Path $sc 'pr289.json') $j $false
+  Write-Text (Join-Path $sc 'stress-40599999990.txt') ("workflow: flake-stress`nref: $bh`n[Stress] 8 runners; 2 with any failure`nsealed_arena_has_no_fluid_after_openGround: failed 0, passed 8`nother_members_test: failed 2, passed 6") $false
+  Write-Text (Join-Path $sc ('batchtree-' + $bh + '.txt')) 'ok' $false
+  $c = Invoke-GateAccept (St-Ctx $r20 $sc $now) '289'
+  St-Assert 'batch green: a batch run with any failure is evidence for no member' $c 'gametests' 'FAIL' 'sealed_arena_has_no_fluid_after_openGround'
   # REAL git (Oct 30): Get-GateBatchTree on a tiny local repo: base + h1 + h2 merged in order is ok; a hand-edited merge,
   # the members in the wrong order, and a base that is not on origin/main are refused
   $gr = Join-Path $tmp 'batchrepo'; New-Item -ItemType Directory -Force -Path $gr | Out-Null
@@ -316,6 +326,15 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
   [void](Invoke-GGit $gr @('update-ref', 'refs/remotes/origin/main', (Invoke-GGit $gr @('rev-parse', 'HEAD')).Out))
   $t4 = Get-GateBatchTree $gc ($gok + '|' + $gb + '|' + $g1 + ',' + $g2)
   St-Case 'batch tree: a base that is not on main is refused (real git)' ($t4 -match 'not on main') 'not on main' $t4
+  # stacked members (round-2 review): m3 is built on m1's commit; base + m1 + m3 merges cleanly, but a squash of m3 into
+  # main would carry m1's commit from the old merge base, so the batch tree is not what main gets
+  [void](Invoke-GGit $gr @('update-ref', 'refs/remotes/origin/main', $gb))
+  [void](Invoke-GGit $gr @('checkout', '-q', '-b', 'm3', $g1)); Write-Text (Join-Path $gr 'c.txt') 'c' $false; [void](Invoke-GGit $gr @('add', '.'))
+  [void](Invoke-GGit $gr ($id + @('commit', '-q', '-m', 'm3'))); $g3 = (Invoke-GGit $gr @('rev-parse', 'HEAD')).Out
+  [void](Invoke-GGit $gr @('checkout', '-q', '-b', 'batch3', $gb))
+  [void](Invoke-GGit $gr ($id + @('merge', '-q', '--no-ff', '-m', 's1', $g1))); [void](Invoke-GGit $gr ($id + @('merge', '-q', '--no-ff', '-m', 's2', $g3)))
+  $t5 = Get-GateBatchTree $gc ((Invoke-GGit $gr @('rev-parse', 'HEAD')).Out + '|' + $gb + '|' + $g1 + ',' + $g3)
+  St-Case 'batch tree: stacked members are refused (real git)' ($t5 -match 'stacked') 'stacked' $t5
   # SYNTHETIC (Oct 28, #297): a diff that only edits the @GameTest annotation of existing tests (timeoutTicks) adds no
   # test and needs no stress run; it read "2 new @GameTest but only 0 named in the diff" and failed the gate
   $s20e = St-Stub $tmp 'm20-edit' $fx 'auth-noworkflow.txt'
