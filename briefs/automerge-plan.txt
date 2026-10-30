@@ -23,3 +23,5 @@
 # WAITS red 40969301107 + green 40969304023 read (r3 PASS tier 1; supersedes the 85b0a454 line): 362 040b7649
 # 386 shader slice 1: r7 PASS 4ffaf27a (tools-only delta, checked by Eris); eyes stills read by Erin on 1ed3c986 (no shader change since); art permission. CI-only line.
 386 4ffaf27ac44ed77ed42e6a6655b331a23f077672 red=none green=none
+# 399 anim finish-tune: r1 PASS code + r2 PASS look (opus, eyes 40978023283 vs 40874612621). CI-only line; one BoneMaps line conflicts with 377 (builder merges main into the second).
+399 b586fc2699d2bec86bc51cfa15832f14f8d46dcc red=none green=none
