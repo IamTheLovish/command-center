@@ -99,6 +99,12 @@ check_batch() {  # pr head batch -> 0 ok, 1 wait, 2 bad (last line says why)
     merges[$i]=$cur; cur=$1
   done
   base=$cur
+  # the same tree check the gate uses (cc.ps1 batchtree = Get-GateBatchTree), on every batch line: each merge's tree is
+  # the merge of its parents, the members share no commit outside the base (no stacked members), and the base is on
+  # main - so a batch= line that batchgreen.sh did not build (or a hand-edited merge) never merges
+  hs=$(for m in "${members[@]}"; do awk -v p="$m" '$1 == p {print $2}' "$PLAN" | tail -1; done | paste -sd, -)
+  got=$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\\Command Center\\tools\\cc.ps1" batchtree "$b|$base|$hs" 2>&1 | tr -d '\r' | grep '^BATCHTREE' | tail -1)
+  [ "$got" = "BATCHTREE ok" ] || { echo "BAD batch ${b:0:8} tree check: ${got:-no answer from cc.ps1 batchtree}"; return 2; }
   sq=""; for m in "${members[@]:0:$((k-1))}"; do sq="$sq $(gh pr view $m -R $R --json mergeCommit --jq .mergeCommit.oid)"; done
   msha=$(gh api "repos/$R/commits/main" --jq .sha 2>/dev/null)
   [ ${#msha} = 40 ] || { echo "WAIT main not readable"; return 1; }

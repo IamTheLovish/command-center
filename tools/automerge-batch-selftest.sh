@@ -10,7 +10,8 @@ FX=9999999999999999999999999999999999999999; MS=66666666666666666666666666666666
 TBASE=t000000000000000000000000000000000000000; TM1=t111111111111111111111111111111111111111
 PLAN=$T/plan.txt; DONE=$T/done.txt
 P2="$M1 $HC"; P1="$BASE $HA"; MAINC=identical; CI="completed success 2026-10-30T05:00:00Z 777"; JOBS="9 0"; PR1="MERGED $HA"
-PR2="OPEN $HC"; TMAIN=$TBASE
+PR2="OPEN $HC"; TMAIN=$TBASE; BT="BATCHTREE ok"; BTARG=""
+powershell.exe() { BTARG="${@: -1}"; echo "$BT" > "$T/btarg"; echo "${@: -1}" >> "$T/btarg"; echo "$BT"; }
 gh() { case "$*" in
   "api repos/x/y/commits/main "*) echo $MS;;
   "api repos/x/y/commits/$MS --jq .commit.tree.sha"*) echo $TMAIN;;
@@ -38,6 +39,10 @@ TMAIN=$TM1;             t 2 "first member: main's tree is not the base tree" 1 $
 echo 1 > $DONE; MAINC="ahead $SQ"
 out=$(check_batch 2 $HC $B); t 0 "second after the first merged, main == base + its squash" 2 $HC $B
 echo "$out" | grep -q "^SKIP $SQ" && echo "$out" | grep -q "^BASE $BASE" && echo "$out" | grep -q "^MAIN $MS" && echo "$out" | grep -q "^THIS $B" && ok=$((ok+1)) || { bad=$((bad+1)); echo "MISS SKIP/BASE lines: $out"; }
+tail -1 "$T/btarg" | grep -qx "$B|$BASE|$HA,$HC" && ok=$((ok+1)) || { bad=$((bad+1)); echo "MISS batchtree argument: $(tail -1 "$T/btarg")"; }
+BT="BATCHTREE members 1 and 2 share commits outside main (stacked)"; t 2 "a stacked batch (tree check) is BAD even with no gate stress need" 2 $HC $B
+BT="BATCHTREE tree of bbbbbbbb is not the merge of its parents"; t 2 "an edited batch merge is BAD" 2 $HC $B
+BT="";                  t 2 "no answer from the tree check is BAD" 2 $HC $B; BT="BATCHTREE ok"
 TMAIN=$TBASE;           t 2 "second: main's tree is not the batch tree after the first (stacked squash)" 2 $HC $B; TMAIN=$TM1
 MAINC="ahead $SQ $FX";  t 2 "a foreign commit after the first member = drift" 2 $HC $B
 MAINC="ahead $FX $SQ";  t 2 "a foreign commit before the first member's squash = drift" 2 $HC $B

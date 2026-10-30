@@ -589,6 +589,15 @@ function Cmd-GateSelftest {
   if (-not $script:StOk) { exit 1 }
 }
 
+# batchtree "batch|base|h1,h2,..": the batch-green tree check (Get-GateBatchTree) for automerge.sh, which runs it on every
+# batch= line before a merge whether or not the gate needs the batch run. Prints "BATCHTREE ok" (exit 0) or the reason.
+function Cmd-BatchTree {
+  $ctx = New-GateCtx @{ Root = $Root; NoLog = $true }
+  $r = Get-GateBatchTree $ctx $Target
+  Write-Output ('BATCHTREE ' + $r)
+  if ($r -ne 'ok') { exit 1 }
+}
+
 function Show-Help {
   Write-Output 'cc.ps1 <boot|boot-done|ledger-add|ledger-close|tally|branch-check|ctx [-Session id]|handoff-lint <file>|handoff-stub|handoff-verify|advice-done|digest|review-diff|gate start|gate done|preflight|accept|report-lint|ledger-lint|gate-selftest> [options]  (see tools\README-cc.md)'
 }
@@ -613,5 +622,6 @@ switch ($Cmd) {
   'ledger-lint' { Cmd-LedgerLint }
   'boot-done' { Cmd-BootDone }
   'gate-selftest' { Cmd-GateSelftest }
+  'batchtree' { Cmd-BatchTree }
   default { Show-Help }
 }

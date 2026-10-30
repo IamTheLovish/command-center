@@ -118,6 +118,7 @@ fi
 # ------------------------------------------------------------------ 1. start a new batch (or resume one)
 if [ -z "$STATE" ]; then
   [ ${#PRS[@]} -ge 2 ] && [ ${#PRS[@]} -le 4 ] || die "give 2-4 PRs in merge order (got ${#PRS[@]})" 2
+  [ "$(printf '%s\n' "${PRS[@]}" | sort -u | wc -l)" -eq ${#PRS[@]} ] || die "a PR is given twice: ${PRS[*]}" 2
   for pr in "${PRS[@]}"; do
     info=$(gh pr view $pr -R $R --json state,baseRefName,headRefOid --jq '"\(.state) \(.baseRefName) \(.headRefOid)"' 2>/dev/null) || die "gh pr view $pr failed"
     set -- $info
