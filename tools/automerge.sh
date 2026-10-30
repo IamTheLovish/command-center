@@ -11,16 +11,21 @@
 #   3. PR checks all done and green; a red check is rerun (failed jobs only) up to attempt 3, then FLAG
 #   4. every red run: completed, not INVALID, "[Stress] N runners; N with any failure" (all runners failed)
 #      every green run: completed, checkout == head (batch: == the batch head), not INVALID / NO SAMPLE, "0 with any failure"
-#   4b. batch lines only: every member above it in the plan merged; the batch head contains this head; the batch holds
-#      no file outside its members' PR files; the batch PR's build CI on the batch head completed green
+#   4b. batch lines only: every member above it in the plan merged; the batch head is exactly base + the members merged in
+#      plan order (parents); main is EXACTLY that base + the earlier members' squash commits (else FLAG: main drift);
+#      the batch PR's build CI on the batch head completed green (the gate recomputes the batch tree itself)
 #   5. overlap: no main commit since the newest CI run on the head shares a file with the PR (else FLAG); batch lines:
 #      since the batch CI, not counting the squash commits of the batch's own members
 #   6. coordinator evidence round appended + posted, gate done PASS, gh pr ready, main unchanged, merge --match-head-commit
 # Exits after a pass that merged something or raised a new FLAG (so the coordinator wakes), or after max-passes.
 R=IamTheLovish/Beyond-and-Tabs
 PLAN=$1; MIN=${2:-10}; MAX=${3:-72}
-CC="/d/Command Center"; REV="$CC/reviews"; LOG="$CC/logs/automerge.log"; DONE="$CC/logs/automerge.done"; SEEN="$CC/logs/automerge.flags"
-mkdir -p "$CC/logs"; touch "$DONE" "$SEEN"
+# AUTOMERGE_DRY=1: every check runs, nothing is written to a PR (no gate, round, comment, ready or merge), and the logs
+# go to AUTOMERGE_LOGS (default the scratch folder logs/automerge-dry) so the live merger's done/flags files are untouched
+DRY=${AUTOMERGE_DRY:-}
+CC="/d/Command Center"; REV="$CC/reviews"; LD="$CC/logs"; [ -n "$DRY" ] && LD=${AUTOMERGE_LOGS:-$CC/logs/automerge-dry}
+LOG="$LD/automerge.log"; DONE="$LD/automerge.done"; SEEN="$LD/automerge.flags"
+mkdir -p "$LD"; touch "$DONE" "$SEEN"
 log() { echo "$(date -u +%H:%MZ) $*" | tee -a "$LOG"; }
 
 # tally lines of a flake-stress run (summary job), plus the checkout of its first stress job
@@ -56,31 +61,40 @@ check_runs() {  # kind ids head [green checkout] -> prints evidence lines; retur
   return 0
 }
 
-# batch member checks (4b); prints "SINCE <batch CI createdAt>" and "SKIP <merge commit of a merged member>" lines
+# batch member checks (4b); prints "SINCE <batch CI createdAt>", "BATCHCI <id>", "BASE <sha>" and "SKIP <squash commit
+# of an earlier member>" lines. The batch proof is for one exact tree, so main must be EXACTLY the batch base plus the
+# squash commits of the members before this one, in order: any other commit on main (even one sharing no file) = FLAG.
 check_batch() {  # pr head batch -> 0 ok, 1 wait, 2 bad (last line says why)
-  local pr=$1 head=$2 b=$3 members m st mf bf extra ci
+  local pr=$1 head=$2 b=$3 members m n k cur par i base sq got ci
   [ ${#b} = 40 ] || { echo "BAD batch= must be the full 40-character batch head"; return 2; }
   [ "$green" != none ] || { echo "BAD batch= needs green=<the batch's flake-stress run>"; return 2; }
-  members=$(awk -v b="batch=$b" '$1 !~ /^#/ && $5 == b {print $1}' "$PLAN")
-  [ "$(echo "$members" | wc -w)" -ge 2 ] || { echo "BAD batch ${b:0:8} has fewer than 2 plan lines"; return 2; }
-  for m in $members; do
-    [ "$m" = "$pr" ] && break
-    grep -qx "$m" "$DONE" || { echo "WAIT batch order: #$m merges before #$pr"; return 1; }
+  members=($(awk -v b="batch=$b" '$1 !~ /^#/ && $5 == b {print $1}' "$PLAN"))
+  n=${#members[@]}
+  [ $n -ge 2 ] || { echo "BAD batch ${b:0:8} has fewer than 2 plan lines"; return 2; }
+  k=0; for m in "${members[@]}"; do k=$((k+1)); [ "$m" = "$pr" ] && break; done
+  for m in "${members[@]:0:$((k-1))}"; do grep -qx "$m" "$DONE" || { echo "WAIT batch order: #$m merges before #$pr"; return 1; }; done
+  # the batch head = base + member 1 .. n merged in plan order: walk its first parents, second parent = that member's head
+  cur=$b
+  for ((i=n-1; i>=0; i--)); do
+    par=$(gh api "repos/$R/commits/$cur" --jq '[.parents[].sha]|join(" ")' 2>/dev/null)
+    [ -n "$par" ] || { echo "WAIT commit ${cur:0:8} not readable"; return 1; }
+    set -- $par
+    m=$(awk -v p="${members[$i]}" '$1 == p {print $2}' "$PLAN" | tail -1)
+    [ $# = 2 ] && [ "$2" = "$m" ] || { echo "BAD batch ${b:0:8}: ${cur:0:8} is not the merge of #${members[$i]} ${m:0:8} (parents: $par)"; return 2; }
+    cur=$1
   done
-  st=$(gh api "repos/$R/compare/$head...$b" --jq .status 2>/dev/null)
-  case "$st" in ahead|identical) ;; '') echo "WAIT compare ${head:0:8}...${b:0:8} failed"; return 1;;
-    *) echo "BAD batch ${b:0:8} does not contain the head ${head:0:8} ($st)"; return 2;; esac
-  mf=$(for m in $members; do gh api "repos/$R/pulls/$m/files?per_page=100" --paginate --jq '.[].filename'; done | sort -u)
-  bf=$(gh api "repos/$R/compare/main...$b" --jq '.files[].filename' 2>/dev/null | sort -u)
-  [ -n "$bf" ] || { echo "WAIT batch files not readable"; return 1; }
-  extra=$(comm -23 <(echo "$bf") <(echo "$mf") | paste -sd' ' -)
-  [ -z "$extra" ] || { echo "BAD batch ${b:0:8} changes files no member changes: $extra"; return 2; }
+  base=$cur
+  sq=""; for m in "${members[@]:0:$((k-1))}"; do sq="$sq $(gh pr view $m -R $R --json mergeCommit --jq .mergeCommit.oid)"; done
+  got=$(gh api "repos/$R/compare/$base...main" --jq '[.status] + [.commits[].sha] | join(" ")' 2>/dev/null)
+  [ -n "$got" ] || { echo "WAIT compare ${base:0:8}...main failed"; return 1; }
+  if [ $k = 1 ]; then [ "$got" = identical ] || { echo "BAD main drift: main is not the batch base ${base:0:8} ($got)"; return 2; }
+  else [ "$got" = "ahead$sq" ] || { echo "BAD main drift: main is not batch base ${base:0:8} + members before #$pr (want ahead$sq, got $got)"; return 2; }; fi
   ci=$(gh run list -R $R --workflow build.yml --event pull_request --commit "$b" --limit 5 --json status,conclusion,createdAt,databaseId --jq '.[0]|"\(.status) \(.conclusion) \(.createdAt) \(.databaseId)"' 2>/dev/null)
   set -- $ci
   [ "$1" = completed ] || { echo "WAIT batch CI ${4:-none} ${1:-not found}"; return 1; }
   [ "$2" = success ] || { echo "BAD batch CI $4 is $2"; return 2; }
-  echo "SINCE $3"; echo "BATCHCI $4"
-  for m in $members; do [ "$m" = "$pr" ] && break; echo "SKIP $(gh pr view $m -R $R --json mergeCommit --jq .mergeCommit.oid)"; done
+  echo "SINCE $3"; echo "BATCHCI $4"; echo "BASE $base"
+  for m in $sq; do echo "SKIP $m"; done
   return 0
 }
 
@@ -113,7 +127,8 @@ for pass in $(seq 1 $MAX); do
     if [ -n "$bad" ]; then
       run=$(echo "$ck" | grep -oE 'runs/[0-9]+' | head -1 | cut -d/ -f2)
       att=$(gh run view $run -R $R --json attempt --jq .attempt 2>/dev/null)
-      if [ "${att:-9}" -lt 3 ]; then gh run rerun $run --failed -R $R >/dev/null 2>&1 && log "RERUN PR$pr run $run a$att ($bad)"
+      if [ -n "$DRY" ]; then log "DRY PR$pr: CI red ($bad), would rerun run $run (attempt $att)"
+      elif [ "${att:-9}" -lt 3 ]; then gh run rerun $run --failed -R $R >/dev/null 2>&1 && log "RERUN PR$pr run $run a$att ($bad)"
       else flag $pr "CI red after 3 attempts: $bad (run $run)"; fi
       continue
     fi
@@ -145,6 +160,7 @@ for pass in $(seq 1 $MAX); do
       [ -n "$both" ] && shared="$shared ${c:0:8}:[$both]"
     done
     [ -z "$shared" ] || { flag $pr "overlap with main since CI ($cit):$shared -> merge main + merge-only check"; continue; }
+    [ -n "$DRY" ] && { log "DRY PR$pr: every check passed; would run gate done, write the round, ready and merge"; NEWFLAG=1; continue; }
     # gate FIRST (it needs only the reviewer's PASS on the head); a round is written only when the gate passes
     g=$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\\Command Center\\tools\\cc.ps1" gate done -Pr $pr 2>&1 | tr -d '\r')
     echo "$g" | grep -q "GATE done #$pr: PASS" || { flag $pr "gate not PASS: $(echo "$g" | grep -E '^FAIL|GATE' | tr '\n' ' ')"; continue; }

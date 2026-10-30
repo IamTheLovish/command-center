@@ -1,7 +1,7 @@
 #!/bin/bash
 # batchgreen.sh - ONE shared 8-runner green (and one CI) for 2-4 PASSed PRs (lovish approved batch greens, Oct 30, Eris
 # generation). Each PR keeps its own Mode A review and its own red; only the green and the CI are shared.
-# usage: batchgreen.sh [--tests PR=test:a,test:b]... [--dry-run] [--no-split] PR PR [PR [PR]]   (merge order = arg order)
+# usage: batchgreen.sh [--tests PR=test:a,test:b]... [--dry-run] PR PR [PR [PR]]   (merge order = arg order)
 #        batchgreen.sh --resume logs/batchgreen-<name>.state
 # Steps (state in logs/batchgreen-<name>.state, so --resume continues after a stop; nothing is ever cancelled):
 #   1. per PR: open, base main, reviews/pr-N-modeA.md last VERDICT PASS with SHA == head, no red check on the head;
@@ -17,9 +17,8 @@
 #   6. post an evidence comment on each member PR and on the batch PR (run ids, header, per-PR tally lines, verdict);
 #      the marker line "[batch green] batch head <sha>" is what gate-lib.ps1 and automerge.sh look for
 #   7. all PASS (CI green, 0 with any failure): print the automerge plan lines (in merge order, batch=<sha>).
-#      A failure SPLITS the batch: PRs whose own lines failed are out (back to their builder); the rest form a new
-#      batch (2+, this script again) or get their own green on their own head (1); an unattributable failure (INVALID,
-#      NO SAMPLE, a missing line, red CI after 3 attempts) splits in halves. --no-split only reports.
+#      A failure FLAGS every member and merges none: the comments say which members' own lines failed and suggest a
+#      split, but splitting is the coordinator's decision (nothing is re-dispatched; exit 5).
 # Why a batch green is evidence for each member (automerge.sh checks all of it again before each merge): the members
 # merge back to back in this order, so main after the last merge holds exactly the tree the green tested; a member
 # whose turn comes after a dropped member waits (its green included code that will not land) and needs a new green.
@@ -34,12 +33,11 @@ say() { echo "$(date -u +%H:%MZ) $*" | tee -a "$LOGD/batchgreen.log"; }
 die() { say "STOP: $*"; exit "${2:-1}"; }
 
 declare -A TESTS HEAD
-DRY=""; SPLIT=1; PRS=(); STATE=""
+DRY=""; PRS=(); STATE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --tests) TESTS[${2%%=*}]=${2#*=}; shift 2;;
     --dry-run) DRY=1; shift;;
-    --no-split) SPLIT=""; shift;;
     --resume) STATE=$2; shift 2;;
     *) PRS+=("$1"); shift;;
   esac
@@ -142,11 +140,11 @@ if [ -z "$STATE" ]; then
   STATE="$LOGD/batchgreen-$name.state"
   [ -n "$DRY" ] && STATE="$LOGD/batchgreen-$name.dry.state"
   : > "$STATE"
-  st_set prs "${PRS[*]}"; st_set branch "$branch"; st_set split "$SPLIT"
+  st_set prs "${PRS[*]}"; st_set branch "$branch"
   for pr in "${PRS[@]}"; do st_set "head_$pr" "${HEAD[$pr]}"; st_set "tests_$pr" "${TESTS[$pr]}"; done
 else
   [ -f "$STATE" ] || die "no state file $STATE" 2
-  read -ra PRS <<< "$(st_get prs)"; branch=$(st_get branch); SPLIT=$(st_get split)
+  read -ra PRS <<< "$(st_get prs)"; branch=$(st_get branch)
   for pr in "${PRS[@]}"; do HEAD[$pr]=$(st_get "head_$pr"); TESTS[$pr]=$(st_get "tests_$pr"); done
   say "resume $branch: ${PRS[*]}"
 fi
@@ -181,7 +179,7 @@ if [ -z "$bsha" ]; then
     exit 0
   fi
   git push -q origin "$branch" || die "push failed"
-  body=$(printf '%s\n' "Do not merge without lovish's OK. Throwaway batch branch for ONE shared green (tools/batchgreen.sh in the Command Center): never merged; closed once its members merged or the batch split." "" \
+  body=$(printf '%s\n' "Do not merge without lovish's OK." "" "**Batch proof only - never merge.** Throwaway batch branch for ONE shared CI + green (tools/batchgreen.sh in the Command Center). Closed only with lovish's OK." "" \
     "Members in merge order (each keeps its own Mode A review and red):" \
     $(for pr in "${PRS[@]}"; do echo "- #$pr ${HEAD[$pr]}"; done) "" "Base: main $base" "Batch head: $bsha" "Tests: $union" "" \
     "🤖 Generated with [Claude Code](https://claude.com/claude-code)")
@@ -212,7 +210,7 @@ while [ -z "$sid" ]; do
         [ -n "$sid" ] || die "dispatched but no flake-stress run titled for $bsha after 2 min: find it, add sid=<id> to $STATE, --resume"
         st_set cid "$cid"; st_set sid "$sid"
         say "batch #$bpr compiled (CI $cid); green dispatched: flake-stress $sid, $RUNNERS runners, $union";;
-      "completed "*) die "batch #$bpr does not compile (CI $cid, bar build: $step): the members break each other - split by hand" 4;;
+      "completed "*) die "batch #$bpr does not compile (CI $cid, bar build: $step): the members break each other - the coordinator decides the split" 4;;
       *) sleep $POLL;;
     esac
   else sleep $POLL; fi
@@ -260,8 +258,8 @@ for pr in "${PRS[@]}"; do
   if [ -n "$allok" ]; then verdict="PASS on the batch (merge order $idx of ${#PRS[@]}). automerge plan line:"$'\n'"$line"; plan="$plan$line"$'\n'
   elif [ -n "$broken" ]; then verdict="NO EVIDENCE: $broken"
   elif [ "${VERD[$pr]}" = FAIL ]; then verdict="FAIL: this PR's own tests failed in the batch (lines above). Back to its builder."
-  else verdict="SPLIT: no evidence from this batch (another member failed); a new green follows"; fi
-  { echo "[batch green] batch head $bsha"
+  else verdict="FLAG: no evidence from this batch (another member failed); the coordinator decides the split"; fi
+  { echo "[batch green] batch head $bsha base $base members $(for p in "${PRS[@]}"; do echo ${HEAD[$p]}; done | paste -sd, -)"
     echo "Batch PR #$bpr (branch $branch), base main $base; members in merge order: $(for p in "${PRS[@]}"; do printf '#%s %s  ' $p ${HEAD[$p]:0:8}; done)"
     echo "Batch CI (build, pull_request): run $cid $cconc"
     echo "Green: flake-stress run $sid, checked out ${co:-?}, $RUNNERS runners, tests $union"
@@ -277,7 +275,7 @@ done
 { echo "[batch green] batch head $bsha: $hdr; CI $cid $cconc; green $sid"
   for pr in "${PRS[@]}"; do echo "- #$pr ${VERD[$pr]}"; echo "${LINES[$pr]}" | sed 's/^/    /'; done; } > "$LOGD/batchgreen-post-batch.md"
 gh pr comment $bpr -R $R -F "$LOGD/batchgreen-post-batch.md" >/dev/null 2>&1
-st_set result "${allok:+PASS}${allok:-SPLIT}"
+st_set result "${allok:+PASS}${allok:-FLAG}"
 
 if [ -n "$allok" ]; then
   say "BATCH PASS #$bpr: plan lines (merge order; fill red=? from each PR's own red):"
@@ -285,25 +283,9 @@ if [ -n "$allok" ]; then
   exit 0
 fi
 
-# ------------------------------------------------------------------ 7. split
-[ -n "$SPLIT" ] || die "batch did not pass (${broken:-failed: ${fail[*]}}); --no-split: nothing re-dispatched" 5
-if [ -n "$broken" ]; then
-  h=$(( (${#PRS[@]} + 1) / 2 )); groups=("${PRS[*]:0:$h}" "${PRS[*]:$h}")
-  say "SPLIT (unattributable: $broken): halves [${groups[0]}] [${groups[1]}]"
-else
-  groups=("${pass[*]}"); say "SPLIT: out (own tests failed): ${fail[*]}; again: ${pass[*]}"
-fi
-for g in "${groups[@]}"; do
-  read -ra m <<< "$g"
-  if [ ${#m[@]} -ge 2 ]; then
-    args=(); for p in "${m[@]}"; do args+=(--tests "$p=${TESTS[$p]}"); done
-    "$0" "${args[@]}" "${m[@]}" &
-    say "new batch for ${m[*]}: pid $!"
-  elif [ ${#m[@]} = 1 ]; then
-    p=${m[0]}; t0=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    gh workflow run flake-stress.yml -R $R -f ref="${HEAD[$p]}" -f tests="${TESTS[$p]}" -f runners=$RUNNERS \
-      && say "#$p alone: own green dispatched on its head ${HEAD[$p]} (flake-stress titled 'flake-stress ${HEAD[$p]}', after $t0)"
-  fi
-done
-wait
+# ------------------------------------------------------------------ 7. a failing batch: flag every member, merge none
+if [ -n "$broken" ]; then h=$(( (${#PRS[@]} + 1) / 2 )); sug="halves [${PRS[*]:0:$h}] [${PRS[*]:$h}] (unattributable: $broken)"
+else sug="drop ${fail[*]} (own tests failed); ${pass[*]:-none} again (a new batch, or their own green if one is left)"; fi
+for pr in "${PRS[@]}"; do say "FLAG #$pr: batch ${bsha:0:8} did not pass (${VERD[$pr]})"; done
+say "BATCH FAIL #$bpr: no member merges on it. Suggested split (coordinator's call): $sug"
 exit 5

@@ -4,7 +4,7 @@
 # Stub mode (ctx.Stub = folder): gh data is read from files there (openprs.json, auth.txt, pr<N>.json, pr<N>.diff) - used by gate-selftest.
 
 function New-GateCtx([hashtable]$o) {
-  $c = @{ Root = 'D:\Command Center'; Repo = 'D:\BeyondAndTabs-Repo'; Stub = ''; NoCache = $false; NoLog = $false; Verbose = $false; Now = $null; PrCache = @{}; StressCache = @{}; Rows = $null; GhCalls = 0 }
+  $c = @{ Root = 'D:\Command Center'; Repo = 'D:\BeyondAndTabs-Repo'; Stub = ''; BatchClone = 'D:t-batchgreen'; NoCache = $false; NoLog = $false; Verbose = $false; Now = $null; PrCache = @{}; StressCache = @{}; Rows = $null; GhCalls = 0 }
   if ($o) { foreach ($k in $o.Keys) { $c[$k] = $o[$k] } }
   return $c
 }
@@ -49,7 +49,7 @@ function Invoke-GhRaw($ctx, [string[]]$a, [bool]$merge) {
 function Get-GateData($ctx, [string]$kind, [string]$arg = '') {
   if ($ctx.Stub) {
     $f = ''
-    switch ($kind) { 'openprs' { $f = 'openprs.json' } 'auth' { $f = 'auth.txt' } 'pr' { $f = 'pr' + $arg + '.json' } 'diff' { $f = 'pr' + $arg + '.diff' } 'stressruns' { $f = 'stressruns.json' } 'stressrun' { $f = 'stress-' + $arg + '.txt' } 'compare' { $f = 'compare-' + ($arg -replace '\.\.\.', '-') + '.txt' } }
+    switch ($kind) { 'openprs' { $f = 'openprs.json' } 'auth' { $f = 'auth.txt' } 'pr' { $f = 'pr' + $arg + '.json' } 'diff' { $f = 'pr' + $arg + '.diff' } 'stressruns' { $f = 'stressruns.json' } 'stressrun' { $f = 'stress-' + $arg + '.txt' } 'batchtree' { $f = 'batchtree-' + ($arg -split '\|')[0] + '.txt' } }
     $p = Join-Path $ctx.Stub $f
     if (Test-Path -LiteralPath $p) { return @{ Ok = $true; Text = (Read-Text $p); Cached = $false } }
     return @{ Ok = $false; Text = ''; Err = ('stub file missing: ' + $f); Cached = $false }
@@ -71,7 +71,7 @@ function Get-GateData($ctx, [string]$kind, [string]$arg = '') {
     'diff' { $r = Invoke-GhRaw $ctx @('pr', 'diff', $arg) $false }
     'stressruns' { $r = Invoke-GhRaw $ctx @('run', 'list', '--workflow', 'flake-stress.yml', '--limit', '100', '--json', 'databaseId,displayTitle,status,conclusion,createdAt') $false }
     'stressrun' { return (Get-GateStressRun $ctx $arg) }
-    'compare' { $r = Invoke-GhRaw $ctx @('api', ('repos/{owner}/{repo}/compare/' + $arg), '--jq', '.status') $false }
+    'batchtree' { return @{ Ok = $true; Text = (Get-GateBatchTree $ctx $arg); Cached = $false } }
   }
   if ($r.Code -ne 0) { return @{ Ok = $false; Text = ''; Err = ('gh ' + $kind + ' failed: ' + (Get-Trunc $r.Out 120)); Cached = $false } }
   $txt = $r.Out
@@ -122,6 +122,44 @@ function Get-GateStressRun($ctx, [string]$id) {
   $ctx.StressCache[$id] = $res
   return $res
 }
+# Batch greens (tools/batchgreen.sh, Oct 30): is <batch> exactly <base> + the member heads merged in order? arg =
+# "batch|base|h1,h2,..". In the batch work clone (ctx.BatchClone, never D:\BeyondAndTabs-Repo): walk the batch's first
+# parents; each step must be a 2-parent merge whose second parent is the next member (last first) and whose tree equals
+# `git merge-tree --write-tree` of its two parents (no hand-edited merge); the walk must end at base, and base must be on
+# origin/main. The tree is recomputed from git objects, so a wrong "[batch green]" comment cannot pass. 'ok' or why not.
+function Invoke-GGit([string]$dir, [string[]]$a) {
+  $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  try { $o = (& git -C $dir @a 2>$null | Out-String); $c = $LASTEXITCODE } finally { $ErrorActionPreference = $old }
+  return @{ Code = $c; Out = ([string]$o).Trim() }
+}
+function Get-GateBatchTree($ctx, [string]$arg) {
+  $p = @($arg -split '\|')
+  if ($p.Count -ne 3) { return 'bad batchtree argument' }
+  $b = $p[0]; $base = $p[1]; $mem = @($p[2] -split ',' | Where-Object { $_ })
+  if ($mem.Count -lt 2) { return 'a batch needs 2+ members' }
+  $dir = [string]$ctx.BatchClone
+  if ($dir -match '(?i)BeyondAndTabs-Repo') { return 'batch clone must not be D:\BeyondAndTabs-Repo' }
+  if (-not (Test-Path -LiteralPath (Join-Path $dir '.git'))) {
+    $r = Invoke-GGit (Split-Path -Parent $dir) @('clone', '-q', '--filter=blob:none', 'https://github.com/IamTheLovish/Beyond-and-Tabs.git', $dir)
+    if ($r.Code -ne 0) { return ('cannot clone the batch work clone ' + $dir) }
+  }
+  [void](Invoke-GGit $dir @('fetch', '-q', 'origin', 'main', $b))   # a failed fetch leaves the objects missing: checks below fail
+  $cur = $b
+  for ($i = $mem.Count - 1; $i -ge 0; $i--) {
+    $pl = @((Invoke-GGit $dir @('rev-list', '--parents', '-n', '1', $cur)).Out -split '\s+' | Where-Object { $_ })
+    if ($pl.Count -ne 3) { return ('not a 2-parent merge: ' + $cur) }
+    if ($pl[2] -ne $mem[$i]) { return ('second parent of ' + $cur.Substring(0, 8) + ' is ' + $pl[2].Substring(0, 8) + ', not member ' + ($i + 1)) }
+    $mt = Invoke-GGit $dir @('merge-tree', '--write-tree', $pl[1], $pl[2])
+    if ($mt.Code -ne 0) { return ('member ' + ($i + 1) + ' conflicts with the batch before it') }
+    $want = @($mt.Out -split '\r?\n')[0].Trim()
+    $have = (Invoke-GGit $dir @('rev-parse', ($cur + '^{tree}'))).Out
+    if (-not $want -or $want -ne $have) { return ('tree of ' + $cur.Substring(0, 8) + ' is not the merge of its parents') }
+    $cur = $pl[1]
+  }
+  if ($cur -ne $base) { return ('the walk ends at ' + $cur + ', not the base ' + $base) }
+  if ((Invoke-GGit $dir @('merge-base', '--is-ancestor', $base, 'origin/main')).Code -ne 0) { return ('base ' + $base.Substring(0, 8) + ' is not on main') }
+  return 'ok'
+}
 # M20 (Oct 27 night): flake-stress runs given bare test names ran 0 tests ("All 0 required tests passed" on every runner)
 # and were posted as "[Stress] 0 with any failure"; #273 and #289 merged on them. Every new @GameTest now needs a
 # flake-stress run of the PR's own branch (or one of its commits) whose summary names it: "<name>: failed 0, passed N"
@@ -157,15 +195,24 @@ function Test-GateStress($ctx, $d, [string]$n, [string]$diff, $L) {
     if ([regex]::Match($s.Text, '(?m)^workflow:\s*(.*?)\s*$').Groups[1].Value -ne 'flake-stress') { continue }
     $ref = [regex]::Match($s.Text, '(?m)^ref:\s*(.*?)\s*$').Groups[1].Value
     $mine = ($ref -and (($ref -eq $branch) -or (($ref.Length -ge 7) -and @($oids | Where-Object { $_.StartsWith($ref) }).Count -gt 0)))
-    # batch green (tools/batchgreen.sh, Oct 30): a run of a throwaway batch head = main + 2-4 PASSed heads counts for a
-    # member only when the PR itself names that exact head ("[batch green] batch head <40 hex>", posted by the tool) AND
-    # the batch head contains the PR's head (compare: ahead or identical). Any other descendant (a stacked branch, a
-    # later fix) still counts as another ref. automerge.sh checks the merge order, the batch's files and its CI.
-    if (-not $mine -and $ref -match '^[0-9a-f]{40}$' -and $d.headRefOid -and $prTxt -match ('\[batch green\] batch head ' + $ref + '(?![0-9a-f])')) {
-      $cmp = Get-GateData $ctx 'compare' ([string]$d.headRefOid + '...' + $ref)
-      if ($cmp.Ok -and @('ahead', 'identical') -contains ([string]$cmp.Text).Trim()) { $mine = $true; $id = $id + ' batch ' + $ref.Substring(0, 8) }
+    # batch green (tools/batchgreen.sh, Oct 30): a run of a throwaway batch head counts for a member only when the PR
+    # names it ("[batch green] batch head <40 hex> base <40 hex> members <h1>,<h2>,..", posted by the tool), the PR's
+    # own head is a member, and Get-GateBatchTree recomputes the batch as exactly base + the members merged in order.
+    # The comment only points; the git objects decide. Any other descendant (a stacked branch, a later fix) is another ref.
+    $why = ''
+    if (-not $mine -and $ref -match '^[0-9a-f]{40}$' -and $d.headRefOid) {
+      $bm = [regex]::Match($prTxt, ('\[batch green\] batch head ' + $ref + ' base ([0-9a-f]{40}) members ((?:[0-9a-f]{40},)*[0-9a-f]{40})(?![0-9a-f])'))
+      if ($bm.Success) {
+        $mem = @($bm.Groups[2].Value -split ',')
+        if ($mem -notcontains [string]$d.headRefOid) { $why = 'batch: the head is not a member' }
+        else {
+          $bt = Get-GateData $ctx 'batchtree' ($ref + '|' + $bm.Groups[1].Value + '|' + ($mem -join ','))
+          $btt = ''; if ($bt.Ok) { $btt = ([string]$bt.Text).Trim() } else { $btt = [string]$bt.Err }
+          if ($btt -eq 'ok') { $mine = $true; $id = $id + ' batch ' + $ref.Substring(0, 8) } else { $why = 'batch: ' + $btt }
+        }
+      }
     }
-    if (-not $mine) { if ($ref) { [void]$elsewhere.Add($id + ' (' + $ref + ')') }; continue }
+    if (-not $mine) { if ($ref) { $w = ''; if ($why) { $w = '; ' + $why }; [void]$elsewhere.Add($id + ' (' + $ref + $w + ')') }; continue }
     [void]$onBranch.Add($id)
     foreach ($nm in $names) {
       $m = [regex]::Match($s.Text, '(?m)^' + [regex]::Escape($nm) + ':\s*failed\s+(\d+),\s*passed\s+(\d+)')
