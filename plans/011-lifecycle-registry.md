@@ -1,132 +1,312 @@
-# 011 - lifecycle registry (one place that resets per-match and per-world state)
-
-- **Goal:** every static mutable collection on the server side is cleared by one registry call from `resetRTS` (rematch) and from server stop, and a JUnit scan fails the build for any new one that is neither registered nor allow-listed.
-- **Lane:** Lane A (server state, CI). Post on issue #35 before touching `player/PlayerServerEvents.java` (shared file).
-- **Branch:** `claude/improve-011-lifecycle-registry`
-- **Claim:** `python3 tools/claim.py check lifecycle registry resetRTS` then `python3 tools/claim.py take improve-011 --lane "Lane A" --branch claude/improve-011-lifecycle-registry --what "LifecycleRegistry: one reset/stop call for per-match state (plan 011)"`. Release it when the last PR merges.
-- **Model / effort:** sonnet, high (size M, 3+ PRs). Not gameplay timing, not fog.
-- **Written against:** origin/main `bbbdac21`.
-- **Drift check (run first):**
-  `git fetch origin && git diff bbbdac21..origin/main --stat -- bar/src/main/java/com/solegendary/reignofnether/player/PlayerServerEvents.java bar/src/main/java/com/solegendary/reignofnether/registrars/ServerEventRegistrar.java bar/src/main/java/com/solegendary/reignofnether/startpos/CapturePointServerEvents.java bar/src/main/java/com/solegendary/reignofnether/bot/BotServerEvents.java bar/src/main/java/com/solegendary/reignofnether/unit/UnitKills.java bar/src/main/java/com/solegendary/reignofnether/hero/HeroProgression.java bar/src/main/java/com/solegendary/reignofnether/building/BuildingReclaim.java bar/src/main/java/com/solegendary/reignofnether/unit/UnitServerEvents.java`
-  If any of these changed, STOP and report which, with the diff stat. (Exception: open PR #248 `claude/security-state-fixes` edits `UnitServerEvents.java`; see "Do not redo".)
-
-## Context (paths relative to `bar/src/main/java/com/solegendary/reignofnether/`)
-
-**The problem, verified.** A rematch calls `PlayerServerEvents.resetRTS(boolean hardReset)` (`player/PlayerServerEvents.java:1262-1344`), itself called from `matchstart/MultiplayerLobby.java:494`. It clears state by hand, one line per module, e.g. lines 1264-1284:
-```java
-ResignVoteServerEvents.clear();
-MultiplayerLobby.onReset();
-lastBeaconTicksSent.clear();
-...
-com.solegendary.reignofnether.mana.WardServerEvents.clearAll();
-com.solegendary.reignofnether.ability.abilities.LeyLink.clearAll();
-```
-Server stop is the same idea spread over about 72 files that each have their own `@SubscribeEvent ... onServerStopping(ServerStoppingEvent)` (e.g. `mana/WardServerEvents.java:246-249` just calls `clearAll()`).
-
-Modules with static collections that `resetRTS` does NOT clear (read each before editing; lines on bbbdac21):
-- `startpos/CapturePointServerEvents.java:115-120`: `points`, `hired`, `recruits`, `badRecruitWarned` (cleared only at stop, lines 380-385).
-- `bot/BotServerEvents.java:31-33`: `brains`, `thinkFailures` (cleared at stop, line 112; a missing brain is rebuilt from world state for any bot in `rtsPlayers`, line 47, so clearing on reset is safe).
-- `unit/UnitKills.java:34-36`: `dirty`, `ids`, `counts` (stop handler line 117 clears only `dirty`).
-- `hero/HeroProgression.java:184-186`: `scratch` (harmless) and `holdCarry` (hero id -> fractional XP). It has NO stop handler at all.
-- `building/BuildingReclaim.java:47`: `active` (cleared at stop, line 168).
-
-**Second defect: `getAllUnits()` hands out the live list.** `unit/UnitServerEvents.java:209-211` returns `allUnits`; `resetRTS` line 1291 does `UnitServerEvents.getAllUnits().removeIf(...)` from outside, which skips `allUnitsModCount++` (bumped only at `UnitServerEvents.java:282, 522, 564`). `player/PlayerPanelServerEvents.java:196-203` caches army totals on `getAllUnitsModCount()` AND `units.size()`, so a removal that shrinks the list is caught by the size check; a removal followed by an add inside the 1.5 s cache window is not. Fix: add `UnitServerEvents.removeUnitsIf(Predicate<LivingEntity>)` that removes and bumps the counter, and call it from line 1291.
-
-**Do NOT redo what open PR #248 (branch `claude/security-state-fixes`) already fixes:** `HeroServerEvents.fallenHeroes`, `UnitServerEvents.savedTargetResources`, `BlockServerEvents` temporary blocks (it also adds `gametest/WorldStopGameTests.java`, reuse its approach once merged). If #248 has not merged, leave those three alone and allow-list them with `# fixed in PR 248`. After it merges, `git fetch` and rebase before step 2.
-
-**Convention to follow (exemplar):** `bar/src/test/java/com/solegendary/reignofnether/perf/RenderStageGateTest.java` is a JUnit test that reads Java source as text (`Path.of("src/main/java/com/solegendary/reignofnether/...")`, falling back to `bar/src/main/...` when run from the repo root) and asserts a rule, because JUnit cannot load Minecraft classes. Use the same method for the scan. Server event classes are registered in `registrars/ServerEventRegistrar.java:47-120` (`vanillaEventBus.register(X.class)`).
-
-**Hard rules (all apply):**
-1. Tests first, red on main: each PR's first commit is the failing test, pushed and seen red in CI before the fix commit.
-2. Client code must not leak into server code: `python3 tools/check_server_client_imports.py` passes (part of prepush). The registry package imports nothing from `net.minecraft.client`.
-3. Fog of war and Audience rules are untouched; no packet changes.
-4. No file crosses 1,000 lines. `PlayerServerEvents.java` is already far over: your net change there must be <= 0 lines. New classes stay small.
-5. `python3 tools/check_java.py` reports 0 structural errors; run `bash tools/prepush.sh` before every push.
-6. Any new GameTest: 10-run flake-stress and read the `[Stress]` annotation, not the job colour (commands in the PR template). New GameTests go in their own class and in no shard list (they land in shard 1).
-7. Commit by explicit path (never `git add -A` / `git add .`), identity `git -c user.name=IamTheLovish -c user.email=IamTheLovish@users.noreply.github.com commit`, end each commit message with the trailers your session gives you. Never push `main`, never force push. Push at the first working commit.
-
-## Design (decided, do not redesign)
-
-`lifecycle/LifecycleRegistry.java` - pure Java, NO Minecraft imports, so JUnit can load it:
-```java
-public final class LifecycleRegistry {
-    public record Reset(boolean hard, boolean keepWorld) { }      // keepWorld = sandbox or scenario (resetRTS line 1270)
-    public interface Module {
-        String name();
-        default void onMatchReset(Reset r) { }
-        default void onWorldStop() { }
-        static Module of(String name, java.util.function.Consumer<Reset> onReset, Runnable onStop) { /* null-safe */ }
-    }
-    public static void register(Module m);                 // duplicate name -> IllegalStateException
-    public static void matchReset(Reset r);                // registration order; a throwing module goes to errorSink, the rest still run
-    public static void worldStop();                        // reverse registration order, same isolation
-    public static java.util.List<String> names();
-    public static java.util.function.BiConsumer<String, Throwable> errorSink = (n, t) -> t.printStackTrace();
-    static void clearForTests();
-}
-```
-`lifecycle/LifecycleBootstrap.java` (Minecraft side): `public static void registerAll()` with one line per migrated module, e.g. `LifecycleRegistry.register(Module.of("capturePoints", r -> CapturePointServerEvents.resetMatch(), CapturePointServerEvents::clearForStop));`, and it sets `errorSink` to `ReignOfNether.LOGGER.error`. Called once, first line of `ServerEventRegistrar.registerServerEvents()`.
-`lifecycle/LifecycleServerEvents.java`: `@SubscribeEvent onServerStopping(ServerStoppingEvent)` calls `LifecycleRegistry.worldStop()`; registered next to the others in `ServerEventRegistrar`.
-Module methods are plain `static` methods on the existing class; reuse the existing clearing body (e.g. `WardServerEvents.clearAll()`), rename nothing.
-
-## Steps
-
-### Step 1 - registry, scan test, allow-list (PR 1)
-1a. Write `bar/src/test/java/com/solegendary/reignofnether/lifecycle/LifecycleRegistryTest.java` first (JUnit 5, table style): (i) `matchReset` calls modules in order with the same `Reset`; (ii) `worldStop` calls them in reverse; (iii) a throwing module does not stop the others and the sink gets its name; (iv) a duplicate name throws; (v) `clearForTests` empties it. Commit it with a skeleton `LifecycleRegistry` whose methods throw `UnsupportedOperationException("skeleton")` so CI shows RED for the right reason. Push, then implement.
-GATE 1a: `python3 tools/ci_wait.py --pr <N>` after the first push prints RED naming `LifecycleRegistryTest` with `skeleton`; after the implementation commit it prints GREEN and the `JUnit summary` notice count is 5 higher.
-1b. Write `LifecycleScanTest.java` (same package) modelled on `RenderStageGateTest`. Walk `src/main/java/com/solegendary/reignofnether` (fallback `bar/src/main/java/...`); skip file names ending `ClientEvents.java` or `Client.java`, files importing `net.minecraft.client`, and the directories `gametest/` and `mixin/`. In each remaining file find (multiline) fields matching
-`^\s*(public |private |protected )?static (final )?[\w.<>, ?\[\]]*?(Map|List|Set|Deque|Queue|Collection|ArrayList|HashMap|HashSet)\b[\w.<>, ?\[\]]*?\s+(\w+)\s*=\s*new\b` plus fastutil `Int*/Long*` Set/List/Map. A hit `Class.field` passes only if the class simple name occurs in `lifecycle/LifecycleBootstrap.java` OR the line `Class.field` / `Class.*` is in `bar/src/test/resources/lifecycle-allowlist.txt`. The failure message lists every unregistered hit with file and line. Also fail on allow-list lines that match nothing.
-Generate the first allow-list by running the scan with an empty list and copying the failure list in, grouped with `# reason` comments: `# pure caches / scratch lists`, `# registry data loaded at startup`, `# fixed in PR 248`. Do NOT allow-list the five modules in Context: they are registered in step 2.
-GATE 1b: with an empty allow-list the test is RED listing the fields (put the count in the PR; a rough scan on bbbdac21 found about 110-330 candidates depending on the filter); with the generated list it is GREEN; `python3 tools/check_java.py` prints 0 structural errors.
-1c. Add `UnitServerEvents.removeUnitsIf(Predicate<LivingEntity>)` and use it at `PlayerServerEvents.java:1291`. Test first in a new GameTest class `gametest/LifecycleResetGameTests.java` (JUnit cannot load `UnitServerEvents`): spawn two units, record `getAllUnitsModCount()`, call `resetRTS(true)`, assert the count changed. Red on main, then fix.
-GATE 1c: flake-stress per the PR template shows `10 runners; 0 with any failure` and `<test>: failed 0, passed 10`.
-
-### Step 2 - migrate modules, a few per PR
-For each module: (a) add a line to `LifecycleResetGameTests` that fails on main (fill the module's state, call `PlayerServerEvents.resetRTS(false)` or `LifecycleRegistry.worldStop()`, assert empty); (b) add its `Module.of(...)` line to `LifecycleBootstrap`; (c) delete the class's own `onServerStopping` handler if it only cleared; (d) delete its line from `resetRTS`; (e) delete its allow-list entry.
-First PR = the five known gaps: `CapturePointServerEvents` (on match reset clear `hired`, `recruits`, `badRecruitWarned`; keep `points` unless a rematch re-stamps sites - read `stampFor` at line 286 and `onServerTick` at line 388 first; on world stop clear all four), `BotServerEvents` (`brains`, `thinkFailures`), `UnitKills` (`dirty`, `ids`, `counts`), `HeroProgression.holdCarry`, `BuildingReclaim.active`. Then 3-5 modules per PR from the allow-list, smallest first. A module that must survive a rematch in sandbox/scenario checks `Reset.keepWorld()`.
-If a module's semantics are unclear (per match or per world?), do not guess: leave it allow-listed with `# unclear: ask` and list it in the PR.
-GATE 2 (each PR): `bash tools/prepush.sh` ends with no failures; `python3 tools/ci_wait.py --pr <N>` prints GREEN; `LifecycleScanTest` green; allow-list shorter than before.
-
-### Step 3 - resetRTS iterates the registry (last PR)
-Replace the hand-written module clears in `resetRTS` with one call `LifecycleRegistry.matchReset(new LifecycleRegistry.Reset(hardReset, isSandboxOrScenario))` where `MatchRoster.clearLive()` stands (line 1272). Keep in place anything that kills entities, destroys buildings, sends packets or changes game modes (lines 1286-1311, 1315-1321, 1323, 1332-1335, 1339-1341): those are match actions, not state clears.
-GATE 3: `git diff --stat origin/main -- bar/src/main/java/com/solegendary/reignofnether/player/PlayerServerEvents.java` shows more deletions than insertions; the rematch GameTest passes 10 of 10 in flake-stress; the allow-list keeps only `# pure caches` and `# registry data` groups.
-
-## Out of scope
-Changing what any module stores; saving data (plan 014); renaming classes; client-side state; the three items PR #248 fixes; making `getAllUnits()` unmodifiable (only `removeUnitsIf` now).
-
-## STOP conditions (report, do not push on)
-- The drift check shows changes.
-- A module you register makes an unrelated GameTest go red: revert that module, allow-list it `# unclear: ask`.
-- A static collection owned by a Mixin class (cannot be reached): allow-list with reason and list in the PR.
-- CI red for a reason you cannot explain after one fix attempt, or the same test is red on main (check `tools/known_flakes.txt` first).
-
-## Done criteria
-- `LifecycleRegistry`, `LifecycleBootstrap`, `LifecycleServerEvents` exist; `LifecycleRegistryTest` and `LifecycleScanTest` green.
-- A rematch clears CapturePoint hired/recruits, Bot brains, UnitKills, HeroProgression.holdCarry, BuildingReclaim.active (GameTest proves it).
-- `resetRTS` removes units through `removeUnitsIf` and calls the registry, and is shorter than before.
-- The allow-list lists only intentional exceptions, each with a reason.
-
-## PR body template
-```
-## What
-<one sentence: which step / which modules>
-
-## Why
-Rematch (resetRTS) left <list> alive; server stop used ~72 separate handlers. One registry, one scan test.
-
-## Evidence
-- Red commit <sha>, CI run <id>: <test> failed with <message>
-- Green commit <sha>, CI run <id>
-- Allow-list size: before <n>, after <m>
-- Flake-stress (GameTests): run <id>; [Stress] annotation: "10 runners; 0 with any failure", "<test>: failed 0, passed 10"
-  read it with: gh run view <id> --json jobs --jq '.jobs[]|select(.name=="summary")|.databaseId'
-  then: gh api repos/IamTheLovish/Beyond-and-Tabs/check-runs/<jobid>/annotations --jq '.[].message'
-
-## Numbers for lovish
-none (no gameplay numbers changed)
-
-Do not merge without lovish's OK
-```
-
-## Return format (max 200 words)
-PR number(s); for each GATE the command run and its one-line result; allow-list size before/after; anything left as `unclear: ask`; `resetRTS` lines before/after. Nothing else.
+CCENC1 fa8f91c86505819f5cc81cca1dce9cbf
+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

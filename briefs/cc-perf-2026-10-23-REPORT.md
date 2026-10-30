@@ -1,81 +1,248 @@
-# Report: cc-perf-2026-10-23 (acct B, gen-012, Claude Code on lovish's PC)
-
-## Summary (updated 22:00)
-| item | PR | state | numbers |
-|---|---|---|---|
-| 1 buildingDecor hitch | #202 | MERGED 294cd477 | crowd zoom 2.08 -> 0.00 ms, close 1.17 -> 0.32 ms (eyes, shaders, 505 units) |
-| 2 worldMarkers | #202 + #214 | MERGED f3b3008d, partial | crowd zoom 3.73 -> 2.22 (#202) -> 1.42 ms (#214); close zoom 3.59 -> 2.65 ms; target < 1 ms NOT met. #214: BlockClientEvents fetched getBuffer every frame even when nothing was drawn (ends the open batch); range-indicator buildings/units refreshed every 5 ticks. Remaining: markersRange ~0.8 ms with cheap loops - needs a finer split. Numbers indicative (runner speed varied). |
-| 3 unit models at strategic zoom | #202 | MERGED | crowd zoom unitBodies 22.29 -> 1.20 ms (icons +2.28); close zoom unchanged |
-| 4 server per-unit vanilla tick | #207 | MERGED fb82fade | push via UnitGrid. Measured: stress_building_scans (300 idle vindicators + 1,000 buildings, whole server tick, grid phase), 5 samples each: BEFORE 49daa4d median 19.55 ms/tick (14.9-21.4), AFTER fb82fade median 17.99 (14.5-19.7), about -1.6 ms/tick (-8%). Ranges overlap: right direction, imprecise size (runs 40060818145 / 40060819829). Consistent with ~2-3 ms at 450 units if linear; the -5 ms target is not reached by this alone. |
-Also merged: #174 (main red -> green), #208 (server log spam), #212 (benchmark crowd zoom), #213 (known flakes), #215 (bots re-picking unreachable sites: root of the T2 flake). Parked: #203 (wet metal pads, island fallback, lovish's call). #199 is superseded by #174 and still open.
-Server follow-ups: #217 merged c1b0e52f (revived #173: one mount search per call instead of one per unit; neutral-aggro scan skips units, behaviour equal). #218 (revived #119: target acquisition through an entity grid, combat/attack-move/target-scan GameTests green; its own benchmark showed targeting 1.80 -> 0.25 ms/tick on the old base) merges with idle aggro kept at 4 ticks.
-**Question for lovish:** idle units looking for enemies every 8 ticks (0.4 s) instead of 4 (0.2 s) halves those lookups again (80 -> 40 per tick at 300 idle units). The code marks it "GAMEPLAY NUMBER (lovish to approve)". Yes or no? It's one constant: AttackerUnit.IDLE_AGGRO_TICKS.
-
-**lovish, in your next late-game match:** FPS at 450+ units around zoom 50-70; units still spread out and titans still shove infantry; bots don't stand still at metal patches; extractors place on patches near water (some still won't: #203). Off switch for the icon change: `unit_render_lod = false`.
-
-Intake (16:40): no code changed yet.
-
-## Finding: items 1-3 already have a PR
-PR #202 (draft, branch `claude/perf-late-game`, head 10f617b): an earlier PC Claude Code session (D:\BeyondAndTabs-Repo, 01:55-02:04 ET, see ledger 04:31) did it before this brief was written. The brief and the 16:15 handoff don't mention it.
-- d6d4b02 tests first (UnitIconCrowdRulesTest, FrameBudgetTest, RenderStageGateTest; red = they don't compile on main).
-- 10f617b: crowd-scaled icon switch + model skip in EntityRenderDispatcherMixin.shouldRender (item 3), stage gate in front of the FrameParts timer and Iris call in all 14 level-stage handlers + frustum culling of metal rings and gems, banners, mill parts (item 2), one banner mount per frame via FrameBudget (item 1).
-- Claim `perf-late-game` on #91, 05:56Z, until 2026-10-24T05:56Z (Lane A).
-- Decision (technical): this seat continues #202 as that session's successor. No parallel branch.
-
-## CI on 10f617b: red
-build, changes, ruff and bar-tests 2-9 pass. **`bar` (compile + shard 1, where new tests run) fails** at exit code 1; the annotations don't give a cause. The job log (run 39909198368, job 120268053279) is 403 without a login, so the cause is unknown. All the other shards passing suggests the code compiles and a shard-1 test fails, but that isn't confirmed.
-
-### Fix (17:05)
-The cause was the test, not the game code: `RenderStageGateTest` (JUnit, line 49) treated the private helper `StatueRenderClientEvents.draw(RenderLevelStageEvent)` as a handler, and that helper has no FrameParts section. Commit e05c152 matches only `@SubscribeEvent` handlers. Checked: 15 handlers found; all 15 gated on the branch, all 15 ungated on main, so the test is still red on main and not weakened. check_java: 0 structural errors. CI rerun pending (tools/ci_wait.py --pr 202).
-Local prepush on Windows: `ruff (tools)` and `animation lab data` fail on the unchanged tree too, while CI passes both. That's a PC environment difference, not this branch; not investigated yet.
-
-### CI and review (18:20)
-- CI green on 0db999e (main merged in; first attempt red only on the bots_reach_tier_2 flake: 1/5 on main, stress run 40022354822).
-- Mode A pass. One rule (UnitLodRules.skipUnitModel) serves both the dispatcher cull and the render-event net; the budget is a plain counter; off-screen decor is frustum-culled. Visible default change: icons from zoom ~49 instead of 70 at 600+ known units, off with `unit_render_lod = false`. Note: with shaders the banner handler can run twice a frame, so the budget is effectively 2 mounts/frame. Still bounded.
-
-### Benchmark gap found (18:10)
-eyes overlays (scene 18) measured only zoom 30 and 200 and didn't report buildingDecor/worldMarkers, so it can't see any of #202's three changes (the LOD change acts at zoom 49-70). BEFORE on main 5ce0ea3, shaders (run 40021956473): zoom 30 unitBodies 37.31 ms, overlays+HUD 8.05 ms; zoom 200 unitBodies 0.38, strategicIcons 5.25, hud 5.25, overlays+HUD 13.69 ms. CI frame times are ~1.2 s (software GL), so only the per-section CPU ms mean anything.
-Fix: PR #212 adds a crowd-zoom 60 slice plus buildingDecor and worldMarkers to scene 18 (measurement only). After it merges: BEFORE on main and AFTER on #202, plain + shaders.
-
-### BEFORE -> AFTER (19:55), eyes overlays scene 18 with shaders (Complementary), 505 units + 1,715 buildings, CPU ms per frame, medians of 4 slices
-BEFORE main 48e3586 (run 40029740744); AFTER #202 4b6bcd9 (run 40031791643).
-
-| zoom | section | before | after |
-|---|---|---|---|
-| 60 (crowd) | unitBodies | 22.29 | **1.20** |
-| 60 | strategicIcons | 0.00 | 2.28 (icons drawn instead) |
-| 60 | buildingDecor | 2.08 | **0.00** |
-| 60 | worldMarkers | 3.73 | **2.22** |
-| 60 | overlays+HUD | 8.57 | 9.13 |
-| 30 (control) | unitBodies | 38.06 | 37.99 |
-| 30 | buildingDecor | 1.17 | **0.32** |
-| 30 | worldMarkers | 3.59 | 3.53 |
-
-Net at crowd zoom: about -24 ms of our CPU per frame. Close zoom is unchanged, as intended. CI frame times (~1.2 s, software GL) mean nothing; the per-section CPU numbers do.
-Against the brief: item 1 buildingDecor mean 0-0.3 ms (target was max < 3 ms; the max isn't in the scene, but the spike source is capped). Item 3 model cost at crowd zoom -95%; "elsewhere" can't be measured in CI, so lovish's next late-game log is the check. **Item 2 NOT met**: worldMarkers is 2.2-3.5 ms vs the < 1 ms target. #202 only gates the stages; batching the 165 draws into one buffer is still to do (follow-up).
-Plain lane (no shaders): crashes at startup on main as well (Oculus wants Sodium classes; PR #135's subject), so there are no plain numbers.
-Merge: held only by the bots_reach_tier_2 terrain flake. Lands after #203.
-
-For lovish in game: with a big army (200+ units) units turn into icons a little closer in (zoom ~49-70 instead of 70); `unit_render_lod = false` restores the old switch. Banners on a newly revealed base can appear a few frames late.
-
-## Item 4 (server per-unit vanilla work)
-PR #207 (draft, claude/perf-unit-vanilla-tick, claim perf-unit-vanilla-tick), built by a sonnet agent: a unit's vanilla pushEntities finds overlapping bodies through UnitGrid instead of a world entity query (~104 queries per pillager per window in the Oct 22 profile). Tests: PerfPushGameTests (pushScan counted, a pile of 40 units still spreads out).
-Mode A (17:40): BLOCKER, sent back to the builder. It called push() directly, which skips the doPush overrides (TitanMass shoving for War Mammoth/Iron Leviathan/Leviathan, plus Bat/Wraith/Wretched Wraith). Fix: call each entity's own doPush from the mixin, with a GameTest guarding titan shoving through the real push pass.
-Fixed (19:00): ba48738. LivingEntityMixin @Shadow doPush now runs every entity's own override, which also covers WorldTreeWalker and SunColossus. New GameTest a_titan_still_shoves_small_bodies_in_the_push_pass (War Mammoth + 3 Brutes, shove >= 0.1): red on 4e01a78 (pushes 0.05/0.06/0.00) with an earlier setup, green on a6c16a3. Mode A pass. Marked ready; merges on green after #213 (known flakes).
-Numbers: the new lookup costs 0.11 ms/tick for 24 units (CI SysSample). The old cost wasn't measured, so there's no BEFORE -> AFTER yet; ~2-3 ms/tick at 450 units is extrapolated, not measured. baseTick and travel are untouched (nothing provably unused found without an MC classpath).
-
-On hold (19:40): the #207 merge stopped on bots_reach_tier_2, failed twice. Diagnosis (sonnet, read-only): a flake, not the push change. Bot base positions shift with the test count (#207 adds tests), and on some terrain the bots stall on build sites their workers can't reach. The same stalls happen on passing main runs, and #202 (client-only) fails the same test. Root cause found in draft PR #203 (the previous PC session's, same seat): **8 of 48 stamped metal patches refuse every faction's extractor (ground_not_flat), for players too**. A sonnet builder is fixing #203; then #207 and #202 rerun.
-Update (20:30): #203 NOT fixed after 3 rounds. Cause, partial: MetalPatches.stamp (~209-275) stamped a patch with no dry spot within 12 blocks anyway and skipped water columns, leaving a wet pad. Fixes cut refusals to 1-5 of ~50 per map, but some pads are still wet. The latest commit raises an island in open water, which changes the map look (lovish's call), so it is parked as a draft and NOT merged. Next step: log the stamp branch and fluids around a refused patch. It also does not fix the bots flake. So the bot-side fix is now claimed (bot-unreachable-site): a bot drops a site no builder can reach and re-picks, built by the sonnet agent that diagnosed it.
-Update (21:00): PR #215. Cause: BotSiteWatch (~162) marked a cancelled extractor site's patch as bad only within 3D distance 4 of the site's centre. A site raised over its patch has its centre several blocks up, so it never matched and the bot re-laid the same unreachable site every few seconds. Fix: match by column, avoid for 5 min, drop after 3 cancels (existing PATCH_GIVE_UP). Tests: BotSitePatchRuleTest (JUnit) and the bot_leaves_the_patch_of_an_extractor_site_its_workers_could_not_reach GameTest. The red commit didn't compile in CI, so red is by construction, not shown. CI green; flake-stress on bots_reach_tier_2: 0/5 (main 1/5). Mode A pass. Merge chain queued: 215, then main into 207 and 202, then merge both.
-
-## Also done
-- Merged #174 (16:28): main was red since 04:37 (T2 bot test found no dry bases, plus ruff). Main green again at 5ce0ea3. #199 is superseded but left open; permissions blocked closing another session's PR.
-- PR #208: server log spam. A dropped connection logged 78,376 stack traces in 30 s (28 MB); now 1 trace + a count line every 1,000. Tests first, merge on green queued.
-- bots_reach_tier_2... fails on main too (run 40021858426, "never finished its T2 lab"), so it's flaky on main. Stress run 40022354822 (5 runners) is measuring it.
-
-## Blockers
-Cleared 16:55 (lovish gave full access): Python 3.12 + JDK 17 + ruff installed on Windows; `gh` runs with GH_TOKEN from Git Credential Manager, never printed or stored.
-Remaining note: the local repo fetches only `main` (remote.origin.fetch). Harmless, but it hid #202's branch from `git branch -r`.
-
-## For lovish in game
-Nothing to check yet.
+CCENC1 7c1876c97865ef6f3f1e22f7a99f2afb
+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
+urb3GQEERH3tRzzm0UrTxpRzGQM=

@@ -1,58 +1,87 @@
-# Revision round, Oct 29 night (Command Center Erin)
-
-lovish (typed ~21:05Z): "lets make sure to revise and improve". The source is every reviewer's non-blocking notes on tonight's heads (reviews/pr-N-modeA.md).
-
-Rule for this round: queued proof runs are not thrown away.
-- **A, before merge:** spec mismatches and real game bugs on PRs that are not yet proven, or that wait anyway.
-- **B, improvement PR right after merge:** one per builder, branched from main, normal Mode A review plus red 3 / green 8 where game code changes.
-- **C, taste calls for lovish:** none of these are decided without him.
-
-## A. Before merge
-- **366 Tombcaller** (it waits on #374 anyway):
-  - Lobber shells must hit tombstones at the defence rate of 54, per Revision 1 (draft line 79). BombardShell.onHit gives them only unit splash. Add the rule and a test.
-  - Raise Tombstone accepts 1-deep water (RaiseTombstone.java:124, :132). Refuse it, or place on the floor under the water.
-- **371 Grave Adept:** r2 blockers B1 (save/reload) and B2 (EventPriority.LOW), already sent.
-
-## B. Improvement PRs after each merge
-- **391 bots tier-2:**
-  - Cache the structure footprint (NBT) per building type: a fully failed search on rolling ground is still ~261 reads against main's 65, and the Horde nether fallback repeats it per zone every think.
-  - Run techDiag only when logging.
-  - Fix the cut comment at BotPlayer.java:605.
-  - Make the 3-min cap stop re-arming on every army dip.
-  - Now, in the PR body only: correct "a failed search costs what it did before", and add the floating-annex order (:629-635) to Scope.
-- **362 Verdant:**
-  - useEmpower skips stunned/frozen/uncontrollable casters (as AutoCaster.java:106-108 does).
-  - Prune SproutGuardian.GUARDIANS when autocast is off (it leaks until server stop).
-  - Add tests where CROWD / ALLY_HURT / SUMMON_WHEN_FREE autocasts succeed.
-  - Find the heal-test damage source.
-  - Fix the stray javadocs (BotPlayer.java:2197, ThornweaverGameTests.java:146).
-- **365 Horde:** add a test that fails if `autocastEssence` is removed from Hex/BloodTotem.
-- **370 Stormcallers:** add a test where a kited Sage autocasts after its step ends.
-- **372 Brassworks:**
-  - Go through the r1-r5 non-blocking list in pr-372-modeA.md: boil survives capture, multiplicative stacking, client prediction, furnace outlives caster, the autoBoil gates comment, the `boiler_idle` wording, the cap-window comment.
-  - Fix what is a bug; list the rest.
-- **364 Sunforged:** with #363 in, check the r3 note: no "short of essence" HUD spam or behaviour reset from a refused autocast. A test asserts that a low-essence autocast orders nothing.
-- **366 Tombcaller:**
-  - Multi-select Raise Tombstone stops at the first off-cooldown Tombcaller even when it refuses (UnitActionItem.java:569-584). This is shared code, so it gets a careful fix.
-  - Add a vertical reach limit / line of sight.
-  - Add tests for a skeleton crumbling at its end tick and for the creep ending.
-- **380 AI faction:** the stale lang lines go in slice 1b, as agreed.
-- **386 shader slice 2:**
-  - Normalise paths (backslash, case, ./, ..) before the shaderpacks rule.
-  - Require every repo file in the built pack.
-  - oculus.properties must be absent or shaderPack=BeyondAndTabs.
-  - Lift publish-pack.yml:223-225 together with the test.
-
-## C. Taste calls for lovish
-- Verdant:
-  - Roots hits ground enemies only.
-  - The Thornweaver is 1 of 6 uniform bot T2 picks (with the Priestess, up to a third of T2 can be non-fighters).
-  - Ranges 10/8/8 are placeholders.
-- Sunforged: Mender Angel flies 6 blocks up; Sword Seraph stats.
-- Stormcallers:
-  - Captured Spark throws 10 blocks; Thunderhead has a 12-block cast range.
-  - The cloud ends when its Sage dies.
-  - A Sage being chased autocasts a second or two late. Faster means a shared SupportBrain change.
-- Gravebound: about 2 skeletons per 90 s stone (a beat with one standing is skipped).
-- AI faction: a visible enemy crossing a grid cannot hide for up to 2 s after leaving it.
-- Siege lobber (Archon's open question): double it to 108 per shell (a wall in ~10 s)?
+CCENC1 8ec7b8927eec98cd36849aa96c64b16f
+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
+fnIamaLGJKTGijZYWri9HqY1OJ/h4XnEnw==

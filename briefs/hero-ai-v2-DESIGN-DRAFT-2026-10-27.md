@@ -1,305 +1,415 @@
-# Hero AI v2: Technical Design
-
-**Base:** merged HeroBot (PR 224, merged 2026-10-26) Â· **Codemap sha:** bbbdac21 Â· **Decisions:** D030 (flee vs orders), D031 (auto-spend)
-
-> **Input gaps.** Only two inputs were attached: the brief and the **hero** codemap. The hero codemap was saved at `codemap\unit.md`, which looks like a misnamed file. `design/hero_mode.md` and the unit, ability, player and gametest codemaps were **not** attached. Everything I took from them, or from code outside `hero/`, is marked **VERIFY**.
-
----
-
-## 1. Goals and constraints (from the brief)
-
-- **Implementation.** Hand-coded only, with no runtime AI services.
-- **Cost.** Decide about once per second. Use the existing spatial grids and never scan the full map.
-- **Fairness.** The hero only knows what its owner can see.
-- **Orders.** Player orders win (#14), with the D030 exception for FLEE.
-- **Bots.** Bot heroes use the same brain (#17).
-- **Process.** Tests come first. Nothing merges without lovish's OK.
-
----
-
-## 2. Package and classes
-
-**New package:** `com.solegendary.reignofnether.hero.ai`. The location is a proposal; existing files stay in `hero/`.
-
-| Class | Responsibility | Key signatures |
-|---|---|---|
-| `HeroBrain` | HFSM controller, one per AI-driven hero. It owns the state and the sub-components. | `void tick(ServerLevel lvl, long tick)`; `BrainState state()`; `void onPossessionStart()`; `void onPossessionRelease(OrderSnapshot last)` |
-| `BrainState` (enum) | The four top-level states. | `OBEY, ESCORT, FIGHT, FLEE` |
-| `OrderLock` | Checked first, every tick. It holds the active player order, a suspended order, and the danger epoch used by D030. | `void onPlayerCommand(Order o, long tick)`; `void onPlayerSelect(long tick)`; `boolean blocksMovement()`; `boolean holdPosition()`; `boolean fleeAllowed(int dangerEpoch)`; `Optional<Order> resumable()` |
-| `Perception` | Builds a fog-filtered snapshot. It runs only on budgeted scan ticks. | `PerceptionSnapshot scan(Unit hero, long tick)` |
-| `PerceptionSnapshot` (record) | Visible allies, enemies, hostile buildings and projectiles/AoE, hero HP, and observed cooldowns. | immutable |
-| `SeenCooldowns` | Tracks an enemy cooldown only after the owner actually saw the cast (brief H). | `void onCastSeen(UUID caster, AbilityId a, long tick)`; `OptionalLong readyAt(UUID, AbilityId)` |
-| `FightEval` | Lanchester ratio with hysteresis, danger level, and surround detection. | `FightReading evaluate(PerceptionSnapshot s, Personality p, Behaviour b, FightReading prev)` |
-| `FightReading` (record) | Fight assessment output. | `double ratio, Stance stance (ENGAGE/HOLD/DISENGAGE), double danger, boolean surrounded, int dangerEpoch` |
-| `FightUtility` | Utility scoring inside FIGHT, and escape options inside FLEE. It is a refactor of v1 `bestTarget`. | `ScoredIntent best(PerceptionSnapshot, FightReading, Personality, TeamBlackboard)` |
-| `TeamBlackboard` | One per team. Holds the focus target, stun claims, heal stagger and commander-guard flag. | `boolean claimStun(UUID target, long until)`; `Optional<UUID> focus()`; `void proposeFocus(UUID, double score)`; `boolean healSlotFree(long tick)` |
-| `Personality` (record) | Data-only weights per kit: aggression, flee HP, kite range factor, target weights (healer, artillery, low-HP hero, attacker-of-self), and ability-spend weights. | loaded by `PersonalityTable.forKit(HeroKit)` |
-| `Behaviour` (enum) | Per-player setting (#12). | `DEFENSIVE, BALANCED, AGGRESSIVE`; `double engageAt(), disengageAt(), fleeHpOffset()` |
-| `ReactionQueue` | Delays intents by 250Â±100 ms (5Â±2 ticks) using a seeded RNG. Imperfection scales with Behaviour or bot difficulty and can be turned off in tests. | `void push(Intent i, long nowTick)`; `Optional<Intent> pollReady(long nowTick)` |
-| `DecisionLog` | Per-hero ring buffer (64 entries) and a `[HeroAI]` log line. It feeds the debug overlay and records budget hits. | `void record(long tick, BrainState s, String why, FightReading r)`; `List<Entry> recent()` |
-| `TickBudget` | Gates scans with `(tick + heroId) % 20 == 0`, counts scans per tick, and logs overruns. | `boolean scanDue(long tick, int heroId)`; `void noteScan()`; `int hitsThisTick()` |
-| `AutoSpend` (PR3) | Spends ability points on the best-scoring pick (D031). | `Optional<AbilityId> choose(HeroCore core, Personality p, FightStats recent)`; `void maybeSpend(...)` |
-| `HeroAiSettings` (PR3) | Server-side per-hero settings: AI on/off, Behaviour, auto-spend (default on). | `get(UUID hero)`, `set(...)`; cleared on world unload |
-
-### Existing files touched
-
-- `hero/HeroBot.java` (387 lines). This is where the brain is invoked; old casting logic is removed by PR2 (#17).
-- `hero/HeroServerEvents.java`. Handles tick and world-unload cleanup.
-- `hero/PossessionServer.java` (992 lines). Adds possession start/release hooks.
-- `hero/HeroServerboundPacket.java`. Adds new settings actions; the location of the `HeroAction` enum needs **VERIFY**.
-- `hero/HeroClientboundPacket.java`. Syncs settings and the debug line.
-- `hero/HeroKits.java` (749 lines). Personality keys per kit.
-
----
-
-## 3. Tick budget
-
-1. **Every tick (cheap).** Run the `OrderLock` check, poll the `ReactionQueue`, and continue the current intent (path step, keep range).
-2. **Scan ticks only.** When `(tick + heroId) % 20 == 0`, run `Perception.scan` â `FightEval` â transitions â `FightUtility`. This means one scan per hero per second, with 16 heroes spread across 20 slots.
-3. **What the gate covers.** The gate applies **only** to UnitGrid and TargetScan queries. The codemap trap says the v1 hooks also do fog queries per tick. Fog checks therefore move inside the scan, run per candidate only.
-   - UnitGrid and TargetScan class paths: **VERIFY** (likely in `unit/`, not mapped).
-4. **Emergency wake.** Taking damage of at least X% max HP between scans sets `wakeNextTick`. This allows at most one extra scan per hero per second, and the extra scan is still counted.
-5. **Budget hit.** If more than 2 scans happen in one tick, the extras slip to the next tick and `DecisionLog` writes `[HeroAI] budget`.
-6. **Idle and distant heroes.** Use a period of 40 instead of 20 when no visible enemy is within ~32 blocks and there is no order change.
-
----
-
-## 4. Data flow per decision
-
-```
-Player order / select packet âââº OrderLock.onPlayerCommand / onPlayerSelect
-                                         â
-tick ââº HeroBrain.tick
-   1. OrderLock: possessed? â return (PossessionServer drives; PossessionMobMixin â drive)
-   2. ReactionQueue.pollReady â execute intent (move/cast/attack), respecting OrderLock
-   3. TickBudget.scanDue? no â continue current intent; return
-   4. Perception.scan (UnitGrid radius query + fog filter + SeenCooldowns)
-   5. FightEval.evaluate â FightReading (ratio, stance, danger, epoch)
-   6. TeamBlackboard read (focus, stun claims, heal slot)
-   7. Transition:
-        FLEE    if danger â¥ p.fleeDanger AND OrderLock.fleeAllowed(epoch)
-        OBEY    if OrderLock has active order (cast-only-while-executing)
-        FIGHT   if visible enemies and no order
-        ESCORT  otherwise (stay near owner's selected units, PR3)
-   8. FightUtility.best (FIGHT/FLEE; in OBEY only casts that need no movement off the order)
-   9. Blackboard writes (claim stun, propose focus) â ReactionQueue.push(intent)
-  10. DecisionLog.record(state, why, reading)
-```
-
-### FightEval detail
-
-- **Side power.** For each side, `P = (Î£HP) Ã (Î£DPS)`, using only visible units. Hostile defensive buildings in range count on the enemy side; the building attack-data API needs **VERIFY**.
-- **Ratio.** `ratio = P_us / P_them`.
-- **Stance and hysteresis.**
-  - The stance becomes ENGAGE when `ratio â¥ 1.2 Ã b.engageMul`.
-  - It becomes DISENGAGE when `ratio < 0.8 Ã b.disengageMul`.
-  - Otherwise the previous stance holds.
-- **No chasing into towers or bigger armies.** Any target whose position lies inside a visible hostile tower's range, or whose local ratio is below 1.0, gets a heavy penalty in `FightUtility`. In PR1, FightEval blocks pursuit outright.
-- **Surround detection.** `surrounded` is true when at least 3 enemies sit in at least 3 distinct 90Â° sectors within 6 blocks.
-
----
-
-## 5. FLEE vs player orders (D030, exact rules)
-
-`OrderLock` holds three things:
-- `activeOrder` (the latest player order)
-- `suspendedOrder`
-- the epochs `dangerEpoch` and `ackedEpoch`
-
-**Rules:**
-
-1. **New danger.** FightEval sets `danger` from HP fraction, incoming DPS and ratio. Each time `danger` crosses the personality and behaviour flee threshold upward from a *cleared* state, `dangerEpoch++`.
-   - "Cleared" means danger stayed below `threshold â 0.15` for 3 consecutive scans (about 3 s), or the hero healed above `fleeHp + 15%`.
-2. **The hero may flee on its own first.** `fleeAllowed(e)` returns `e > ackedEpoch`.
-   - If an order is active, it moves to `suspendedOrder`; it is not erased.
-   - The hero enters FLEE even under move, attack or hold.
-3. **A fresh player command wins.** Any of the following, issued after FLEE began, sets `ackedEpoch = dangerEpoch`, exits FLEE, and makes the new order active:
-   - a player move, attack, hold, stop or retreat command, or
-   - a **select** of the hero ("selects or commands it again").
-   - If the player only selects the hero, it resumes `suspendedOrder`. If there is none, it goes to OBEY/idle.
-4. **No re-trigger within the same epoch.** Within the same danger epoch, FLEE cannot come back even if HP keeps falling. Under an order in that epoch, the AI may still cast defensive or escape abilities **in place**, without movement abilities that leave the order.
-   - **Proposal to ASK:** should an extra drop of at least 25% max HP after the ack also count as "new danger"? It is off by default.
-5. **When FLEE ends by itself** (safe, danger cleared), the hero resumes `suspendedOrder` if it is still valid. Otherwise it goes to ESCORT/idle.
-6. **Escape by any means (#3).** Inside FLEE, `FightUtility` also scores "kill blocker first", using the blocker's HP, our burst, and the chaser's threat.
-   - Example: a low-HP ranged chaser that would shoot us before we get far gets attacked first.
-   - Escape and movement abilities score highest when their path leads toward the friendly army or commander.
-7. **Possession.**
-   - While a hero is possessed, the brain is fully off.
-   - On release, `onPossessionRelease(last)` loads the player's last order into `activeOrder` (#14).
-   - **VERIFY:** whether `PossessionServer` exposes the last movement or attack target at release (the codemap only says "orders diversion").
-
-**Server-side select events:** **VERIFY.** I found no evidence that the server sees selection. If it doesn't, PR1 adds a `SELECTED` action to `HeroServerboundPacket`, sent by the client when the hero enters the selection.
-
----
-
-## 6. Auto-spend (D031)
-
-- **What it spends:** ability points (brief, `playtest_oct20_lane_c #7/#29`). How ability points are stored in `HeroProgression` or `HeroCore` needs **VERIFY**.
-- **Pick rule.** The best pick is deterministic, not random. For each option:
-
-  `score = Personality.spendWeight[ability] Ã fightFactor + rankSynergy`
-
-  - `fightFactor` comes from `FightStats` for the last N fights: damage taken vs dealt, and the share of deaths spent fleeing.
-  - Ties are broken by kit order in `HeroKits`.
-- **Toggle.** On the hero panel, default **on**. Manual spending is always allowed. A manual spend made before the auto-spend tick simply takes the point.
-- **When it runs.** Auto-spend runs on the hero's scan tick, only when points are above 0 and the hero is not in FLEE.
-- **Bot heroes:** always on.
-- **Doc conflict.** `hero_mode.md` 5b says skill points "stay manual". PR3 must update 5b to cite D031. The file was not attached; **VERIFY** the exact text.
-
----
-
-## 7. Hero-panel settings
-
-- **Move the toggle.** Move the `hero_ai` toggle from HUD settings (#224 client config plus HUD checkbox) to the **hero panel**. The hero panel class is not in the hero codemap: **VERIFY** its location.
-- **Panel controls:**
-  - **Hero AI**: on/off. The existing `HERO_AI_ON/OFF` action is kept.
-  - **Behaviour**: Defensive / Balanced / Aggressive. New action `HERO_AI_BEHAVIOUR`.
-  - **Auto-spend**: on/off. New action `HERO_AUTOSPEND`.
-- **Authority.** The server (`HeroAiSettings`) is authoritative, and the client panel mirrors it via `HeroClientboundPacket`. The current `hero_ai` *client* config becomes only the default sent on join, so that bots and server logic do not depend on client config.
-- **Lifetime.** Settings persist per hero for the match and are cleared on world unload, to avoid the `fallenHeroes` leak pattern. Saving per-hero preferences across matches is roadmap #4 and out of scope.
-
----
-
-## 8. Selection: worker-style drag priority and stay-near
-
-- **Drag-select (#20).** Reuse the worker rule: when a drag box contains any non-worker, non-hero unit, heroes are excluded.
-  - Clicking the hero directly selects it.
-  - A drag containing only the hero (or the hero plus workers, matching the worker rule) selects it.
-  - The location of the worker drag-priority logic needs **VERIFY** (likely `unit/` or `player/` client selection, not mapped). The hero becomes a flagged participant in that same filter, not a second code path.
-- **ESCORT (#19).** This is the idle job.
-  - **Anchor.** The anchor is the centroid of the owner's current selection, excluding the hero. If nothing is selected, it falls back to the commander, then to the nearest friendly group.
-  - **Leash.** The hero targets a 4â8 block offset behind the centroid relative to the nearest visible enemy, re-targeting on scan ticks.
-  - **Source of selection.** This needs the server to know the owner's selection: **VERIFY**. Otherwise a throttled `SELECTION_CENTROID` packet (at most 1 per second, only on change) is added in PR3.
-  - **Bots.** Bots use their army group centroid.
-
----
-
-## 9. PR split (tests listed first in each PR)
-
-**Dependency:** merge **#133** (nightly bot ladder) first. The harness (#9) rides on it rather than building a second one.
-
-The six existing `HeroAiGameTests` from #224 have unknown names. **VERIFY** overlap, and rename or extend them rather than duplicating.
-
-### PR1: OrderLock, Perception, FightEval, DecisionLog, plus a thin HFSM shell (OBEY/FLEE only)
-
-**Tests:** `HeroAiGameTests`
-- `move_order_not_overridden`
-- `hold_position_respected`
-- `flee_starts_without_order`
-- `reselect_and_move_overrides_flee`
-- `retreat_threshold`
-- `no_chase_under_towers`
-- *(added)* `fog_hidden_enemy_ignored`
-- *(added)* `fight_eval_hysteresis_1_2_0_8`
-- *(added)* `possession_release_resumes_order`
-
-**New files:**
-- `hero/ai/HeroBrain`
-- `BrainState`
-- `OrderLock`
-- `Perception`
-- `PerceptionSnapshot`
-- `SeenCooldowns`
-- `FightEval`
-- `FightReading`
-- `DecisionLog`
-- `TickBudget`
-- `Behaviour` (BALANCED only wired)
-
-**Touched files:**
-- `hero/HeroBot.java` (calls `HeroBrain`; v1 casting stays for now)
-- `hero/HeroServerEvents.java` (tick and unload cleanup)
-- `hero/PossessionServer.java` (start/release hooks)
-- `hero/HeroServerboundPacket.java` (`SELECTED`, if needed)
-- the gametest `HeroAiGameTests` file (path **VERIFY**)
-
-**Notes:**
-- The flee tests need a minimal FLEE that runs toward the army, which is why the shell is included.
-- Target pick and combo order are left to PR2, where utility lands.
-
-### PR2: FIGHT utility, ReactionQueue, TeamBlackboard, one brain
-
-**Tests:**
-- `target_pick` (healer > artillery > low-HP hero > attacker-of-self, finishes kills)
-- `combo_order` (stun/slow then damage; gap-closer only if follow-up ready)
-- `no_double_stun`
-- `staggered_heals`
-- `focus_converges`
-- `ranged_kites_at_max_range`
-- `steps_out_of_visible_aoe`
-- `escape_kills_blocker`
-- `skillshot_leads_target`
-- `reaction_delay_within_150_350ms`
-- `sixteen_heroes_budget` (8v8, budget hits logged, no tick overrun)
-
-**Files:**
-- `hero/ai/FightUtility`, `ReactionQueue`, `TeamBlackboard`
-- `hero/HeroBot.java` (remove old casting, #17)
-- `hero/HeroKits.java` (ability metadata: CC/gap-closer/heal tags, **VERIFY** whether these already exist)
-- `hero/FactionHeroAbility.java` (tags)
-
-**Harness:** reports from #133 cover AI-vs-AI and AI-vs-no-AI, each with imperfection on and off.
-
-### PR3: Selection and hero panel
-
-**Tests:**
-- `drag_select_skips_hero`
-- `click_selects_hero`
-- `alone_drag_selects_hero`
-- `escort_follows_selection`
-- `autospend_picks_best`
-- `autospend_off_leaves_points`
-- `manual_spend_with_autospend_on`
-- `settings_cleared_on_world_unload`
-
-**Files:**
-- `hero/ai/AutoSpend`, `HeroAiSettings`
-- `hero/HeroServerboundPacket.java`, `hero/HeroClientboundPacket.java`, `hero/HeroProgression.java`
-- `hero/HeroClientEvents` (listed client-only in the codemap; not in the key-class list, **VERIFY**)
-- the hero panel UI (**VERIFY**)
-- the selection filter (**VERIFY**, in `unit/` or `player/`)
-- `design/hero_mode.md` (5b update, plus the "Hero AI: keep improving" standing rule)
-
-### PR4: Personalities (data) for tank, assassin and support/caster
-
-These map to three of the seven kits in `HeroKits`; the mapping should go through `HeroRoles.java`.
-
-**Tests:**
-- `personality_tank_holds_frontline`
-- `personality_assassin_targets_backline`
-- `personality_support_saves_dying_ally`
-- `behaviour_defensive_retreats_earlier`
-- `commander_guard_defends_own`
-
-**Files:** `hero/ai/Personality`, `PersonalityTable`, `hero/HeroRoles.java`, `hero/HeroKits.java`.
-
-**Follow-up:** the remaining four kits.
-
-### PR5: Parry/block (new mechanic; 0 hits in the Java)
-
-- 400â600 ms telegraph and a ~200 ms window.
-- **Tests:** `parry_window_200ms`, `telegraph_visible_before_strike`, `ai_parries_telegraphed_strike`.
-- **Files:** **VERIFY** (combat and ability code are not mapped), plus `hero/HeroFx.java`.
-
-### PR6+: Per-hero animation and effects polish
-
-This is the art lane, following the bat-animation-study and bat-art-director skills. It stays out of the AI PRs.
-
-### Iteration rule
-
-Each round is one measured change on the #133 harness. Stop after 3 rounds in a row that each improve win rate by less than ~2 points, then hand over to lovish for a playtest.
-
----
-
-## 10. Risks
-
-1. **`HeroProgression.holdCarry` has no stop handler (trap P011).** Auto-spend could interact with carried state. PR3 must audit this path first.
-2. **World-leak pattern (`fallenHeroes`, fixed in #248).** `TeamBlackboard`, `DecisionLog`, `HeroAiSettings` and `SeenCooldowns` must all clear on world unload. A test covers this in PR3.
-3. **Perf trap.** The v1 hooks hit UnitGrid, TargetScan and fog per tick. The PR1 budget and the `sixteen_heroes_budget` test guard this; it must not regress when FIGHT utility grows.
-4. **"Heroes never autocast" (REV).** v2 does cast on its own. Confirm this does not conflict with the unit autocast system's assumptions (**VERIFY**, in `ability/`).
-5. **Possession conflicts.** Two drivers on one mob (`PossessionMobMixin` â `drive`) could fight each other. The brain must hard-return while possessed.
-6. **Server knowledge of selection** (select ack, escort centroid) may need new packets. Both should stay small and throttled.
-7. **Flaky GameTests.** The reaction delay and imperfection are random. Use a seeded RNG, turn imperfection off in tests, and run a 10-run stress pass per the auditor advice.
-8. **Fog fairness leaks** through `Î£HP` of partially visible armies. Count only units visible this scan, not remembered ones.
-9. **Open item to ASK lovish:** should the 25% extra HP drop count as "new danger"? Also, the "near-death flee vs hold order" REV item is now settled by D030; close it in `review/`.
-10. **#133 not merged.** The harness, and the stop rule that depends on it, would be blocked. If #133 stalls, PR1 can still merge on GameTests alone.
+CCENC1 9e886a7e479ad39fe6b650d572bc0857
+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

@@ -1,20 +1,77 @@
-# Essence caster per race: shared brief (Command Center Rust, Oct 29)
-
-lovish approved (decisions: `D:\Claude Vault\10 Projects\Beyond and Tabs\decisions-2026-10-29-rust.md`; design: `D:\Claude Vault\10 Projects\Beyond and Tabs\design-draft-essence-casters-2026-10-29.md`, committed as `design/essence_casters.md` on branch `claude/essence-wisps`):
-- Dead units drop floating essence wisps; a caster gathers them (8 blocks, holds 30).
-- Each race gets one NEW caster unit, made at that race's T2 lab, with 3 essence abilities (cheap 5 / mid 10 / big 20 essence; cooldowns 12 / 25 / 60 s) plus the shared Empower (15 essence: one veterancy rank to an ally within 6).
-- Names are placeholders; numbers get tuned later in balance.
-
-## Base you build on
-The essence base (wisps, carriers, spend/add API, Empower) is on branch `claude/essence-wisps` (head f87386d8 or newer), reviewed PASS and waiting for its runs to merge. Branch your race off `claude/essence-wisps`, not main. When the base merges to main, merge main into your branch (normal merge, no force-push). Read the base's PR body and `Essence.java` for the API. Your caster must be an essence carrier, its summons must be marked summoned (they drop no essence), and every ability must refuse without spending essence or setting the cooldown when it cannot act (see `AutoCaster.java:188`).
-
-## How
-1. Clone into your own folder on D: (e.g. `D:\bt-caster-<race>`), branch `claude/caster-<race>` off `origin/claude/essence-wisps`. Never touch `D:\BeyondAndTabs-Repo` or `joisco/` branches; never push to main.
-2. The real game is under `bar/` (`mod/`, `engine/` are an old prototype). Model the unit on the race's existing casters and lab buttons (look at how its T2 lab produces units, `Ability.java`, `AutoRule`, `SupportBrain`, `BarFx` for effects). Placeholder look: reuse an existing body/texture of that race.
-3. GameTests FIRST: the unit is producible at the T2 lab with a cost; it gathers essence; each ability does its effect with the numbers below, spends the right essence, refuses when short (no spend, no cooldown), and its cooldown holds; Empower present. Push tests-only, prove they fail with the `flake-stress` workflow (FULL 40-character SHA, `test:` prefixes), then implement and prove green on 8+ runners. No nested runAfterDelay/onEachTick inside GameTest callbacks; clean up in a try/finally in the last callback (as `EssenceGameTests` does) so cleanup runs however a test ends. `TestCleanup` is NOT on your base (it lives on the unmerged GameTest-cleanup branch): do not merge that branch; switch to it only after it reaches main and you merge main.
-3b. Runner queue: do NOT dispatch flake-stress until the PR's `build` job shows the head compiles (a compile error makes every queued stress run worthless). Then dispatch one red (3 runners) and one green (8 runners) per head; no exploratory runs.
-4. NEVER run Gradle, GameTests or the game locally (lovish plays on this PC). GitHub runners only; cancel no runs.
-5. Commit with `git -c user.name=IamTheLovish -c user.email=IamTheLovish@users.noreply.github.com commit`, trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Open a DRAFT PR whose base is `claude/essence-wisps` until that merges (then retarget to main), body: "Do not merge without lovish's OK", the red and green run ids, and the ability numbers.
-6. Report to the coordinator Command Center Rust (session local_ba489985-988c-41cc-8152-675bd817862a): PR number, head SHA, run ids. Ask lovish nothing directly; send design questions to the coordinator.
-
-Done = a draft PR with red and green proof.
+CCENC1 712534582cbc7f31bb03f0f4f462c8d2
+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
+dmqfvwKBMHo/3uFXLSAResXm6bca4os=

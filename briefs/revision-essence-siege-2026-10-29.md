@@ -1,45 +1,142 @@
-# Design revision: essence casters, siege lobber, anti-siege tower (Oct 29)
-
-Read-only review of the essence draft, the Oct 29 decision logs and main f1a9ba5e (veterancy, wrecks, hero XP, AutoCaster, abilities, design/balance.md, design/defences.md).
-
-## 1. Balance risks
-
-**Summons feed the loops.** Only angels are exempt from essence; tombstone skeletons, Sprout Guardian, Ghost Furnace and the Grave Adept are not, and no summon is exempt from XP orbs ((pop+1)x5 per death) or veterancy kill XP. A tombstone raises a free skeleton every 20 s; it dies, drops 2 essence and an orb, and "orbs within 16 fly to the Adept" lets a Gravebound player feed his own skeletons to his own Adept. DragonRaiseServerEvents already tags risen units this way (no wreck, pop room, 8 per owner).
-
-**Empower has no cooldown.** 15 essence = one rank (+10% HP and damage, 3 ranks). A caster at 30 essence gives two ranks at once; three casters make a Sun Colossus (1840 metal) rank 3 for 45 essence, which the kill path prices at 5520 metal of kills.
-
-**Heals are 2-6x the existing ones.** Bloom (Bloom Priestess, 175 metal) heals 12 HP in radius 8 every 20 s. Grave Tide: 4 HP/s x 8 s = 32 HP per unit, radius 8, every 12 s, for 5 essence. Seed of Renewal: 6 x 12 = 72 HP per unit for 10.
-
-**Damage is out of scale with T1 health (30-80 HP).** Brine Bolt 50 every 12 s for 5 essence one-shots any skirmisher (an Iron Warden's 4.2 DPS on a support unit). Drowned Tithe 8 dmg/s x 8 s = 64 area damage. Captured Spark "120 damage, 4 jumps" is ambiguous: 120 per jump kills four T1 units for 10. Thunderhead 10 x 40 = 400. Solar Lance is 40 on a 45 s cooldown.
-
-**Tombstones.** 3 stones x 2 skeletons = 6 free Skeletons (270 metal) per caster at all times for 30 essence per 90 s, no pop cost stated. A "summoned structure" takes melee at the 0.25x building rate: 300 HP is 1200 effective.
-
-**Grave Adept.** Hero level 2 needs 320 XP, each level +160 more. A level per Empower with no XP table means 30 essence = level 3 soul bolt instantly. The XP burst on death is good, keep it.
-
-**Income across races.** 1 per 25 metal is cost-neutral: a 700 v 700 trade drops ~56 essence, one caster keeps 30, and the cooldowns cap spending at ~69 essence/min per caster. Brassworks dying less changes nothing (both sides' deaths drop). The one asymmetry is Gravebound's 16-block pull on creep: four times the area, two to three times the wisps.
-
-## 2. Counterplay
-
-Every caster is ~40 HP inside 8 blocks of the fight: kill it, Seal or Hex it, or stand your own caster there (nearest caster takes the wisps, both sides harvest). No-counter cases: the Seraph Archer flies, so a melee-only army cannot touch it and the raid tower and HLT are ground-only; Brine Bolt and Rising Tide have only the cooldown; Spirit Puppet has no break condition (Possess is a channel that breaks when the Wraith is hit); Blood Totem and the Seed sapling need stated HP to be targetable; tombstones counter creep only at full damage. Whirlpool and Thunderhead are fine if static (a slowed unit leaves a radius-5 pool in ~2 s).
-
-## 3. Consistency
-
-- "Gravecaller" is already the Gravebound hero (heroes/GravecallerUnit.java, HeroKits.GRAVECALLER). Rename the caster.
-- Hex is Seal plus "cannot attack" for 5 essence against Seal's 25 energy and 20 s; Mender Angel overlaps Witch potions and Bloom; Patch Kit overlaps Repair Crawler and Sapper; Ghost Furnace overlaps DeployTurret; Blood Totem sits next to War Drums; Verdant now has three roots; the Evoker already summons Vexes (30 s life, 60 s cooldown) from the same Sunforged T2 lab.
-- Adept level 5 "raises from fresh corpses" breaks RaiseDead's rule that a raise is never free.
-- Bots: AutoCaster casts for every non-hero unit from a rule inferred by name and shape, so heals, roots, bolts and summons work for bots once an essence gate like autocastEnergy exists. No rule targets a building, so Patch Kit and Soul Boiler are manual-only, and Soul Boiler at the base while essence is at the front makes the caster a courier: micro-heavy, un-BAR-like. Static Step needs SupportBrain's kiting (casters as SupportUnits).
-
-## 4. Lobber, HLT, casters
-
-The range ladder holds: raid tower 14 < lobber 15 < enhanced tower 16 < HLT 20 < Bombard/Mortar 22 < Rocket Battery 24. The HLT (1000 HP, 45 per 1.5 s = 30 DPS, ground only) kills a lobber in two shots from 5 blocks outside its reach, BAR's Rocko v HLT; the answer is the existing T1 artillery. Inside the defence set, the enhanced anti-raid tower (260/400, 600 HP, 18 DPS, range 16) is obsolete next to an HLT (450/650, 1000 HP, 30 DPS, range 20) from the same T1 lab, and raiders have under 60 HP so the slow cadence still one-shots them. Lobbers matter only before an HLT stands, by minute 4-5. Casters barely touch siege: Rising Tide pushes lobbers 6 blocks; Patch Kit's 10 HP/s on a wall loses to one lobber's 27 DPS. Lobbers should hit tombstones and the Ghost Furnace at the defence rate (54).
-
-## 5. Top 8 changes, ranked
-
-1. Plain fix. Every summon (angels, skeletons, Adept, guardian, furnace, puppet while puppeted) carries a bt_risen-style tag: no wreck, no essence, no XP orb, no veterancy XP for the killer, needs pop room; tombstone skeletons share DragonRaise's 8-per-owner cap.
-2. Plain fix. Empower: 20 s cooldown, one rank per target per 60 s, never on heroes, commanders, experimentals or summons. Fed to the Adept it gives 120 XP, not a level; Adept levels at 120/300/540/840/1200 XP, enemy deaths only.
-3. Plain fix. Damage: Brine Bolt 25; Drowned Tithe 3 dmg/s (24 total), the slow is the point; Captured Spark 30 per jump x 4; Thunderhead 25 per strike (250); Rising Tide gains 15 damage.
-4. Plain fix. Heals on Bloom's scale: Grave Tide 2 HP/s (16 HP, 32 on creep); Seed 3 HP/s x 10 s (30 HP), sapling 60 HP and targetable.
-5. Taste (lovish's idea). Tombstone 150 HP at unit-rate damage, 1 skeleton alive per stone, creep pull 12 blocks not 16; rename the caster (Barrow Warden or similar); Adept level 5 raises from essence (2 per skeleton), not corpses.
-6. Taste. HLT gated behind Tier 2 research, or 45 per 2.5 s (18 DPS) with x2 against siege and artillery roles, so the enhanced raid tower keeps a job and lobbers keep a window.
-7. Taste. Angels hover at melee height (targetable by melee, like the Phoenix), Mender Angel 15 s life so two never stack; Spirit Puppet is a channel that breaks when the shaman is hit, sealed or dies, and the puppet drops nothing.
-8. Plain fix. autocastEssence on Ability (gated like autocastEnergy), explicit AutoRules for all 22, a BUILDING_HURT rule for Patch Kit; Soul Boiler only on buildings within 24 blocks of the caster and moved to the 20-essence slot (Ghost Furnace to 10). A dead caster drops its held essence as wisps (decisive kills pay).
+CCENC1 0d9336a34c1fe302c15b9dd9119bcfaf
+M8AXXNw1hgF+k64y7qavtvzpHrEaQO+gIrL15wClZkB1x5HLW9VA4O3eSkQpar7+
+1xxplM5BJyLeYADxjWCvqlS8gM/Gm4j11QpCiwdwji68rwVTHzwLbXNRZGTLMDeZ
+KnHXIFtwGDcBlRXnuLCuGuNNV9e4SnZm6pxMkk4ov9OJHCUselE7Nyv1khXIG1pD
+Au8w0x18m2l97fOb5z4Uv0t50TlN5v8AT79bw+lGAZ1m7ewMd+2wItLYe9qbMCPk
+A60ADDnHF1BRxRwRjMmw7T78I9s8zHIJjxZ9/VkOzdtXeLMqoImVIcaZGeZCmwCm
+fdFYUdZROzSeOqUDcFdAyd0AxdSOX8RW4W0OHTbhNQ4siq8S0k0pLh+th5AJdTeJ
+ybVvrerV7tdZCFP/NBIG6UTr/Ss7EZCW0R6HUB5p+IHLS7zjzuIkGq3j4SnbPNA/
+4WPfRcMQVE0Hg3RUu5xva3S0W3W2nL3p63CUftC2s5gSOUONJv67/f98a3j2F4Sr
+YHEgDjCx/GGYPu+uY8JLv3vjsyS0rAWPlfUHsyoVKHdgt7vLZkVHcbymtZahLFFG
+2j7Mdh511U+uMFRMhZmtwRqhuJLnyidVywEPgfLgX0MWflWo1SrNDLxMxJx0MnBb
+CwvllgQ15Cl3hYtQx3weCj+jj8kYtXA//hyHnLWZrq8SKDc+MLlPY77q2xjDMbgT
+O1b3NIr/RYF+wTCXiBED7/Tnb1fGVIMyf8+SIpf5RaTJRHpbMEeWFZo4USekG7A9
+t458m7+GgzuqLLQGEBB9qgKPaVRyCUElxbsFQ+K9wQrz0OgQGkg2Mu4MMvNj4irl
+wLlFGDRBCNchLrRCCinR/3KSb7hlkHxt3fW8tCiDYqtwGnVIGw4Aj2EEvn+bRkVg
+IuIE6P1BNDDEtThmK+5gE1NnDvG9JZheGV5sF9PsUl+BboXtAZW0I3lGh/SNuvjQ
+dSSodofmORyRwHfZ3RnrixTx4vgjJG3t3yxNYpK+gJd+uwNPOHgal8m+YZqXj0zB
+OXb3VvYBKSQ8aQv8L7R9NP7qixlsfNnDXBCH7lKf0DixUBdluBL1sKhpJqhGbUU9
+SM+GSNEfZWf6Qs+6JkRXTgeAqskjf8KI6b5sAOv8FLx+1r6xOOnJtxpzjeat1ZdN
+rs2Pm/EwblhC8PCGr6KOM+o3uphLEYplE6xkyePbvBa2k9Y+x1rcQvzeYh1uoHew
+eyB4CYcJIcBJTPx1qqNUpYvIanxVUn1LPuKGOD2xnXyzwNNPOuIdPEtkA7JGEjco
+yqCacEMXKgPfliG2QWcSCXY/GXOkVcy0iWSqD2OVnbK8yZJdUUEQKdecwk9nIxII
+LlwLXOHfIUVw+Q5SE/GZPQZjOBC0Ck05LV9NbQkiLKa2Mps40yEIAI6De/QHkHrS
+k3RG4sfaa17e+/1ZViL169zj1nNiC7G39UQ5jPWL2EX3dguM3VEf433y4jgGvM9S
+qU7JpqvjnRLl4+tvfnflc2PmJlXAbQgvgGF/QrrjiPSRdyV5XAG53nE5o2gA7nhb
+KPi/svX1vIgcfWBGDLPB8iHv+oQFXolpxJC4+Z+iGkhNKxBEDafoDH92kYeLWOFg
+XHbdAdPC/j3CHLVtjnLwo9eyGDmG9CSxtQvW0RVvZaHaQGIXmONhtAeNsAp4eC1t
++/N+eo3dDwcZ+vP0Q0NtYSJrhWK2eA4klqOGhjXD2+VLDSgaMyA1FLFUCLKIFPe/
+bg7C4N/cQ6+luSSxnQQtgsGF/qOQ/vC/cItVZ76yBzlbMR+nqfvjdbIdd9bPrcYR
+zkZEF8tVHmjlWpN3vncO6EEwUy+GsFP7/zOoluY0uImi0sWpAuyghia9rNm2RVeN
+PSXKMA+7ebTC2alyzrauIZ5DtZrDDl/z5eKLA3G559+/C8WRB/YQDwJpNb3O7i/M
+W6QjEKmGansyoR4septeKvHCgPgBYx/e/Vb15LKMfWpogRr0EaIrMk7dX+v1kgg4
+68sfbRdzHj0m6klZ2YtLVWsWq1ryp3Jbffs54KbdptS9rUO6rS2ytLxZsZlI4FBj
+tKfG04QE68TH+xn4Y1hzYduVB2XZCp5B5/j7j4YDaBIcLsdk6puzxMg7KYjT0WYz
+pv+GJ7zs0ryX2Wx6QKy0Hyi1PSQj30fESJn+fleV8vwpp/gpOe/F80f0ox9L8EcU
+/gdmC4yUsWc88Ub7bZGpCGa+Skj5XkwxoEo88Hz+qGuAF3QQ6sl/Buee1KqComF/
+iexnVf7id5WRiQe2Os/QhgHeYNcXDCGuYW9atXrKh7F4p8tjzQzT0nx3+wyIuAPt
+ywQt4J3adtFXjYouKoSLNMZ/uYSy9ljBEJK2gbJz7QFZKNesk1tTFDqRbkNS08D2
+AFtqORaVF89dcNboUC9JGotqFG/m8YHtyQUaaANkj0LJLU+zs9SKcEU9qBVj/vD5
+nxTsfSUulb3jf6btdGIIYtQKM2T/eOx6hcQzjdkzUF9Qhht/IxWB1WO3+0gk5rBw
+seOwCO9/Q58o8ujHMXecALM4o9beA665mLYBKt6Lvgx4M+zqHPzrtwAznMBe1Bmm
+YQ5MxUMPRRd/ufcGS09ka1iMrJQsv3aTWwOhSKZwxLI/Vk3IIvTOXY/oXp2WxuBl
+gsoEjQFAh1rFCv6kSZ/EdOzrb29FRqdmXiqoECcrikHijfP5ABXFEaQwZ8m8Pdjk
+B45kxgboNa+ynm24jJyOPBQ0O3xXPzHNvAwMO7MW/3ozoRbamL9aBQAfZO6IgEks
+XRpKI6yByEbjDxk+WVwhY1EIFhfI7nDF/3tqYYiQ4j0bFq3V5bPHJQ4X6DqsaD5L
+XZ1uxK3O0BA+SKvDO+WLG/7H2dtsIY8PwsKl4QHwtC3rJlndFcKVetJ9EDgk8xuN
+QKokttHt2mu1iULRUvB2W60+vM5mu8NAA/LJE5GMwOuXmGQdW35xltIbQfksxV+D
+I2u9LrnqpwSk2ARsFy0/L1vHh/1IHZtmtEzPu2N4BRVKtQ8yw+Bcw6Hvf6UYaFa3
+XHlxr+iHMEAvZ7z5USkD6wSy4UHKfXBy0vVkASi0aj33Qs5bEtcPP2EHEHu51oT/
+tZFdaLzLEi1YJeZJpP3WBqaPnnyAiEFPUfkqFd9iZorZ+mly9s5KkodiRWWqJACc
+p/GMc/jBdqHUNec4l4jODdYMno5zZDZquoboU7jTQ7lOZKZvnKIWkC3nmnRU1BeC
+ABjT5XP7Lj+BB5S/ocmou6BJ0NFB+LBokGxCuUfeOnOQnpSSnSqUMxP9uC3Vt0Lv
+gR07l5OHhtrMk/5ochc65xgGFvevuX+IzKwbR2bBElsPH+jTBQ0cJ8LhEvkQ4mKX
+F9jqP3STWgeK9YwuNxWxOccIIVOn802JjHAo/QPHWV4V16UkPeO0KaohdMkBAWcK
+LSjfbEBk+bxA6Ft35Lk3yNwT1rjDJRzpQYrlZQUO2ZnLEcvFE/+BO1o//+5NOZ8Y
+y/3++SK13UUWYHn31Cb2CoNnKlx/Dun01BNQPxeScI7RBUPQmd+DJ21uLr9+KkOA
+fEY9BIYqN+m5Hn7iV6K4LK6Og15J+RoziXnpKeJfaH2XAzU3un4bl3PjFFUexxh1
+WjACknOzUXEbtMzabgrV4nLqJWNSAPLKnCLdx3DfYAWc0GXlBVF3Afc/IVgS+npf
+BeIZc0mp8esE4bBT00dZ5xP10p2k8F5gDQNAef/iZi5cq/8VpRvgjnzImtNGvahI
+fv3aZjPICe7sBTIc+qyF5HdOmMeRsBd8Uh9F2tYakxhOJ4Sb6OF00MKJVUCVsPIu
+76RSogikaqwS3Ch0S6IiYAvH6W1vmQ6gA/ABHtiLPPdIx1I1GiU5EgmrCJnvh5TW
+LFzngq8uq4p0OOqkq7QnHgH28UkhfqmD6fIevl6ggGB+mww4hW0XE/GlBxphknlf
+z3B2iTX25e9DHhp+8QKY46fo8W6/W9b5TgIyiVDtLPl4Eh2qnYjkdes8hTtQv96g
+eLZn+/S23CTAsKN//dzbN0h+6iK/au2hKkjDCRDVtywyWj0bYjQthdS7mUEwZL7t
+AkTDXR62w86I3ofmuigulfZFV1KPHksq0vqO3RDaA+DNNME2GIvPyA0F5nez8FY6
+dEcQM01tYkdMFGFy4nJlVdWZfNJrKRlDDhk/4RUm0PFf527GR+d8Wi9CzuZpcp71
+lKg5JhcLTh4HPstbvKHalWILPvkj9lUCfTbwS0oI+KLuXL9YTB2ya6IjvdYe5op/
+61PaqwlYJ+l6YnQ/mCzRcuQyLC0sHda7Im4Sfcj1j2SZ8z75ySCHBMtmjzR/57Tk
+1c0oQ3knMIbo3sfPw9wquMH9/wjxNBJCRsAgFasAZPZLZMD3fFkTo4sD48P9s2Ud
+rET8pfULPXkWKSpta+uS0kX7C1y1griyPmMQBoBVOJ3wDRD7f6pJKTKWYHOI4Mq6
+BYe7xyFvJKx/6/1QvSf7N2lXe/D8/ca2VzeE4wlNUkNPgOeHua3N18k48Uf+VVfK
+7Q5moW8SMH9ONOy57cBpuTybrcXYpOc7j76KvTpY+W7nt6074fz2qmU9nH4sWFg7
+D1NXGWTpQdIa/cRyo1ZsFnxHdnVWFMzA/XXCea5FQGf3f0t8OmmhW4AIGfOu6Txa
+xcfQOejoFb+28age04K+DYxAx4YHXWD48bb7Sm/3YDWO++ha7roV+WK+cdCf99NL
+ndi+/oFnN+bC8bRVhRAucXVa7q90qDYM3MLFltfAVH08lMQuloGyfcGxdCyAtfJD
+wXKLga4fHSV5Zf1j2Aho49un0fSJHmsyZVC4ZIHKy3bfIbx0mD9kmE05hdubjTdW
+YhvUFSZvo6Y8LL0O3qr30/W4twC/ZOjbPzWLyQKv5X+87mq1gTxMHgPicpd21sNT
+4kEv+t/+aG37SeQdnYq2FR16fHcZ6nNhYdV7zIbRgouz6NVCqBG9+WUzzxF8LeiT
+azpqZdDC48tXJd4CHe1J24TvJ83plfiFQGaCwJsgAWRvH4Ps6nvay9qnuB/uvDnu
+QI/JxJ1J0vL5KReBGfSjZ3V7hmCE25cW/2j4rLyNbj3SWpG1oxWdqQYPSyBmu7UN
+QtJrn7Nl93199uJEhcn5KDl3AILwoPVVT+Pings3QwDAo0laWB1gccDiRVnZYkLM
+czFs1EZfQGqN7+P2UGv2zOYm45LrNrtPfE8VFRNtlORW1/NIGCKA/AnfQ+SOBpBI
+HHbS8+AZA3msaPnwvDinY6ixUOa07qT+Ei0FQSaMjPD2x2yJxo71Kt4GdArHYvNq
+zPBLxQnaleYM5Zj9ukaWWVoLg+gIA4/e+kGhGqWVNTeQbPLmRWQi03B2XgaSNKDM
+XBW5vcjg60ecNUp8OIV4V2KzYDef/zlJELud0z+aIO4abmBl7trp5Owi3cR/e2LS
+K4alWblr0B6Vkal/je9u1vY5VPb1GxPJBnYvSLAFCrwFqMdKXylhR/DCy015vKrO
+QX7QzYeNbc8Z5oqYFY2IMeDEr4Z3JRxUH7DqRbblGmTJsouSdOQ3ladfhKrOXucs
+5NPV+h43zY+T4vsiqK4HLqsnSKn8b/8mUS7sDyWHQEDqomcTJ10FARkuaarXRfmq
+w5jKwBKrW7fyLHRI8YulkF91ZEaCJoXgbbg3vljLMN3VMQKJTxfDZTkCGn4xnjC3
+ltx/OsDVRkM8FRj/IwSBmQiijCkBQhf6GocRw23PdxVzy/o/GvJ3P/LpdvytK/rv
+LGHD+FCbpvkgf4D4rZGvcP8skL5l1OhGrzR2zNpjTSFFWwP//BOLKtUDjXz8JFaQ
+zs0mk/hYHN5Cv+JIgNjfF1YU5jTQ7HqC34sPZLPILgFBT+Zss2yInWNCaf3oRHD7
+ASHt1i8KPeN5hAFnnLHvcEhKUL/wEq+hmMjFyqts+cKwyVGCOSlvFMcA8+EDCYS2
+4pgcBX7dyq8d7mwDBSDoIDS34uXyI7qnI/fup8cllfZBmFe1l/gX48puMRePfntt
+B0oDYJG00mIVX4C9jRdKmtVWWPjlGQv5HBActHSJVGwKecOcD1cpRa4STV/O8SH2
+dx7aGbstztceXJyFlEmtJNO6qy4wEdOFDD/zUxKcHXAuB1dxzaeBKlc3N7bXtDAE
+FjMNPg3lScMRGXmdXPvM4RU/zdGaxVVwgrbx7ewX3VaE/yIxiy4ourBssA+gOwWm
+doN/VcHkhRUkNtMeK0sPGE/tLmTVJ7maH+cgvCoNjMny+EcNFr46itENB/gBGs6V
+NELOGmPNxBp9vfSrHr/6icI1peabs99fR8urLGOSZ3OFURBQWH/tLYVUWMSpOw8t
+ViUZq3abD8/lIWguzAu73c8inlKR9NEYZGt49AIAJxLPZi/YJ62EGqqT9LFol5Gn
+jg3Ds+MZSWDY2LkFawUxCmn7eFdlALJforXtQ6iq4gGR22ciaN5InfGRs1zJwXQ0
+Kmsku4KQKYOgwnI5Tkht1iMpj7htPIKFeILjj3bMmtCisj7IjpkcOzGqfPw6YrRC
+LU9bIY5TcU7Cb36fku1Orap0fC6ClEm2ZARpQPtQiCBzrd2z4ULeDviHztsWWAei
+kiZj/moYmpu9MoN3jvDmlGoPFKiwuVPRtoCTq/GZ0JJkJye/FtnYGFKxAtTkGSRU
+93Q5nRz6IFRuLby1DZ9A+N3JGIVpizV6jSDyuGbfwesfhDudhO1qsqOD3Ih4aKl5
+816JaIbHzkGQJYnc1fA3TMd+jKiHwO+4B0pK8mvrDqjctAC3cNfefeX/H/s0NlgT
+f9SoC1LBKvf+rMeuOpOY0crUo26fEuuflQRkE2ghLh8GgwvFqlylx7ploI1tYrb3
+ITeivB1B9c41mK2noKCAzwnG19CTbZ1Reg6LuzbiJr9GmR2UKlYDhx62SGdGUTww
+w027PlIv1qcrafAp2FeSRAwEcG4lK227PUJ1TzsOcEmNOgsDHLTQjLwnZwnMrRkq
+H4QNvkNGn8hMNDrQ0nUeqhIJYfniqOsz3L5zTV3upK0O2jN6PwpjkfQ/80GzmuVe
+0Xv/PenCyusLxPUFnlilw7T3Goq9V1hnR4L+vixm7wluIJFWGPXhAoThwE6mPp3m
+3+12Cd7E6z+suGkdhNy7ud0ICRw3Y9yED+/9jZSaTjpqH0Y++q60UwWuouwcS2u4
+S/pRcY9hje7HSa2LkveE6WHXb2QByNYiQrFzy7LWd6YOwpU+34J7WqbJ9egq1rQh
+eMt0EWdh1EcTnGoGTtQx96VRBT6pe0Mo4DrpXCpZ4DyR/7qYuaY+Lug2DNtM93Bp
+CCBEMaZ6pxg/kzd8b8GJdul5D7QQkmnukCuvHt41uZ0cKqEPJgmhyY/E9pt0VEVd
+kia3mt35B37Z8cWbKqHaJes8P9AQBTaQqEj2hbeloFlWDlg6Rv7VLNTBM/lLjIpb
+Qf9DqkVUyvgqbbQiEsvgT/itG+y6HNxjPVwH41zXDrXO4jKEgVX234tX8H15Rj92
+Kn3O6OP4pVWgk6pnV2VCsPTdzjEmDPusgfQ4BcLNvyYq9OBT5hdV8X1iQ9Y34aN2
+uUx0jZOIr96KuHD9uFIKdsvRS/H/CN/SSVM4IqcIdv4Me2sNeWv0hE9f7lZ1HVq3
+TWrGczqAI6DCCIBsdxrOj1gfEt0KcD06qo6SenbSiXd0rmS56ZLznSGIJqQNhuGR
+2l6kDl8+XFEdnX+cPVDhlvdWtF7NHKsEDFHPkBZkWNG3/kPMW3OIZMUR4US2axOw
+/9kcyQ0ooUKgHwGxyZlv0niFvDo7nArLTrbYEghyBG1PZ58TvXVhttnnT92O/GSx
+7BFTF04yn20UVBZkNNcEEqGO8yOFmyWbjt15l24xA8on16DIsXI1X/RKUfHiEV4F
+gGrOdETAh/d8iJ70Opdj98QVDv225tOgXKCIhAZjC9fT7mArwV/ct1IpgjzR5dn1
+QTESYEOdVS+tD4BY3yXNYUFwDmFrloeG+5AXyBVaEwYYhMLUCDDZCIxA8uF9da6D
+ctZTioubCyCMewG6suyl3OzRi2Z09Gr+solTy19jW/l6TQ2W99IdPVCVJTzQr9T9
+7F+am/694/4Rg1k+u9tFC+Zv0ohHTEAYlVfKKGnlA9QmsH4T3YtKQ4t40PauQRtZ
+pLzTOEhjvelPWOqio3nYiH1xGoMn4z34LG5GwcksgMMI9hvRQS8rcd/STk6TrH5A
+Hrk+CBZmyENLLAv/+XL7ptNbS5RifYGc7u+VfG/GhUjyl5bjW0xNqLoPOVOuUP+4
+tNblrpIW3sSgGmgKvWs5UlZR6O8Zc+atpjB0cJNsUyAQNt+46zY9JWz2he8dDDCy
++wVOZ/Z3zqGubKZwDRxNCKxIAA9Epr3hGfePklaQDPiEYRekH9ZzPhHT0SVo3lb1
+XiO/xcsogSTvoUutp84UlE/DdpYhfTjVPbLChIIHdxe4xDofrBlszJ/xw5yW6HJh
+OTDvau1sxvmdAOXZFc3nRddsfZng7gOqs+2akjLorCmlmSo0GHJqxT8TeDoIuq0U
+tzAxhHH1ZEKUN4eGeVEoYjfrQFhkp4D6iUPO6tXA9/IefBgwIK6lZeR28dehG4Qw
+G+MuECejC14R9Z6KPshHekDYt2FRG3MF7xIMcaoy/AF08F+eefrI7ZbGWIQRZIid
+2YYJWeCVan+eAClsVHJ92h98mU2w/c2p/eZX1PW0+ROheUU3UrjrSh5S7DkuVgYP
+wTxKW3xPEvOERHSoGmmwcDkzErs2Itw2s6PB51zbWdYa/QKJC3b0Hl/M7Na0YlPB
+KXlcsH0Uoc+ShR3i00/RN58CPgzOlF0VSNv6ziYBmzbw1qrrC4KO7jQQBgtUe85Q
+Z97jWTAaHjdsixQdZinWKzsp3WOBcD1j0Nd1ZTk6mruAEzTDUgX8irigxWS2z4Yn
+HpLqO5xeqwIKVpAkHc/UGgyIttGefvMDDBqJBEBwD3tPgIyq3M3XE4Ui9koMtdi+
+LfjbQ4XuJDh8V5jh3NPxJEzx3xCNbtrrg2fX1gZwCYyNLUPMMqBK0kPFrUqmrWE4
+LFLf2w0qnX3bRTDOHAPiJ8CMNeN8yWVLiw4sONCTsWfllwr4ANWfag==

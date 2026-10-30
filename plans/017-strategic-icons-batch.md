@@ -1,122 +1,272 @@
-# 017 - strategic icons batch (one draw per building-icon texture instead of one per building)
-
-- **Goal:** draw the strategic view's building icons with one quad buffer per texture instead of one immediate `GuiGraphics.blit` per building, with the same pixels.
-- **Lane:** Lane A (performance); `orthoview/` is a rendering area Lane C also edits, so post on issue #35 before touching `StrategicViewClientEvents.java`.
-- **Branch:** `claude/improve-017-strategic-icons-batch`
-- **Claim:** `python3 tools/claim.py check strategic icons orthoview blit batch` then `python3 tools/claim.py take improve-017 --lane "Lane A" --branch claude/improve-017-strategic-icons-batch --what "Strategic view: batch building icons per texture (plan 017)"`. Release when the PR merges.
-- **Model / effort:** sonnet, high (size S: one pure class, one call site, one picture check).
-- **Written against:** origin/main `bbbdac21`.
-- **Drift check (run first):**
-  `git fetch origin && git diff bbbdac21..origin/main --stat -- bar/src/main/java/com/solegendary/reignofnether/orthoview/StrategicViewClientEvents.java bar/src/main/java/com/solegendary/reignofnether/matchstart/EyesOverlaysScene.java bar/src/main/java/com/solegendary/reignofnether/perf/FrameParts.java`
-  If any changed, STOP and report which. (Open PR #247 `claude/perf-quick-wins` touches `UnitClientEvents.java`; if it also touches the strategic view, STOP.)
-
-## Context (paths relative to `bar/src/main/java/com/solegendary/reignofnether/`)
-
-**The loop (verified on bbbdac21), `orthoview/StrategicViewClientEvents.java`:**
-- `onRenderGui` (:230-243, `RenderGuiEvent.Pre`, screen space, inside `FrameParts.STRATEGIC_ICONS`) calls `drawStrategicOverlay(gg, partialTick)` (:269). It sets blend on, cull off, depth test off, the position-colour shader, opens ONE triangle buffer (`bb.begin(TRIANGLES, POSITION_COLOR)`, :288-290), fills it with the building plates, capture sites and unit icons, and draws it once: `BufferUploader.drawWithShader(bb.end())` at :392. The unit icons are already batched this way (coloured shapes in that one buffer).
-- Then, at :394-415, the building icons are drawn after the plates, one `gg.blit` per building:
-```java
-for (BuildingPlacement building : BuildingClientEvents.getBuildings()) {
-    if (!building.isExploredClientside || building.getBuilding() instanceof AbstractBridge) continue;
-    if (roleOf(building.getBuilding()) != Role.NONE) continue;          // buildings with a role glyph are drawn above
-    net.minecraft.resources.ResourceLocation icon = building.getBuilding().icon;
-    if (icon == null) continue;
-    ... sx, sy, plate, size = (int) Mth.clamp(plate * 0.7f, 6f, 16f) ...
-    if (plate < 8 || sx < -20 || ... || underHud(sx, sy)) continue;
-    gg.blit(icon, (int) (sx - size / 2f), (int) (sy - size / 2f), size, size, 0, 0, 16, 16, 16, 16);   // :414
-}
-```
-Each `GuiGraphics.blit` sets the position-texture shader, binds the texture, opens a buffer, writes 4 vertices and draws immediately. With ~1,700 houses that is ~1,700 draws and texture binds a frame for ONE texture (houses). The audit measured `strategicIcons` 5.25 ms at zoom 200 in scene 18 (not yet measured by us: step 1 does).
-- The icon is a full-texture quad: u 0..16 of 16, v 0..16 of 16 = UV (0,0)-(1,1) whatever the PNG size. Position is `(int)(sx - size/2f)`, `(int)(sy - size/2f)`, size x size. Cull is already off (:286) and depth is off (:287), blend is on with the default function (:284-285).
-
-**The convention to follow:** the unit and plate drawing in the same method (`tri`, `line`, `drawGlyph`, :816-860) and `UnitIconCrowdRulesTest` (`bar/src/test/java/.../unit/modelling/renderers/UnitIconCrowdRulesTest.java`) for how a pure rule class next to a renderer is tested. Pure-class JUnit style: `perf/SysTimerTest.java`. Reused scratch collections: the file already keeps per-frame scratch structures (`SELECTED_BUILDINGS`, `PLATE_XS`, :265-267, "reused every frame, no per-frame allocation"): follow that.
-
-**Measuring tools that exist:** `perf/FrameParts.java` (`STRATEGIC_ICONS` = id 2), `matchstart/EyesOverlaysScene.java` (EyesDirector scene 18: 500 units + 1,700 client-only houses; prints our handlers' median ms at zoom 30 and zoom 200, stills `18_overlays_mid`, `18_overlays_mid_building`, `18_overlays_strategic`), the `overlays` input of `.github/workflows/eyes.yml` (header of that file documents it), `tools/eyes_diff.py` (picture regression; read its header for arguments).
-
-**Hard rules (all apply):**
-1. Tests first, red on main: the batch is a pure class, so JUnit with a throwing skeleton first.
-2. Client code stays in client classes (`python3 tools/check_server_client_imports.py`); the pure batch class has no Minecraft import except what a `ResourceLocation` key would need: make it generic in the key (`<K>`), the call site passes `ResourceLocation`.
-3. Fog of war: not touched (the loop keeps its `isExploredClientside` test).
-4. Oculus: this is a GUI-layer draw; `ShaderPacks.skipOverlays()` does not apply and must not be added. Keep the draw inside `drawStrategicOverlay` (same event, same point in the frame, after the plate buffer is drawn).
-5. No file crosses 1,000 lines: `StrategicViewClientEvents.java` is ALREADY 1,034 lines, so its net change must be <= 0. The batching lives in the new classes; the wiring there is about 3 lines. If it grows, delete the two comment lines above the loop (:394-395; the new class's javadoc carries them) and any blank lines the edit leaves; if it still grows, STOP and ask.
-6. `python3 tools/check_java.py` 0 structural errors; `bash tools/prepush.sh` before every push.
-7. Commit by explicit path, identity `git -c user.name=IamTheLovish -c user.email=IamTheLovish@users.noreply.github.com commit`, trailers as given; never push `main`, never force push.
-
-## Steps
-
-### Step 1 - the pure batch, tests first (red), plus the baseline picture and number
-1a. Create `orthoview/IconQuadBatch.java` as a THROWING skeleton and `bar/src/test/java/.../orthoview/IconQuadBatchTest.java` (pure, table style). API:
-```java
-final class IconQuadBatch<K> {
-    void add(K key, int x, int y, int size);                 // one square quad
-    int groups();                                            // distinct keys this frame
-    int quads();
-    void forEachGroup(GroupVisitor<K> v);                    // keys in first-seen order
-    interface GroupVisitor<K> { void group(K key, int[] xys, int quads); }   // xys = x,y,size triples, insertion order, only [0, quads*3) valid
-    void clear();                                            // keeps capacity; no allocation when the next frame has the same shape
-}
-```
-Cases: (i) 1,700 adds over 3 keys give `groups() == 3`, `quads() == 1700`; (ii) keys are visited in first-seen order and quads inside a group keep insertion order; (iii) `clear()` then the same adds again: results identical and (assert through a counting visitor) the visitor sees the same arrays' content; (iv) a key with one quad; (v) an empty batch visits nothing; (vi) 100,000 adds do not fail (arrays grow). RED: the skeleton throws.
-1b. Baseline: commit only the skeleton and the test (the build is still the old code path), push the branch, and when its `bar` job has built, dispatch scene 18 twice for noise: `gh workflow run eyes.yml --ref claude/improve-017-strategic-icons-batch -f overlays=true -f build_run=<that bar run id>` (get the id with `gh run list --branch claude/improve-017-strategic-icons-batch --json databaseId,name,status`). Read the `[Eyes] 18_overlays zoom 200` line (`strategicIcons` median ms) from `eyes-lines.txt` in artifact `eyes-overlays-<run id>`, or from the run annotations. Record both numbers and the stills' folder names (`<build sha>-<run id>` on branch `eyes-overlays`).
-GATE 1: `IconQuadBatchTest` is RED in CI/locally (the failing tests are named), baseline medians (2 runs) written down. If the `strategicIcons` median at zoom 200 is under 1.5 ms in both runs, STOP: the audit's number does not reproduce here, report the two numbers and do not continue.
-
-### Step 2 - implement and wire
-2a. Implement `IconQuadBatch` (growable `int[]` per group, a small open-addressing or fastutil `Object2ObjectLinkedOpenHashMap<K, Group>` (fastutil is already used at :265); groups reused across frames, `clear()` only resets counts).
-2b. Put the flush below in a small client class `orthoview/StrategicIconDraw.java` (`static void flush(IconQuadBatch<ResourceLocation> batch, BufferBuilder bb, Matrix4f mat)`), so `StrategicViewClientEvents` only gains the call. In `drawStrategicOverlay`, a static `IconQuadBatch<ResourceLocation> ICONS` next to the other scratch fields. At :414 replace the `gg.blit(...)` by `ICONS.add(icon, (int) (sx - size / 2f), (int) (sy - size / 2f), size)`; after the loop (before :417's state restore), flush:
-```java
-if (ICONS.quads() > 0) {
-    RenderSystem.setShader(GameRenderer::getPositionTexShader);
-    ICONS.forEachGroup((tex, xys, n) -> {
-        RenderSystem.setShaderTexture(0, tex);
-        bb.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);
-        for (int i = 0; i < n * 3; i += 3) {
-            float x0 = xys[i], y0 = xys[i + 1], x1 = x0 + xys[i + 2], y1 = y0 + xys[i + 2];
-            bb.vertex(mat, x0, y0, 0).uv(0f, 0f).endVertex();
-            bb.vertex(mat, x0, y1, 0).uv(0f, 1f).endVertex();
-            bb.vertex(mat, x1, y1, 0).uv(1f, 1f).endVertex();
-            bb.vertex(mat, x1, y0, 0).uv(1f, 0f).endVertex();
-        }
-        BufferUploader.drawWithShader(bb.end());
-    });
-    ICONS.clear();
-}
-```
-(`bb` and `mat` are the method's locals, :283 and :289; the plate buffer was already ended at :392, so `bb` is free again. Vertex order is vanilla's `GuiGraphics.innerBlit`: (x1,y1) (x1,y2) (x2,y2) (x2,y1); cull is off anyway.) `clear()` also in the exception path: put it in the `finally` of `onRenderGui` (:240) so a thrown frame cannot leak quads into the next.
-2c. Known, accepted difference: icons now draw grouped by texture, not in the building list's order. Two icons of DIFFERENT types would only differ in stacking if their icons overlap on screen; icons are at least 6 px and centred on their own plates, plates of different buildings do not overlap. State it in the PR.
-GATE 2: `IconQuadBatchTest` GREEN (6 cases, counted in the `JUnit summary` notice); `python3 tools/check_java.py` 0 errors; `git diff --stat origin/main` shows `StrategicViewClientEvents.java` net <= 0 lines.
-
-### Step 3 - prove the pixels and the number
-3a. Dispatch scene 18 twice on the new build (as 1b) and read `strategicIcons` at zoom 200 and zoom 30 from both.
-3b. `python3 tools/eyes_diff.py` on `18_overlays_strategic` and `18_overlays_mid` between a baseline run (1b) and an "after" run: the stills must match; a difference limited to animated pixels (idle pulse, units) is explained in the PR, a difference at a building icon is a bug (suspects in order: the (int) truncation, the UV, the vertex order, a missing `setShaderColor(1,1,1,1)` if another handler left a tint).
-GATE 3: after median at zoom 200 is at least 1.0 ms below the baseline median (both runs of each) and `eyes_diff` shows no icon difference; if the saving is under 0.5 ms report both sets of numbers and do NOT merge. CI green: `python3 tools/ci_wait.py --pr N` prints GREEN.
-
-## Out of scope
-The role glyphs (`drawGlyph`) and plates (already one buffer); unit icons; the minimap; culling the 1,700 buildings by distance or zoom (a separate idea: skip the whole loop above a zoom when `plate < 8` for every building); fog of war; texture atlasing of the building icons (would remove the per-texture draws too, but needs a new asset pipeline).
-
-## STOP conditions
-- Drift check shows changes; the strategic view is being edited by Lane C on #35.
-- Step 1: the baseline `strategicIcons` is under 1.5 ms (no problem to fix here).
-- `eyes_diff` shows an icon difference you cannot remove after one fix attempt.
-- CI red you cannot explain after one fix attempt; same test red on main (`tools/known_flakes.txt`).
-
-## Done criteria
-- Building icons draw with one draw per distinct texture; same stills; measured saving in the PR; `StrategicViewClientEvents.java` not longer than before (1,034).
-
-## PR body template
-```
-## What
-Strategic view: building icons batched per texture (one draw per texture instead of one blit per building).
-
-## Evidence
-- Red commit <sha> (IconQuadBatchTest failing) -> green commit <sha>
-- Scene 18, zoom 200, strategicIcons median: before <a> / <b> ms (runs <id>, <id>), after <c> / <d> ms (runs <id>, <id>); zoom 30: ...
-- eyes_diff 18_overlays_strategic / 18_overlays_mid: <result>
-
-## Numbers for lovish / questions
-- Icons of different building types now draw in texture order, not building order (only visible if two icons overlap).
-
-Do not merge without lovish's OK
-```
-
-## Return format (max 150 words)
-PR number; GATE results (command + one-line result); before/after `strategicIcons` medians; eyes_diff result. Nothing else.
+CCENC1 2b3358f6e0d311435b3431c22202bfdd
+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
+/RwkIgblqYNE2SFwxQQMr9GlS7EjwAM=

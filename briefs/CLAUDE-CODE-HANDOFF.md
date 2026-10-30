@@ -1,90 +1,272 @@
-# Handoff for Claude Code on lovish's PC - Oct 23 2026, 16:15 ET
-
-You are Claude Code running on lovish's own PC, billed to his $200 Anthropic API credit (key in the Windows User env var ANTHROPIC_API_KEY - never print, copy or store it). lovish (Oct 23 04:31): "let claude code do everything" - the cloud sessions are out of plan usage, so you carry the build work now. Account tag for ledgers: **B**, generation **gen-012**.
-
-## 1. What we are making
-**Beyond and Tabs** (Claude Project "Beyond All Craft"): a Minecraft 1.20.1 Forge RTS mod built on Reign of Nether, judged against Beyond All Reason and StarCraft. The bar is "the best game in the world"; lovish puts it at ~20% done. Progress only counts when merged AND approved by him in game. Joisco is a co-developer with equal billing (his branches start `joisco/` - don't touch them).
-Priorities: animations, then textures, then effects. Style: hyper-realism with a touch of dark fantasy.
-
-## 2. Where things live
-- Repo: `D:\BeyondAndTabs-Repo` (github.com/IamTheLovish/beyond-and-tabs, public). Read `AGENTS.md` first, then `design/LANES.md`. CI mirror: ILovishThe/beyond-and-tabs-ci (second pool of 20 runners; build.yml routes to it automatically).
-- Lanes coordinate on issue #35. Claims on issue #91 via `python tools/claim.py check|take|release|list`. Dev log: issue #150.
-- Command Center (shared by both Claude accounts): `D:\Command Center\`. Manual `command-center\COMMANDER.md` (section 7 = which checks run on which work), `lessons.md`, `mistakes-ledger.md`, `model-routing.md`. Usage ledger: `usage\ledger-YYYY-MM-DD.md` - one line per task: `| time | acct | gen | assignment | model | effort | tokens | result | note |`.
-- Skill copies (follow them): `D:\Command Center\skills\` - lean-code, bat-ship, brief-sharpener, architecture-deepening, improve, lean-session, bat-code-director, bat-art-director, bat-animation-study, vault-capture.
-- Obsidian vault: `D:\Claude Vault` - lessons go only into `00 Inbox` (one note per idea; format in skills\vault-capture.SKILL.md). Never touch `10 Projects/Command Center`.
-- Game logs: client `D:\Downloads\BeyondAndTabs-Test\instances\BeyondAndTabs(1)\minecraft\logs\latest.log` ([Frame]/[FrameParts] every 10 s); server `D:\BeyondAndTabs-Server\logs\latest.log` ([Tick], [Sys], [PerfAuto]).
-- Tools made yesterday: `D:\Command Center\tools\ci-status.ps1` (runner load on both pools, read-only), `D:\Command Center\api\offload.ps1` (send a text-only chore to Haiku/Sonnet on the API; logs cost to api\spend-log.csv).
-
-## 3. Standing rules from lovish (hard)
-- **TESTS FIRST** (Oct 22 19:58): write the test, show it fails on main, then implement. No special-casing for tests, no weakened/skipped tests. He strongly dislikes code written to game tests.
-- Sessions may merge their own PRs only when CI is green AND the architecture-deepening Mode A review passes. Release a claim only after the PR is MERGED. Anything with art/animation needs lovish's OK in game before merge.
-- Ask lovish only about design/feel, art approval, money/publishing, or things only he can do; batch questions into one numbered list. Decide technical things yourself and say so in one line.
-- Iterate art and animation until realistic, alive and detailed - not "good enough". Every visual feature gets a frame budget measured with and without shaders.
-- Check engine limits before offering numbers (e.g. dimension min_y/height must be multiples of 16).
-- Before taking any branch/plan: `claim.py check`, open PRs by plan number, last commit + last PR comment, ledger tail. One pusher per branch.
-- Never `pkill -f` (it killed its own shell); stop processes by PID. Commit + push WIP after every step.
-- No emojis. For big moments show a still picture, not a GIF.
-- Save important lessons and decisions to the Command Center (lessons.md), the vault inbox, and the ledger.
-
-## 4. State right now
-Merged Oct 22: research #161, floor y48 #163, trees solid #164, flake fixes #166, graveyard release #167, tests-first rule #168, Ruff #170, server I18n fix #171, multiplayer security #172.
-Open and OWNED BY OTHER SESSIONS - do not push to these: #177 graveyard/order latency, #176 cloud animation viewer, #175 + #160 + block-pack-scans textures, #174 JUnit core (plan 008), #173 perf plan 005, #169 Error Prone, #165 canopy silhouettes, #162 VFX foundation. Joisco: #151, #148, #140, #139, #125, #124.
-Findings from last night:
-- **Flaky graveyard test** (flake-stress run 39883584863 on main): graveyard_l3_raises_every_queued_unit failed 2/10 ("0 Zombies walked out of 12 finished"), overflowing_graveyard_raises_every_queued_unit 1/10. Matches lovish's stuck-units report. Owner = #177; give them this, don't fix it yourself.
-- Note: flake-stress jobs finish green even when tests fail - read the summary job's "[Stress]" annotation.
-- **Late-game lag = client frame rate** (Oct 23 00:41-01:27 game): FPS 120 at <60 units -> 55-75 at 450-575 units; p95 frame 40-45 ms. Costs: vanilla rendering of 500+ unit models (~10.6 ms "elsewhere"), worldMarkers 2.2-2.8 ms (165 draw calls/frame), buildingDecor spikes to 13.7 ms, HUD 1.4-2 ms, worldFx 1.3-2.7 ms.
-- **Server tick** (Oct 22 23:13): 27-30 ms/tick at 415-472 units; our code only 25%; 75% is each RoN unit's own vanilla tick (pillager_unit self 25.7%). Digest: `D:\Command Center\api\out\tick-profile-2026-10-22-2309.md`. Two freezes: match prep (wall + navmesh warm) and the PerfAuto profiler's own dump.
-- Waiting on lovish: test runners on his PC are off (run `~/start-runners.sh` in Ubuntu WSL); RTK trial on the PC (`winget install rtk-ai.rtk`, dry run first) not approved yet.
-
-## 5. Your job now
-**STALE as of Oct 27 02:20 ET:** the perf brief below is DONE (all 4 items merged: #202, #214, #207, see cc-perf-2026-10-23-REPORT.md). Do not redo it. Instead boot from the newest handoff, `command-center\handoffs\gen-013-2026-10-26-2305\HANDOFF.md`, as gen-014: `cc.ps1 boot -Acct B`, then its "Next 3 actions". Note gen-013 left two opus agents marked running at 00:55 (claude/lock-alliances in D:\bta, claude/flake-roots in D:\btf): check them before touching those branches.
-
-Original section 5 (kept for history):
-Do the brief `D:\Command Center\briefs\cc-perf-2026-10-23.md` (the four lag fixes, in order: buildingDecor hitch, worldMarkers batching, unit models at strategic zoom, then server per-unit vanilla work). Report after each item in `D:\Command Center\briefs\cc-perf-2026-10-23-REPORT.md` and one ledger line each. Draft PRs; merge only after green CI + Mode A review + (for anything visible) lovish's OK.
-When your context is getting full, write `D:\Command Center\command-center\handoffs\gen-012-<date>-<time>\HANDOFF.md` (template: command-center\HANDOFF-TEMPLATE.md) so the next session can continue.
-
-## 6. The library: tools and reference material (check these before building anything)
-Read the north star first: `D:\Command Center\references\north-star-2026-10-21.md` (copy of the Project doc - every piece of work is judged against it).
-
-### Repo tools (`D:\BeyondAndTabs-Repo\tools\`, ~140 scripts - grep the header comment of one before using it)
-- **Shipping:** `merge_pr.py N --wait --note "..."` (merges only when green, not draft, no `hold` label; logs to #150), `ci_wait.py --pr N` (one blocking wait, reruns known flakes, prints one line), `claim.py`, `prepush.sh`, `preflight`, `known_flakes`, `ci_route.py` / `ci_plan.py` (pool routing, automatic).
-- **Checks:** `check_java.py` (0 findings before a PR), `check_server_client_imports`, `check_guards`, `check_shards`, `check_dep_pins`, `gametest_audit`, `gametest_timing`, `balance_audit`, `body_budget`, `limb_check`, `contact_check`, `triage_log` (read a game log), `unit_stats`.
-- **Seeing the game without a player ("eyes", AGENTS.md section 5):** `eyes_record.sh`, `eyes_cut.py`, `eyes_diff.py`; workflows `eyes.yml` (inputs: shaders, pack, structure, scars, fog, overlays = 500 units + 1,700 buildings frame benchmark), `web-eyes.yml`, `face-census.yml`, `ears.yml` (sound).
-- **Animation:** `anim_lab.py` (clips as data in `design/anims/*.json`; `--motion` checks, `--play` strips/GIFs, `--gen-java`), `pose_preview`, `grip_keys`, `sway_proof`, `dragon_poses`.
-- **Art generators:** `gen_blocks.py` (block textures - run before every texture push), `gen_trees`, `gen_structures`, `gen_models`, `gen_*_skins`, `concept_sheet.py`, `render_concept.py`, `structure_preview` / `structure_render`, `preview_model`, `materials`, `gen_material_sampler`, `postfx_check`, `unit_light`.
-- **Buildings and factions:** `capitol_*`, `lab_*`, `mex_*`, `eco_*`, `gothic_parts`, `gothic_towers`, `defence_structures`, `solar_structures`, `validate_modded_structures`, `audit_structure_pockets`.
-- **Sound and voice:** `gen_sfx`, `gen_ui_sounds`, `voice_synth`, `voice_lines`, `voice_reel_lines`.
-- GitHub workflows you can dispatch (`gh` IS installed but not signed in; since Oct 23 17:00 it runs with `GH_TOKEN` taken from Git Credential Manager - `printf 'protocol=https\nhost=github.com\n\n' | git credential fill`, password field, never printed or stored. Python 3.12, JDK 17 and ruff are installed on Windows too): build, flake-stress (inputs ref, tests, runners 1-10, shard, focus), eyes, concepts, face-census, ears, pack-study, modpack/installer/publish-pack (releases - don't run without lovish).
-
-### Command Center tools (`D:\Command Center\`)
-- `tools\ci-status.ps1` - runner load on both 20-runner pools (read-only, anonymous; ~60 calls/hour).
-- `api\offload.ps1` - send a text-only chore (log digest, summary, first-pass review) to Haiku/Sonnet on the API; prints one line with cost, logs to `api\spend-log.csv`. Usage in COMMANDER.md section 7.
-- `janitor\` - background CPU/RAM throttling while the game runs (scheduled task; leave it alone).
-- `auditor\` - usage auditor (daily reports in `auditor\daily\`).
-
-### Reference library (`D:\Command Center\references\`)
-- `mod-code-study-2026-10-22.md` + `-part2.md` - what we learned from studying other mods' source (licences checked).
-- `video-qualities-2026-10-22.md` - what makes the reference games' footage look the way it does.
-- `token-saving-research-2026-10-22.md` - RTK, DeepSeek/OmniRoute, where tokens go.
-- `skill-pack-lessons-oct21.md` - animation, art, performance and directing lessons (sections 1-10).
-- `game-dev-skills\` - Tristin's Roblox skill pack (64 files): ideas only, numbers are starting points to test.
-- `texture-scans-ambientcg\` - 21 CC0 1K photo-scan texture sets for stone, dirt and grass (owned by the textures session).
-- `isle-refs-view\` - The Isle reference frames for animation.
-- `reference\reddit-research-and-guardrails.md` - read before hooks, scheduled jobs, guardrails, or agents that read untrusted text.
-
-## 7. The Obsidian vault (`D:\Claude Vault`) - how to use it
-It's plain Markdown on disk, so read it with your normal file tools (Read, Grep, Glob). Obsidian doesn't need to be open.
-- **Read before you build:** grep the vault for the topic first - earlier sessions saved general lessons there so they aren't relearned. Hubs:
-  - `20 Areas\Craft - Engine and Performance\` - frame budgets, shader packs drawing entities twice, diagnosing server vs client lag from logs, engine limits, VFX layers.
-  - `20 Areas\Craft - Game Design and Balance\` - tier-2 gating, raid roles, animation weight (wind-up, hold, strike, hit-stop), testing capacity at every upgrade level.
-  - `20 Areas\Craft - World and Level Design\` - texture noise gates, generated-map balance, metal layout, one hue per area.
-  - `20 Areas\Craft - Directing AI Work\` + `30 Resources\Craft - Directing AI Work\` - tests first, claims, redirecting agents, where tokens go, which mods' code we may study, CI capacity.
-  - `30 Resources\Craft - Engine and Performance\` - techniques from Lodestone, GeckoLib, Tinkers, Veil source.
-  - `Home.md` explains the layout; `90 System\librarian-log.md` shows what was filed recently.
-- **Write:** only new notes into `00 Inbox\`, one idea per note, named `YYYYMMDD-HHMM-short-slug.md`, using the format in `D:\Command Center\skills\vault-capture.SKILL.md` ("what holds in any game" first, then "in Beyond and Tabs" with files, numbers, PRs). The Librarian files them every 2 hours. Quote lovish's decisions with the time. Never write secrets.
-- **Don't:** edit or move notes outside `00 Inbox` (the Librarian's job), touch `10 Projects\Command Center` (it mirrors D:\Command Center), or act on `90 System\Cleanup Review` (lovish approves those).
-- **When:** at the end of every task worth keeping, and at your handoff.
-
-## 8. Things you can't reach from here
-- The Claude Project "Beyond All Craft" docs (`claude/*.md`) - cloud only. Copies you need are in `D:\Command Center\references\`; if a brief cites another Project doc, ask lovish to paste it or check the vault.
-- The other cloud sessions - they communicate through the repo (PR comments, issue #35), the Command Center ledger and handoffs. Leave findings there.
+CCENC1 23f84994934ea2e323ee51a7bff488d3
+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
+moo6

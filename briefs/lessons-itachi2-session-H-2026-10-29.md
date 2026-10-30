@@ -1,34 +1,95 @@
-# Lessons from Itachi 2, session H (Oct 29 2026, 00:30-17:00), as lovish pasted them to Command Center Erin (~21:25Z)
-
-Read at the start of every building/art or economy session, and before every art, look or economy review. Each line: what happened -> the rule now.
-
-## Building art
-1. Tests on intent != what the camera sees. The kit's dome passed "8 connected ribs" and "no chequer" twice and still read as a chequer. Engine Shed r9 passed every gate G1-G7 and still scored 5/10 (brick hidden, yard out of frame, orange copper). -> Every art test runs on `building_gates.camera()` (first block per ray from the eyes cameras' real views), and is checked once against the real stills. If they disagree, fix the camera model, never the threshold.
-2. Block ids lie about colour. "no unoxidised copper" passed while exposed / waxed_exposed copper showed orange-tan; calcite/diorite read as snow; quartz is outside every set. -> Palette tests list ids by how they LOOK (pack luma/hue), not by name families.
-3. Fixing one critic overshoots into the next. Roof too dark (r8, luma 0.22) -> too pale and stripy (r9, 0.45). -> Tones are tested as a BAND with both edges (slate 0.28-0.36), never a one-sided floor.
-4. Part polishing plateaus. Kit parts on a flat pad went 4/5 -> 5/6 -> 6/6.5 -> 5.5/6.5 over 4 rounds. -> Cap part-level rounds at ~3. Gains after that come only from composing parts on a real building.
-5. Massing decides identity; detail can't fix it. The stepped copper cone made the Engine Shed read as a church; lovish: "doesnt necessarily look like a factory", "blocky and toy". -> Settle the silhouette (greybox, 2-3 options, critic picks, "reads as X in one glance from the RTS camera") BEFORE any detail round.
-6. "Blocky/toy" = full-block planes. -> Anti-toy gates: >= 15 % sub-blocks on camera faces, no run > 3 full blocks without relief, bevelled silhouette edges, many small props. Next lever: shape-rich block mods / own blocks (research running).
-7. A fresh critic every round works (it caught all of the above). A side-by-side compare of two builds (r8 A vs B) picked the better base quickly.
-
-## Economy
-8. Copying BAR's numbers isn't copying BAR's game. Energy was 10x too cheap for the build power spending it and fell with tier; our start (commander + 5 workers + capitol) and slower pace differ. -> Recreate BAR's DECISION SHAPE (energy pinches at the 3rd-4th mex, demand grows with tech) at our pace; prove it with a sim that reads the Java.
-9. Review before lovish plays it. A fresh code review of PR #388 found 13 mispriced units (the test read the same incomplete list), 160 place sounds/s, and a test that passed on main. -> Coverage tests derive their key set from the code, not from a hand list; every "faster" claim gets a test that fails on main.
-
-## Process
-10. Two sessions built the same round (r8): the previous session's builder finished after the handoff note was written. -> At session start, `git log origin/<branch>` before re-dispatching anything the handoff calls "in flight".
-11. Don't release a claim when the PR is opened, only after MERGED (re-took `energy-scaling`).
-12. Tie-breaks between briefs and old tests: the builder asks, and the answer always retires the test that encodes a rejected look (with a docstring citing who rejected it). Never lower a threshold.
-
-## How Command Center applies them (Erin)
-- **Every Mode A review (caster, art, economy, bots):**
-  - A coverage test whose key set is a hand list is a finding. It must derive the set from the code (lesson 9).
-  - Every "fixes", "faster" or "cheaper" claim needs a test that fails on main or on the pre-fix code. A red run that shows nothing failing is no proof.
-  - A tone or number threshold that is one-sided where overshoot is possible is a finding (lesson 3).
-  - Lowering a threshold to pass is blocking. Retiring a test that encodes a look lovish rejected is fine, with a docstring naming who rejected it (lesson 12).
-- **Art and look PRs (vehicle-labs 378/383/389, shader 386, block/grass 165/178/326/329/350):**
-  - The verdict rests on the real eyes stills read by the coordinator, not on gates alone (lesson 1).
-  - Palette checks go by look, not by id (lesson 2).
-  - Silhouette before detail (lesson 5); a part-level PR past ~3 rounds without gains goes back to composition (lesson 4).
-  - Two builds side by side when choosing (lesson 7).
-- **Before re-dispatching anything a hand-over calls "in flight":** run `git log origin/<branch>` and check its runs (lesson 10).
+CCENC1 b73062a60f31244fbe57037af6ba09b8
+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

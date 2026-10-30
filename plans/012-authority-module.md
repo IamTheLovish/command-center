@@ -1,125 +1,381 @@
-# 012 - authority module ("who may command", "what is the relationship", "may target through fog")
-
-- **Goal:** one pure, table-tested rules class answers "relationship", "may command" and "may target" for every server caller, the ally/sandbox/neutral disagreements are fixed (F9) and a modified client can no longer order an attack or follow on a unit it cannot see (F7).
-- **Lane:** Lane A (server rules, security). Post on issue #35 before editing `unit/UnitActionItem.java` or `unit/goals/*` (shared with Lane C).
-- **Branch:** `claude/improve-012-authority-module`
-- **Claim:** `python3 tools/claim.py check authority relationship mayCommand fog target` then `python3 tools/claim.py take improve-012 --lane "Lane A" --branch claude/improve-012-authority-module --what "AuthorityRules: one relationship/mayCommand/mayTarget, fog check on entity-target orders (plan 012)"`. Release when the last PR merges.
-- **Model / effort:** opus, xhigh (step 3 touches fog of war and what a player may do). Steps 1, 2, 4 are sonnet-sized but one session does all four so the table stays consistent.
-- **Written against:** origin/main `bbbdac21`.
-- **Drift check (run first):**
-  `git fetch origin && git diff bbbdac21..origin/main --stat -- bar/src/main/java/com/solegendary/reignofnether/network/PacketAuth.java bar/src/main/java/com/solegendary/reignofnether/network/Audience.java bar/src/main/java/com/solegendary/reignofnether/unit/UnitActionItem.java bar/src/main/java/com/solegendary/reignofnether/unit/packets/UnitActionServerboundPacket.java bar/src/main/java/com/solegendary/reignofnether/building/BuildingServerEvents.java bar/src/main/java/com/solegendary/reignofnether/unit/UnitServerEvents.java bar/src/main/java/com/solegendary/reignofnether/unit/goals bar/src/main/java/com/solegendary/reignofnether/util/MiscUtil.java bar/src/main/java/com/solegendary/reignofnether/alliance bar/src/main/java/com/solegendary/reignofnether/unit/Concealment.java`
-  If any changed, STOP and report which. (Open PR #248 touches `UnitServerEvents.java` only for state clearing; a rebase there is fine, read the diff to be sure it does not touch lines 447-496.)
-
-## Context (paths relative to `bar/src/main/java/com/solegendary/reignofnether/`)
-
-Verified on bbbdac21. The same two questions are answered in six places that disagree:
-
-| # | Where | Rule it implements |
-|---|-------|--------------------|
-| A | `network/PacketAuth.java:38-52` `mayActFor(sender, owner)` | sender equals owner, OR sender is a sandbox player, OR `AlliancesServerEvents.canControlAlly(sender, owner)` (= allied AND `owner` is in `playersWithAlliedControl`, `alliance/AlliancesServerEvents.java:26-29`). `:55-61` `mayControl`: a unit by A; a non-unit only with the control-all-mobs cheat. |
-| B | `unit/UnitActionItem.java:187-194` `mayCommand(level, issuer, unit, sandboxOwner)` | null issuer (the server) or sandbox issuer or same owner: yes; else client: ally control or cheat; server: `canControlAlly || canControlAllMobs`. The cheat applies to UNITS here, but not in A. |
-| C | `unit/UnitActionItem.java:640-643` (building abilities) | building owner equals issuer, or sandbox, or `canControlAlly`. Same as A without the null case. |
-| D | `ability/AbilityServerboundPacket.java:55-62` | exact owner only. This is intentional: it ranks up a hero's ability with the OWNER's skill points. Keep it. NOT a duplicate: write it into the table as `ownerOnly`. |
-| E | `building/BuildingServerEvents.java:920-926` `getUnitToBuildingRelationship` | `OWNED` if equal, else `HOSTILE`. No ally case, no neutral case. Used by `unit/goals/BuildRepairGoal.java:101` (`!= HOSTILE`) and `:224` (`rs == OWNED \|\| bridge`), `ReturnResourcesGoal.java:92`, `CallToArmsGoal.java:45`. |
-| F | `unit/UnitServerEvents.java:483-496` `getUnitToBuildingRelationship` and `:455-481` `getUnitToEntityRelationship` | building: equal -> OWNED, blank -> NEUTRAL, allied -> FRIENDLY, else HOSTILE. Entity: allied first -> FRIENDLY, SAME owner -> FRIENDLY (not OWNED), blank -> NEUTRAL, else HOSTILE. Only caller of the building version: `util/MiscUtil.java:586`. |
-| G | `util/MiscUtil.java:660-669` `getClientsideRelationship` | CLIENT copy using `AlliancesClient.isAllied`. Stays client code; it may share the pure function. |
-
-`network/Audience.java:80-92` already has a pure `Facts` interface (`allied`, `commandersOf`, `spectator`, `mayCommand`) and `Audience.mayKnow(ServerPlayer, Entity)` (`:197-199`: own side OR fog-visible OR spectator). Reuse that for the fog check; do not write a second fog predicate. `Audience` itself imports Minecraft, so the new rules class must be separate and import-free.
-
-**F9 (the bug, my reading of the finding):** with allies A and B, a worker owned by A and an unfinished building owned by B, `BuildingServerEvents.getUnitToBuildingRelationship` returns HOSTILE (E has no ally case), so `BuildRepairGoal.java:224` (`rs == OWNED`) never lets the worker build, and `:101` never auto-repairs it. The code at `:101` (`!= HOSTILE`) shows the intent was that allies are not hostile. If your reading of F9 differs, STOP and ask.
-
-**F7 (the leak):** `unit/UnitActionItem.java:383-396` (ATTACK), `:434-439` (FOLLOW) and `:557-562` (entity-targeted abilities) call `Concealment.isHiddenFrom` (`unit/Concealment.java:41-48`: cloaked / thicket / burrowed / submerged targets) but never ask the fog. A modified client can send the id of an enemy unit standing in fog, and `CommandQueues.issue` runs it. The packet entry is `unit/packets/UnitActionServerboundPacket.java:150-169` (`accept`): it checks `PacketAuth.mayActFor`, filters ids with `PacketAuth.controllableIds`, then `CommandQueues.issue`. The target id is `unitId` (a single entity id; `<= 0` or `-1` means none).
-
-**Convention / exemplars:** pure rules + Facts interface: `network/Audience.java:63-145`; its GameTest: `gametest/AudienceGameTests.java`. JUnit source-text and table tests: `bar/src/test/java/com/solegendary/reignofnether/building/production/PopulationRulesTest.java` (table-driven, written from the rule). Fog test helper for server tests: read `gametest/AudienceGameTests.java` first for how it fakes fog.
-
-**Hard rules (all apply):**
-1. Tests first, red on main, for every behaviour change; the pure table (step 1) characterises TODAY's behaviour first (green), then the fix changes the rows that are wrong (red -> green).
-2. Client code must not leak into server code: `python3 tools/check_server_client_imports.py` passes. The new class lives in `network/` and imports only `unit.Relationship` (a plain enum).
-3. Fog of war: a player must not learn about, or act on, what the fog hides. Step 3 is exactly that rule.
-4. Oculus: nothing here renders. (Rule noted, not touched.)
-5. No file crosses 1,000 lines: `UnitActionItem.java` and `BuildingServerEvents.java` are already long, your net change in each must be <= 0 lines (you delete the duplicates). New GameTests go in a new class `gametest/AuthorityGameTests.java`.
-6. `python3 tools/check_java.py` 0 structural errors; `bash tools/prepush.sh` before every push.
-7. New GameTests: 10-run flake-stress, read the `[Stress]` annotation, not the job colour (commands in the PR template).
-8. Commit by explicit path, identity `git -c user.name=IamTheLovish -c user.email=IamTheLovish@users.noreply.github.com commit`, trailers as given. Never push `main`, never force push.
-
-## Steps
-
-### Step 1 - pure rules class, table-driven JUnit (PR 1; no behaviour change)
-1a. Create `network/AuthorityRules.java` (no Minecraft imports):
-```java
-public final class AuthorityRules {
-    public interface Facts {
-        boolean allied(String a, String b);        // AlliancesServerEvents.isAllied
-        boolean sandbox(String player);            // SandboxServer.isSandboxPlayer
-        boolean alliedControl(String owner);       // playersWithAlliedControl.contains(owner)
-        boolean controlAllMobs(String player);     // NonUnitServerEvents cheat
-    }
-    public static Relationship relationship(String a, String b, Facts f);   // blank either -> NEUTRAL; equal -> OWNED; allied -> FRIENDLY; else HOSTILE
-    public static boolean mayCommand(String sender, String owner, Facts f); // = row A: equal || sandbox(sender) || (allied && alliedControl(owner)); null -> false
-    public static boolean mayCommandEntity(String sender, String unitOwnerOrNull, Facts f); // unit: mayCommand; non-unit (null owner): controlAllMobs
-    public enum TargetCheck { OK, HIDDEN_BY_COVER, IN_FOG }
-    public static TargetCheck checkTarget(boolean ownSide, boolean concealedFromIssuer, boolean visibleToIssuer);
-    public static boolean ownerOnly(String sender, String owner);           // row D
-}
-```
-`checkTarget`: `ownSide` -> OK; else `concealedFromIssuer` -> HIDDEN_BY_COVER; else `!visibleToIssuer` -> IN_FOG; else OK. (Cover is checked before fog because the existing code turns a hidden target into a move order; keep that.)
-Write `bar/src/test/java/com/solegendary/reignofnether/network/AuthorityRulesTest.java` FIRST, a table of `(a, b, allied, sandbox, alliedControl, cheat) -> expected` rows for every function: same owner, ally with and without shared control, ally of the wrong direction (control is granted by the OWNER: `alliedControl(owner)`, not the sender), enemy, blank vs blank, blank vs owner, sandbox sender, sandbox owner (a sandbox OWNER gives nobody control), null inputs, cheat on a unit vs on a non-unit. Commit it with a skeleton throwing `UnsupportedOperationException("skeleton")` -> RED, then implement -> GREEN.
-GATE 1a: `python3 tools/ci_wait.py --pr <N>` first push prints RED naming `AuthorityRulesTest`; after implementation GREEN and the `JUnit summary` count is up by the table size.
-1b. Add the `LIVE` Facts in a Minecraft-side class `network/AuthorityFacts.java` (like `Audience.LIVE`, lines 148-171) reading `AlliancesServerEvents`, `SandboxServer`, `NonUnitServerEvents`. No call site changes yet.
-GATE 1b: `python3 tools/check_java.py` prints 0 structural errors; `python3 tools/check_server_client_imports.py` passes.
-
-### Step 2 - F9, red GameTest first (PR 2)
-2a. In `gametest/AuthorityGameTests.java` write `allied_worker_builds_an_allied_site`: two seats A and B allied (`AlliancesServerEvents.addAlliance`), a worker owned by A, an unbuilt building owned by B (use the helpers in `gametest/BlueprintGameTests.java` or `SkirmishGameTests` for placing a site; read one first), order `BUILD_REPAIR` via `CommandQueues.issue(level, "A", UnitAction.BUILD_REPAIR, ...)`, poll (bounded, every 5 ticks up to 400) until `getBlocksPlaced()` rises. RED on main (never rises). Second test `allied_worker_does_not_build_an_enemy_site` (enemy owner, never rises: GREEN before and after, the guard). Third: `neutral_owner_building_is_not_buildable_by_a_player_worker` if a blank-owner building exists in the helpers; otherwise skip and say so in the PR.
-2b. Fix: `BuildingServerEvents.getUnitToBuildingRelationship` returns `AuthorityRules.relationship(unitOwner, buildingOwner, LIVE)`; `BuildRepairGoal.java:224` accepts `OWNED` or `FRIENDLY` (allies build and repair each other's sites; `ReturnResourcesGoal.java:92` and `CallToArmsGoal.java:45` stay `OWNED` only: do not let allies drop resources at, or be called to, each other's buildings). 
-GATE 2: flake-stress both tests, 10 runners: `allied_worker_builds_an_allied_site: failed 0, passed 10`. This changes gameplay (allies can finish each other's sites). List it under "Numbers for lovish".
-
-### Step 3 - F7: fog check on entity-target orders (PR 3; opus xhigh)
-Where: `UnitActionServerboundPacket.accept` (lines 150-169), NOT `UnitActionItem`. Reason: `UnitActionItem.action` also runs for bot orders, queued orders resuming later and autocasts, which have no `ServerPlayer` and must not be fogged; only packets are untrusted.
-3a. RED GameTests first (`AuthorityGameTests`): `attack_order_on_a_unit_in_fog_is_refused` (fog enabled for the sender, enemy unit outside the sender's vision: call `UnitActionServerboundPacket.accept(player, name, UnitAction.ATTACK, enemyId, new int[]{myUnitId}, ...)`, assert the unit has no attack target and `accept` returned false or the queue is empty); the same for `FOLLOW`; `attack_order_on_a_visible_enemy_still_works`; `attack_order_on_an_ally_in_fog_is_not_blocked` (own side); and a spectator/sandbox sender is not blocked. Read `gametest/AudienceGameTests.java` for how it puts a player and fog in place; if the test cannot get a fogged `ServerPlayer`, split the decision into `AuthorityRules.checkTarget` (already covered by the step 1 table) and test the packet path with `FogOfWarServerEvents` enabled via the same helper AudienceGameTests uses; if neither exists, STOP and report (do not invent a fake player).
-3b. Implement between `controllableIds` (line 159) and `CommandQueues.issue` (line 163): if `unitId > 0`, look the entity up (`player.serverLevel().getEntity(unitId)`); if it exists and `!Audience.mayKnow(player, entity)` (this already returns true for own side, visible, spectator) -> log once a second per player (`PacketAuth.allowLogged` style, see line 123) and `return false` for the entity-target actions: `ATTACK`, `FOLLOW`, and any action whose ability has `canTargetEntities` (look the ability up the way `UnitActionItem.java:557` does). Do NOT touch any other action (`RECLAIM`, building orders, ...): they carry positions or own-side ids. List in the PR any other action you see that uses `unitId` as a foreign entity. Order of checks in the final code: cover (existing, in `UnitActionItem`) is unchanged.
-3c. Gameplay question for lovish, put in the PR body, do not decide alone: "an order on a unit that has just stepped into fog is refused (the click does nothing). BAR lets you keep an attack order on a target that leaves line of sight and the unit chases its last known position. Do you want: (a) refuse (this PR); (b) accept if the target was visible to the sender within the last 20 ticks (a grace window, needs a per-player 'last seen' map)?" Default shipped: (a). In-flight chases (a unit already ordered that loses sight) are NOT changed by this PR.
-GATE 3: flake-stress the new tests, 10 runners, 0 failures; the existing `orders_obey` and `audience_*` batches still green in the PR's CI run.
-
-### Step 4 - delete the duplicates (PR 4)
-Point each caller at `AuthorityRules` + `AuthorityFacts.LIVE`: `PacketAuth.mayActFor` (both overloads) and `mayControl` delegate; `UnitActionItem.mayCommand` delegates (keep the null-issuer fast path and the client branch, line 190-191, which uses `AlliancesClient`); `UnitActionItem.java:640-643` uses `mayCommand`; delete `UnitServerEvents.getUnitToBuildingRelationship` (`:483-496`) and repoint `MiscUtil.java:586` to `BuildingServerEvents.getUnitToBuildingRelationship`; `UnitServerEvents.getUnitToEntityRelationship` keeps its OWNED-vs-FRIENDLY quirk (same owner -> FRIENDLY): implement it as `relationship(...)` then map `OWNED -> FRIENDLY`, with a comment saying why; `MiscUtil.getClientsideRelationship` calls the pure function with a client `Facts`. Cheat-on-units difference between A and B: keep A's (packets), i.e. the control-all-mobs cheat does not command UNITS owned by others; flag in the PR as a behaviour change only for CommandQueues' internal callers (they only see ids that passed `controllableIds` already).
-GATE 4: `git grep -n -E 'canControlAlly\(' origin/<branch> -- bar/src/main` shows calls only in `AuthorityFacts`, `AlliancesServerEvents` and `AlliancesClient`; `git diff --stat origin/main` shows net deletions in `UnitActionItem.java` and `UnitServerEvents.java`; the whole shard set is green (`python3 tools/ci_wait.py --pr <N>` prints GREEN).
-
-## Out of scope
-Changing the alliance system; hero-role (`HeroRoles`) rules in `Audience.onSide`; the client-side HUD relationship colours; hiding units from the minimap; grace windows (open question 3c); packets other than `UnitActionServerboundPacket` (list any you notice that take an entity id in the PR, do not fix them).
-
-## STOP conditions
-- Drift check shows changes; or PR #248 changes lines 447-496 of `UnitServerEvents.java`.
-- Your reading of F9 or F7 does not match the code you see.
-- A pre-existing GameTest goes red after step 2b or 4 (most likely both-blank owners: today E returns OWNED for two blank owners; the new rule says NEUTRAL; if that is the cause, keep `equal -> OWNED` before the blank check in `relationship` and say so).
-- No way to get a fogged `ServerPlayer` into a GameTest (3a).
-- CI red you cannot explain after one fix attempt; the same test red on main (check `tools/known_flakes.txt`).
-
-## Done criteria
-- `AuthorityRules` + table test green; `AuthorityFacts.LIVE` is the only place that reads alliances/sandbox/cheat for authority.
-- F9: an allied worker builds and repairs an allied site; an enemy worker still does not.
-- F7: a fogged enemy cannot be ordered attacked / followed / targeted by ability through the packet; visible, own-side and spectator targets still work.
-- The duplicates in `UnitServerEvents`, `UnitActionItem:640-643`, `PacketAuth` are gone or delegate; `AbilityServerboundPacket` is documented as `ownerOnly` and unchanged.
-
-## PR body template
-```
-## What
-<one sentence: which step>
-
-## Why
-"May command" and "relationship" existed in six versions that disagreed (allies/sandbox/neutral); allied workers could not build; entity-target orders ignored the fog.
-
-## Evidence
-- Red commit <sha>, CI run <id>: <test> failed with <message>; green commit <sha>, CI run <id>
-- Flake-stress run <id>, [Stress] annotation: "10 runners; 0 with any failure", "<test>: failed 0, passed 10"
-  read it with: gh run view <id> --json jobs --jq '.jobs[]|select(.name=="summary")|.databaseId'
-  then: gh api repos/IamTheLovish/Beyond-and-Tabs/check-runs/<jobid>/annotations --jq '.[].message'
-
-## Numbers for lovish / questions
-- (step 2) allies can now finish and repair each other's sites: ok?
-- (step 3) an order on a unit that just entered fog is refused. Keep (a) or add a 20-tick grace (b)?
-
-Do not merge without lovish's OK
-```
-
-## Return format (max 200 words)
-PR number(s); per GATE the command and one-line result; the list of lovish questions; any packet you found with the same fog hole (name only). Nothing else.
+CCENC1 9c6a3e310735daf151423dd52115b90f
+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

@@ -1,95 +1,168 @@
-# Flake roots - report (2026-10-27)
-
-Branch `claude/flake-roots` (worktree `D:\btf`), draft PR **#273** to main. Do not merge without lovish's OK.
-origin/main d9fac5c6 merged in (73caa247). Every "fixed"/"verified" below has its run id. Flake-stress numbers are read
-from the summary job's `[Stress]` annotation, not the job colour.
-
-## Per target
-
-### 1. `elder_druid_is_a_t2_worker` - STALE TEST CLAIM, NOT A PRODUCT BUG
-
-- **Cause:** 66d0fdb3 (PR #253, "Remove builder and engineer abilities in all factions", Joisco's tester decision of
-  2026-10-26) deleted the Elder Druid's `getAbilities`/`updateAbilityButtons` override on purpose and added
-  `ac1_builders_and_engineers_have_no_abilities`, which names `ELDER_DRUID_UNIT` and asserts an EMPTY ability list.
-  main then held two tests asserting opposite things; #253 trimmed the other mixed tests but missed this one. #253's own
-  PR run 40452094789 was already red on it, and it was merged anyway.
-- **Fix:** d434386c - the test asserts the current design (no ability of its own, the ability names in the message if
-  one comes back). Every other check is unchanged (T2 worker, build power, health, faction, T3 lab, treant helper).
-- **Proof:** PR run 40469588386 job `bar` green; shard-1 flake-stress 40469592779 **0 of 10 failed**, 40472451498
-  **0 of 10 failed**.
-- **For lovish:** the design change is Joisco's decision in #253, not a line in `design/LANES.md`. If the Elder Druid
-  should keep Awaken Thicket, revert the ElderDruidUnit part of 66d0fdb3 and take the Elder Druid out of ac1 instead.
-
-### 2. `the_snapshot_of_unloaded_chunks_loads_them_without_blocking_a_tick` - PRODUCT BUG, FIXED (test first)
-
-- **Cause (read from the 1.20.1 bytecode):** a chunk loaded at ticket level 33 (FULL, not ticking - the capture's own
-  ticket) keeps the block entities its features placed as pending `DUMMY` tags (`WorldGenRegion.setBlock`). Vanilla
-  creates them on the first `getBlockEntity` of the position: its background save (`ChunkMap.processUnloads ->
-  saveChunkIfNeeded -> ChunkSerializer.write -> LevelChunk.getBlockEntityNbtForSaving -> getBlockEntity`) or
-  `postProcessGeneration` when the chunk turns ticking. The chunk packet lists only `LevelChunk.getBlockEntities()`. So a
-  snapshot built before that save lacked them and the reference taken later had them: every red says `block entities
-  (file only [], reference only [...])`, `file != live, reference = live`.
-- **Test first:** 30656a7a, new class `FogSnapshotBlockEntityGameTests`,
-  `the_snapshot_lists_block_entities_vanilla_has_not_created_yet` (a chest left in exactly that pending state, captured
-  on the spot in the same tick so no save can come between). Red locally on 30656a7a: `does not list the chest at 5,
-  -58, 5 whose block entity was still pending (listed: [0, -60, 0 minecraft:structure_block])`.
-- **Fix:** f435354f - `FogChunkSnapshot.captureNow` creates the chunk's pending block entities before building the packet,
-  as that save would. 220a6b47 adds the longest chunk build and the count created to the capture's log line.
-- **Before:** main 40456368179; shard-1 stress 2 of 10 (40453430261), 1 of 10 (40452699161), all the block-entity
-  mismatch.
-- **After:** shard-1 stress 40469592779 0 of 10; 40472451498 1 of 10, a DIFFERENT failure: `a capture step took 63.6 ms
-  (limit 50.0)`, see "Open" below. The new test 10 of 10 in both.
-
-### 3. `stress_command_queue_executor_stays_in_budget` - f04a443b (previous session), verified as far as stress can
-
-- **Cause:** main red 40447858037, `15 of 24 after 6375 ticks, no progress since tick 5175`, nine seconds after its batch
-  began. About 35 progress lines a second in that window (one every 20 ticks), so ~700 ticks/s: the server was catching
-  up, and the test's tick-counted "60 s" stall was ~1.7 s of wall time. f04a443b waits in wall-clock time like the other
-  far-chunk tests.
-- **Proof:** shard-1 stress 40453430261 (f04a443b), 40469592779 and 40472451498 (this branch): **0 of 10 failed** each.
-  Caveat: main's shard-1 stress 40452699161 was also 10 of 10, so stress does not reproduce the slow-worldgen condition;
-  the proof is the mechanism in the log, not a before/after rate.
-
-### 4. `bots_reach_tier_2_after_fielding_t1_units_and_not_before_minute_5` - NOT CHANGED: plan 015's STOP applies
-
-- Plan 015 step 2 runs only after #203 (extractor footprint) and #221 (T2 pacing) are merged or closed, and says to wait
-  for lovish's word if either is open and the baseline is not 0. Both are open; main flake-stress 40452701845 is 2 of 10.
-- **Evidence for lovish:** in both failing medium samples (main CI 40456368179 and stress 40452701845) the piglin medium
-  bot never places its Hoglin Stables, the Flame Sanctuary's T1 requirement (`TierGate.t1LabFor`): `[T2Snap] ...
-  t1req 0/0` all game, `blk hoglin_stables: no valid site within 32 blocks of ...` from minute 7 to 14, pool past 7000
-  metal, `t2lab 0/0`. That is site search on the test's generated ground (plan 015's H1), not the 15-minute window. The
-  wind column is identical in every sample (H3 out). The other red in 40452701845 is setup: `no dry ground for three
-  bot bases near x=1508 (8 lines x 16 steps tried)`. PR runs 40469588386 and the b59a9654 run were red on this test too.
-
-### 5. `ac2_a_guard_follows_its_ward_to_the_next_site_and_helps_there` - diagnosis in, cause NOT proven
-
-- Reds: main 40441586228; shard-1 stress 3 of 10 (40453430261), 1 of 10 (40452699161). Always `B never helped A on the
-  first site: guarding false`, A and B idle on their spawn cells with no target.
-- In the 40453430261 sample the batch started 05:23:53 and failed 05:23:55: its 370 ticks ran in about 2 s, the server
-  catching up. A worker drops a site it gets no closer to after 300 game ticks (`BuildRepairGoal.GIVE_UP_TICKS`). That
-  fits, but is not proven.
-- Diagnosis: e1b06322 (the reviewed uncommitted edit: when B's guard ended, B's order then, ticking state) and b59a9654
-  (when A took and left site 1, ticks against wall-clock ms). No reproduction since: 0 of 10 in 40469592779, 40472451498.
-
-## Open
-
-- **Long capture steps after f435354f:** 2 of 20 samples (43.5 ms in 40469592779, 63.6 ms in 40472451498, the second over
-  the 50 ms limit) against at most 3.3 ms in the 20 samples before (40453430261, 40452699161). The "before" runs predate
-  main's #252-#262 merges, so this does not isolate my change; no GC pause of 50 ms or more was logged near the long
-  step; creating a pending block entity is a few object allocations. 220a6b47 logs the longest chunk build so the next
-  long step can be attributed.
-
-## New flakes / problems seen (not mine)
-
-- `bar-tests (5)` of PR run 40469588386 (job 122075675704) crashed in mod loading: `NullPointerException ...
-  ResourceCostConfigEntry.getWood() is null` in COMMON_SETUP; no test ran, the same jar started on the other 8 shards.
-- `the_budgeted_snapshot_equals_the_one_tick_capture` 1 of 10 in 40469592779 (`heightmaps of [22, 52]; file != live,
-  reference != live`), 1 of 10 in 40472451498 (light of [22, 52] and neighbours), 1 of 10 on main 40452699161 (light).
-  It runs right after `stress_8v8` in the same area. File is `FogSnapshotGameTests.java` (Joisco's #272), not touched.
-- `vanilla_path_melee_chaser_runs_down_a_walking_target` 1 of 10 in 40469592779: `around()` shows the chaser under
-  `effect.minecraft.slowness 1` (chaser speed 0.175 vs runner at 60% of base) - a lead for plan 015 B.
-- `stress_target_scans_idle_standoff_and_a_brawl` 1 of 10 in 40469592779: `3 of 300 standoff units picked a target`.
-- `capture_bounded_when_barrier_hangs` 5 of 10 (40469592779), 4 of 10 (40472451498); `ac1_shift_queued_...` 1 of 10
-  (40472451498). Both are Joisco's #272.
-- `tools/check_shards.py` fails on main: `SHARD_8: entry 'test:men' names no test` (#253 deleted the mending tests).
-  Needs a `.github/workflows/build.yml` edit, which this session may not make.
+CCENC1 f4634f0f222bf0789d42492f3001d81a
+ZXXGAQiKjlrAFq113Dj2JGGEittiKl30jEsTgUaeYpniEQhHTFHI4wtc3kCDKquw
+0v7nSKJAoQi6NSgwyiSy8iEKWxwSxUaY6Y1JdVRaVNOG8eWaIWEHSvn3ZMk9P1rA
+0Q02sGCh3VjWaXRJEUmvopZtufk1QDhPcUZ57VDFg8AoKkDR8oGmiRefkzbk/mLv
++thtc7qxFIz4xAjf0rxaVJc2mrarWMiOskipwVLOLVfic2FZ6PhLD99jChBfCjYX
+F2eEtcJ0EDm/bVIY8hqbPjLW9Hg0LN91+EbT+vbgVoo9O7fkNcdcljHCQ651poiI
+5cpNxMSlRgOe62FLOwTdsw5aH/mV2iuIC73s+9x7RI/sZBHxFxhBLzNLQ7P19XfG
+9LanhgUX77sjd2SGrJiWSfo0sYtvBrdw0ljPYirvDHmBCn+2wcYxLC5SWvsCwVr+
+tuUcsNMosIBOj36QozPU8EZqQAY97zdZY7n+8RrNvaCwDTvSUrVno4n4uXcBgcPY
+nf7eSXwHl/D+li5BoHihxy+25pLyYu1bx9UXFkumQO/j4GNmhILQ84qWxwGyn4lZ
+WozXHGEAszSb7djmsP2d/qoB1QgBb+MOrk+cpZx+9E4v/wasX9I4f6M6VzlZmoq/
+itzoBsMoO21tPH4L95xpyJyaz/PJziQVpX86rSDOCL1TTiq+7Gk8+DEl/HlSjebn
+I8eht8MhY6mMZ6uZutIJGb8gZjCmBEaEfltkYlIP1tKKYuOxQHrD4HMCkOVWDWol
+AWZB/gWN/9y08036gn5DF3JR3C3JQZXLmjxaqXrVnxBgoMiEHj8hg/ZIZ1E6MubP
+7CIPKa42Zmkg+KIiHAKsniuk1eAiTOACk9G6WRjzBy+vn494byQixDzE+Ce2gLKU
+Zr5yWiJWwqcUq3YToeHJ0E550fRWf0UuxQ0SVlwGaAICv3wXPkdKtieoWfBLGykU
+hvDezNE8iDrKPAoEbFn6vdBXh3SQLd5t2AWrFiPLGV2VaPqamwqgcG+nd9yTFGh2
+hN0nqCpSwHgg0jBda9aVlggOI8M43gOMNNCz8z3zZUyHWdNpMco7GgSyAiKqPPrW
+uP/j8lg8uXZt5bdMqjiANfkGhzcYzqViAboIoBb5yIksJyRWHsAaLOSKElLLO9Wb
+Gqk/Duwz4xE7RnaXZqKfdaoU+kU+dtVhZTdVPRx36K4zI7w+y0k7roUYgtN3NpuP
+8aWcYaX71ApB/fQjovgZBcf4WUkbSQASCB6jOnEiYLVzihAVCela92QxVTLDygqW
+RqT8aUDTjk07psSj7i1Bvn8g4XObvZ7GV7V0tv51IFqFbPy+pRtrKrxPite05le0
+lNfVVU/JNObhZiA4YL0awGlaPEkBHzvnQ9SwgvsYFFOXUhuzKXOYRnXA+u7WiJLk
+TisoS5C47IxUtydeU91JbJKz2uadDyswAiTHYKQ1oUfONA6p5XM0UpI4Yhpm1Kzs
+f2Dnpcn3YvAscjR2oM/XR29tLNLa4u/IP5wRNPlychpK2JCdkB6juijuOJzdhoUh
+Ep0lR+Ruodow+2UbqckURFrMl2eiTbNh5G7KVke3ZP2BOGvtEwppR4h2Wpr4XKt8
+u5BNejyREemcQDeXvOaXKcowN4Mt/ap+hmePF4VFJEGam/9ryiuOAsige5klWpo9
+jtGxysMKy2zdTdZ2Mrg8IJ1oWEKGOnrAKoshN1xN4D4ngd67W0qOMzMp7RDGpzPI
+50eKP3Bbr/WrwZUXbDi5u3o9e+C6AtM/wQfw76D9wTbt0WJkzqpt19joIxD+C1jj
+V+e5o7A5LcXJIjkynNpKwoozIGY4c/A42XTsQrQFE/di4l2a37MHOm4lT/s1BpX6
+UbcVEp7caAz+1pziLxS6Qua09dZ+xzggvljqiHNOGSyxrbro5fuEuaIBJ0MeotIc
+D0K20yWUhEKPCcNrrD/xP4M9T4JhvKIo3FUjvi+MMgEUgz+JOv2c16HZYc6RO296
+IWiHGLG0J/39aWoOxBdP1HHwMXJQpejZH3nJvGO2ycOc1FPgnowoiKB0/kSL5b8h
+J7+p+w/PuK5XxAaUL5qu4I3o5qS/3c7Nuaj2czXLUP4A051x+pHzOvZ/U8kZJBif
+yLn3jPfai0dD4RtHiFF3OaTYoDhzhP0x0uBpyFkBSlGKUPM1O5TZFJp00aCWYaZk
+6ui8ApUEwh9xsdrnjQw9+Xy/AvRtP2sOOPYY8b5HFUohJCgTzxDBuO4sgcN2xnCL
+DKlGW/ubIxcrnd2FJuxTgiBTQs96URR8/Z1P3f4tkmf8SLpoFupHccQmGEuGdN0U
+isNMnGCONg3kclwbWej/TSPk98CD3LCEn49SCcnE+QXEZzv4Q8m0V3IHUCckI0wJ
+JVfMb1XnEYWo5tZRZuTD5iihFLWAIFLuXhKapf2EcDlsJozPB5I53J0Uov4r20m4
+egWx5E+VrQRyJmFrjUnabWRyCLvzieJg22Z6uD8oeIZwqLNCRD7ct6tSjmxNfhLv
+GxL5itLL89ZDiba2vuYiIa9LvLtWq/eKgQ773fHdfPcDJq2jt7HPl1GalIL4xtRj
+tV8zUkLt1adXZidza19WcmsdMtjlt623Yw/PLGINJHvuWUFLHYjyboLSFy2uflzY
+mNlokJs/XdcG4jyOLJ0Zg95XzzvGZphVlkwoq9D39FpTkjJ+PXiFZnpPsJ3o2crH
+zJUHiBHGknmM6GTONsfFo1IUHTqdtmT2fiL+4/wcVf7s7QhGgkw7ATngFCzTFn3L
++UbHJqtJSVZp7Ht/+3n2aqJLooUwQ1nLfPCMrTwXd2lHNq+UbLws6v+1FYiqgIEh
+WZAr705utpD4ywSvDoze2z3szNml47qUV5sEVcSJfLcRGU88sjvTBDtUDPz9D34A
+s8Mmt50wMhEEFhxN4Fcvi6eG79Qfj7oqD8iLj+es6baaf2+hNB3MGmBZQ1QM++mT
+NYkST+L2zqf/06jBH7blpd6q9kEGmPpPdHt9oTVVBdCXXJL7HlHN18go1TUvLXeg
++MXa2XuAR9HSKaickj+0qPO2F40gPCtvppZrOQ5iKDOkh3Q6tH9RB2N18ifyoCQI
+WpIfBX7/trxxP8ia7iyWGMjzcvABEpelW6kf18r/aTRnwH3inincflx/tMIcHZ4H
+UwzmK68EIToVeNHI2xM+iXwBclOALmPqn6T3X8dQNTnAz74hPzjqRbR9RHPNU3Ob
+xICubVrubGheKsR6CQ5VlvljYovTFZcgIJZVau0Ata7xjKmzepyGfmVs0D5y/Vw/
+foab2mpynQhWccdx9q0MX3I62x/o8/wwopRbXYjYAUcQcIeSYzMgf/a4607F58Dv
+X/oTxIJCg8jWY7psQz5k7HL0RUOx8RuLSVTc9oGdhpIIvSoq1+LJO/2QETsdu3hl
+EoHIBz4FDi6OHvnA5KjUQJ4+vZ71LfzbbmAq5yZe3bLHhljepqGthF9g1lsTOrak
+UKJGTKPvcaDKM5zyJlaUr5/d+f+atpnxZd6AIw1yo3l+XcD/Yf3fxYQUvxrh9KBX
+eLpwMJSPaYaIdmAQAY97JiHpOOtvOebYali5tQfU88KehKIFVa6a51bygzt4pYuD
+bI3K+HBKeOT4vGYgmCgix5TE42S01T0TClb4dyklEgMSoD4OL1V5W1JFcmUmNmc6
+bA9vJUc8CayNheobBkrYmUrQJV08Z9NYaBZ+Hn+FEkMmP9Vftk1moOAhbS7xMSw6
+uCD9x9vFW0ABX0DANUFA0qX3BtBfxfvNRsVQtxm0RHf646Ro8auvSUIdzuO8iDl5
+eOvgXGk0/aLWDEUINtiaSImAzyCxRpiADGWMTtv5vfXdqv7ubts3fgQEnZl1JiNm
+t8O1nSuGCLSMX4n06INAhRqsLYRRm6yi6oF2p560A3eIj7PkX+uDOa9YUfVnhlwH
+EvILMtNk6zy+FKtjX/JnF+ZqxQ7ce2Vc6hpEk2B0ilLKYTRDHLK87rCe+mLOu2tq
+gKciq1vGnvzHUKS8eWm+E9xkGnBqtjUHcP7zsyZgzEMl18uiykALrLq0FHHRUzxT
+NjUGzDnIPYxthzj5TAZFFxOPqtkzSDPAUEW0jENBVEOP8WSSayh8fb5QdkHZeeV5
+/gvPGcurfCxs5QDU01FhttHga+lQET7mL3bnZde9SbWuBdlwfHf+R4hm3voH1gvm
+jWQPjviZXXtcDSCjMCUw6DdQB0/gG1X+Xe6t7y7lBsvGyJw2vEyB/eQplLhaZJHw
+Q252P9cowtbQASbsuxS+FJ/d0Z8xlxDlW3h0Ccb4SYk20OGUByBLp+q3Uc/6iweZ
+NamoBZjluAvQOXsD0MzM3FJE563mu3/M+8MYuVmdGVbd8jdqPK3pU3r48cjGXYer
+2hlChLlPkiuRBTaGOjujIkAPPkfs88GXTN4DRxyU/qPyY3TdT98aOrT2JSx7BgF4
+q3O72+MV+vmzUwfL+w8n+2GQjikEuiR0UohzUk3dB921w6Q9yfuwLfVbX525froc
+8EcQy7Kl6NLavv85yBXJ1C0ZHW8lKqY4rSxnmGYY9VDaT4MN2K41HPSNb/8HJX3L
+D5mrnhf/RerS1IhG0lHXSKbfH/xHVzx1QnNTgals/h4CMqEoxA+ReGv1qhXuIzcP
+pvIjQM1xk6PMNHiH+fKb1qP5WFqob8ko2TzOVzTf+XzAAoaJVC1ygbqU/YNRze+g
+LzvYSQFT+s3n2S6bRIJpmDraSGb4gPvuMPDHdVwqo2PYKnCp2rVs9NoxIozpDZSg
+9Qg6DVTbj1X7/DHtoCIwYQlnIi6CfMu7NJKYqY8c+ZZAHtJnUDSIrYiIlaWIftTb
+/jhTiC33Mwwnj0s/3bSxor4Y1Uobdmnxw5bIoG1HFHIYqMjxAEFG1E2WRhMKgXLH
+PQHXeJqF1eyXYYM9qLz7taKN0I+K+oLHjtea9pD4/9WcgZXsc/wgERwQ0p1bx4Nq
+CTjnRbpDfdX7kazhjv4KpsQ3ddCAyVrMYBEme5hqMqaUo1fdHsFJo00m4tlxxGkF
+ELF4PiuGW2h3DyW+VlbRfSKjZREmcsytxzvmNtlIa6kU/HmZE8DD/TbdGzOrqVr6
+W3RB+QDzswa6++B63RzkDx4CePl3ns0A4sTF78jAhd+5pN0OJSRmcwPW3B0UMtKB
+VRBvQbEO2lw5Zxmi30Q2v+BvYy5VJJIUwT3QrdGeyWQVaDMIp9oveS1fjqbB6Nju
+jxl3y32bp2joaI6uBAefsVqcL2TYbEkGqRlPxA5TW3uWQs61rL4xT3/0mFkv/zn5
+KoaPsYBs4Fyi6jZbhGj2l+MlD86fspOUufVheyVMM4lJfFzckHhdmS3SQZRxZP9q
+q2HIwptIZtKye56tr2DLv4smUVem1G3sGzSEIbl34DIrSVoNYYa0Xn+yT7evnW9i
+g4zNPk7s6v7qMQxcG57HIvT/0uhMy7IoSqyuFm2XOj1+nOJY85wgNTJRhTMplwH8
+JdZgH8iHvA+Tuwky1a48DW8Ej6jDYTnERWoSSnh08HHqR9xgL8T9eeCD/6apsc/n
+9S9tkuR33sMsLCE7m58rpQ+WeR79o8rFfzaacahKHH4PUL6a9Qp41PebzYd2z8b/
+v2bJhb0NQVoE5NyQKm4sp44uW8owJEd2S5f0f7vOdGqkCAtOvpEZ2khWWCseJ9eW
+bbRMZH2LmJm4zaPzg5v4kQQS27h6JnMf4X0Z+T+XMJpWdQ5UUjwVFA/AcrrAsBAh
+TTuCRlv1psyAy7sUVkiXdpRZIMXbiuhnENwSbZ2/Uu21llDrBhwJVfsZHn9iUTcd
+adgvjqWzPpaHDlkr/gZR7r652OpY+S5DxcYA/A9rQwg3I+pA7w+vvhkRgtrR4gxP
+5lfNrlwF9KlM/QabD365FUem7ax4loy1OvyUZetRZ0Ia40yrfU3MMLRnlk+OH2VK
+h7Xgp7GvQRv6WunuTLjf6PdEPkPyIbOiH+h9vcfRkxiRX82030X1jdx0ncTgHSR1
+i1cVSRgcMvmHQNfTpJLJVupw/6t/aS/a4b8Cl5c0bgKAiZa60ebcLGTZaOLRF3GN
+TPk6zwTH5cS0KTaJir6TE2JXJoopqtMDBWXISqfjDsC42ury6StQBSa6c1/5DQt/
+00tPx5xhLE+rvYgMnSVmXN+gsmJP6Ymi64lRLTyZrEh4N8FXsl007Zybs/LvpIpP
+tsciogkJo5qxJbNOoOwQt0nKa2vDDSX2ZUD/WCaPtJsNWnFM2hdCk6Ytwkb2tX0R
+osvM5MFDSde2fjkE2Q4ejo4L1ePJBZNMC+nw/v7Ydq00EdbA0E6GloX/NSuh/uLr
+vjUxhlZrNOsC7GjGCLYmyjgDXhj9JrvJN0LygDFV64xg1xH8S5YeoHaXINB3ufyt
+V8wd5qgS0zJGyQ72V6kGZlax7qQHBRihFZX+UJ4w8avfc68Zok/T01JoYuZbhcs0
+LG0kzwvAJBKPLDOBp01brpReQ6p77bkDXkGynhcOi1ukip3QM/4vOA0WkMb8qf2V
+7cVArL4o8OOGUhxIWBwMcAuC7qIw+Nps8xjbZtieCOTdp5BGPiSav4C1ZvbV310c
+iWus8zwHZNJhLWA4Ou2jD+MIduadtO9veepqGss5Thp+H+IT74gq3q5CBfz+VZc7
+3qTT/FnuE1y+W2F8DnCp2H8JjJCoQUz7AFsUbOup8C3kFSNli6B+bgPvu4x6lDA2
+Bv5cRgXgZbEZq8prTgsAGKVxbJ43+2qKq+0EmgKtc4AEQsCmAeg8O2YpJgOyGVJR
+ikJ7nceMCjANAhbDQhTakZfpbmj0KMQaxmhCQYuaYvG247FnlwypxWcctG3aBhgm
+R2xV45WVN4Bi/MG5YLTm45eRtCtS3swLzj+v7767AjB9onn/Su4WxR4BSiFJbp9a
+NzzB9C368dE+53+iUrlYHIT3NalpavY7UtIL97CEfAZn0MyPsXKcWoFuKn8P8e4C
+28RZ4922guNekBiyRgeGtawlTnTXLqUPyCtPXz+Fgsk9pL3sc3rkEGNWIL2ha3JT
+EfBkOI/nAhPwa7wqmJ5f9CCbt/f4bttWJ+d/TkoZUSQf2RSh9QMITrx2giBRAKQy
+zGIT4JhymC3GkjfpIWU/zzjavZYteo+puybqW1gxUgj53JZF98zOvbEZi5qBzMzF
+tEMjNfGTlcSpfpKccnUbaUNokkIGAwGIXEwEgCc8gpVBYpBoS4A3PjZQ9GHFvKbE
+jGi00jZjhEUZkY5CFCZngmpcuqSkqHWUJCw78c1hNgg80NQ4ICPS9PtLnJOnD/tP
+8t7tlXV9oPyyzb3xrCJ5qg/c+LUC4ghkqliS1g+vqw4rAPzSWdpqGRUgCQ0xBFQY
+jzCmoznIM1hD7j5+KH7jnC0X70DfsU32AgihOUKHJbzpTdezJ080BEMpzvNVTmA/
+Qjd5SmbAlu9UyYBXGRUNYVr+4BR80IcIbs1plrSSahZxOAXorIl5D8y54XlT6SWJ
+hHY8oQhgZFpH2bjUGH4sVdS6CqOKgj87fmDFKD11GBrj7APDFFEPCEjjZ6NT/Syk
+y1syAlBjn+gZnB1A+4y03kPSdm5Gm/yRT88o5HFoU0H6MDHBN79h8UTmhHv+cIXC
+V3Kg1wBLVtTIyQYxyGfnx9BRkdRYcLxh9wZV4/4WeW4Qe/TX+z5zo7Zf74fOSFvo
+2WvS/nKSqyxbvun0NKtOYyVS6WdnQwceKfIMke4xaNhPD5DBrYhiSa9sLsTOTpJj
+zUJ0U010kNwgQQVtn9BEFn0T5peBLQ1NGG0j5FngcWI9JU3BeKRdEM7SPsTbI5Qq
+Xuajoia36lwKIPgnSl+pni9lchGgWOg8t7Nr107wD+BG95Z7grDmJgYKgrvXyR+/
+mLuy9iDCvQGMJpg7pCii7yL9ykcVv2Iwi6TRfsqCQhDr0uFUOceOhbFo17JN2hnw
+xZOVSw01JmuR/4RqtCNe+fjYDkSLra1xGcTSA4VxAVldkmiMXBp7U44Ae/mopQ5D
+dUzl0cLJ+0SQOcGDwqz5g565wqfnR1wmTBkq0jS6cfb0azKPOHq6XW6H+mKWnDRr
+Juil7PvGpyhSlbLaWXz6gV/TAvXOGNTNvitCED7yRf9QxFG5h98TKUGKJjjclH9a
+S0a9lHeiyywBIl0PV+tjzY8rUSdoZDuxwv2gM+iJoaE8zGc6Fd7MOiG4d4qMvMSk
+/2tY6S/vSjJloiqusyu7IgYQQXO8ey0VU9/ivdLDERVQ9mdRZ32vhdTObx+pNHSD
+BJwTzYPJAJpba6PVUe9NbM/ZzgN2RpADq18xpwkNGAC978lmxLA7v8crC4NnaMLa
+YRHpQE9CeAWJyAV0xvsaYGMxxRFR5Sm9SjFwNZMMUym+Fhmuh6xwGL4n+gzx7r8a
+/z8qfME2qzr6zjo9VzDq0M6vu6O/Ejv8qxfS4IxKO8NxE1Ty8skkqedZFZAk8r/4
+fyPaAmdPeGxw7TQvU6ZtRnlIHkehe+P1O4taApWaZqSIXZifwVdiuSJ1Vx3wDuQY
+3B5+BN2kmQuLuNCVlD0DG4j1L7JkZEgz8eOsznOvUCkctXmoQvC8AeNc/pwWwZNR
+dOpcuYRWD/dznsHy78pt7Hoin4YeCjAC/d1g7DDKZ8cxmkFFkQTlwOH24ZPgYqMW
+vGBD5x+L3jcSRWk5/FBw9MyoBfdlbSrfLrotjWOXo1LAGciRII8gcmeM19/ZkCeb
+JX0LSUe5KNXdJDHfIBqbRKZx8fv++HTD1ghr4/mfzBL+IMb2jw/fRKZDrwBDB6B6
+l/VKfdgq0Y3UTEPL8X1NpCpC2DZeolb/q8Cx4d368+2lbjnUAkutSfdqrPFtknzH
+KivBRaIAp4SO4JncY3e28AJigzpRutHEsLOvU+EKpMRpl6aXIX0aGWhJnNtFIxDi
+AZ2XDkRuEDCBIosayaVrOFfNaAZdwauRDeIwVgYeLKThS3AHe7bu4QA3tY0luAU1
+gipTNLH6hnQRfZlrFa9E53V/mhGk5+dJvnyWVvnQh8F6jc2762zoqOJwqwIMutKf
+X18IhLSjpY1hSmX8PBtreSZmCf0KrOHGDXStlwxif9A+7Dre8CnjUnN/EBeAVVkL
+dzNibsfYi1jPogOF1VTzTFIhCA6EQpMB+Ezm/7R4ZFayHxfk6XXvt5VYBRRNEc8G
+jlf7J85j5LSoXicvBmPhiZW6b4yYUhdVlibtQ//1sonHAXgFSnV4W8pyVLC/2g4h
+j6FkL+ScTXkLIMU5OGWiuzw5K5WXTexmu6UcSxPTQR3C/UKRBjZugUVnjHTeuGgE
+j1F48ejhHD5aGO0oTTR/4x6aMg469DBsFY0J675TJFaDa6xdsI7vnI/6IhYG0tkP
+5/qgk7dHDGyaFPv7+U3d9kmRjFucMi94ARrK9TRFIikfgNma/9jCHMv2s6nDpUHn
+KNTT3SUU6itHNck8cGOyPCbX/or8YADy56350K7bHShBU+nDlGtUxDOBKFHOE1V7
+7KVApmKwd0IVKoPja17ZrbxzcX560grBIKfJR13rvQVn6l2zoNJUeLpjhDHH9bF+
+3C/3kMOBsZR3UXqfIhP2im6k+/oGuufAD4a68s1+iHodiwzR0HQBHdy4x/9JnuCp
+9uyffw0IcUjaJd1Aow8xZYFIiBFgAhBg8t0S5a2jYFYtKM1wnlkc5HzHD06vxDr8
+Z+Qiuu9FMyDTCj8dtjozJ1cDkwgEXrbPt73JxTDsHLEO6ERzEhulyhUYCA/+IDk5
+JZyn8lxmRPuZkHCkUfD9phNXv4suvs7GBDt54KtkT0Hv35lXlNo+e8OiM79REmhr
+dBM2RbZ59t4ki98lesTZLDzdAR8WKBhxVMAsa8v1iyO9efohm2pGw7Xi6g/F+JCr
+VdqyN4YG0YqchVfqCCwgElJYgIPIAIgRRkpfA8w7RNOtfWC0rwokauIn9s8rU5oD
+qTOtndeEXVXIz3tYpQSezMD82WFqAamskObz0Td1lnR9UNi3Ek+2j9OFhaZxZezp
+QAXZw9ZTCaPnET+S6Fsr8hdOt2OFkHRxbCXcGoXl8/SycIaR1Ot8WlrdSHjmVeXp
+O2vdCozzw5RGi8XOlh7J66ZcAbhjDfQ9trLv8/4eR9ijPWpNzQZscclgVg5FOBCX
+2fJ6GbynWlyXQY897z7uE9V65b8hs9eB8YT46aRJF5NiSKfcSJxZF3FFPstQOMbx
+AWvRl6+VIzyzKWzadHcndXAYvB5Dh8viQjsc9ELcM0hgR1CQsfU48XuDT57XJZwS
+L9pxhNfmyEIG11d1Yf7y+apr0w7e/Dpz2PLYgBttoryVke9ZxOjuqo119m7VV4sb
+GTYQ5UsQUkoWlwphc103xMNlDGyjH2e3kYzjInCr0k2S7S0gsPli7ZbdDGVcBMsT
+XEx5wJCbntmOg9FCxWqcWvStX/BMR0LUIxD8/laxIjwifkFlPDSPi6DrCp7hInHW
+3i/JN+V5yHvcWZ6JuMDWoDZvLlQt5jx04m+JdbdpnS+PmdaIpJhpPSy8LUQEVKdI
+maMl8inozi9rbUl1aCCUz1FP1l6C1PGTO6c6cK3lEcVcnE6U4LgGUKZaYlhgje7I
+5QQyeFF8TJGGbwmGcUH+7l3MGYe21u8p4ZfoWX80MkEVesFexEMK3k0lYmN9r5l9
+fSztfUhJwFazqzfbmsnLIlfe6s3pC4hDJKNN9Rv90l7WrgOCO34f18EQ2lKT1tAh
+35OsSCSQOtiiT9vr/ivF1fOwC3N60V3f7nknJwis82SYAlIxC+Oets4TCA==

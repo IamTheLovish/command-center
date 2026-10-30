@@ -1,0 +1,3 @@
+# Notes are stored encrypted in git (tools/ccnotes.sh; key in ~/.cc-notes-key, never in the repo). -text: no line-ending conversion of ciphertext.
+briefs/** filter=ccnotes diff=ccnotes -text
+plans/** filter=ccnotes diff=ccnotes -text

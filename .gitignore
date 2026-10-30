@@ -1,6 +1,7 @@
 # Private command-center repo: allow-list only. Big reference media, kits, usage logs and evidence stay on the PC.
 /*
 !/.gitignore
+!/.gitattributes
 !/.github/
 !/tools/
 !/skills/

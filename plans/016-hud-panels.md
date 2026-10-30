@@ -1,121 +1,355 @@
-# 016 - HUD panels (measure drawHud, cache the selection strip, then move one panel per PR out of HudClientEvents)
-
-- **Goal:** know what the HUD costs per frame, stop rebuilding the selection strip's grouping every frame, and cut `HudClientEvents.java` (2,709 lines) down panel by panel without a pixel changing.
-- **Lane:** Lane C (UI). Post on issue #35 BEFORE touching anything in `hud/` and say which panel you take (22 commits touched this file since Oct 1; Lane C's human developer and his Claude work in it). Shared with Lane A only through `perf/FrameParts.java` and `matchstart/EyesOverlaysScene.java`.
-- **Branch:** `claude/improve-016a-hud-sections` (step 1), `claude/improve-016b-selection-cache` (step 2), `claude/improve-016c-<panel>` (step 3, one per panel).
-- **Claim:** `python3 tools/claim.py check hud panel selection strip HudClientEvents` then `python3 tools/claim.py take improve-016 --lane "Lane C" --branch claude/improve-016a-hud-sections --what "HUD: frame sections, selection strip cache, panel extraction (plan 016)"`. Re-take with the new branch for each PR; release when the last merges.
-- **Model / effort:** sonnet, high (UI, no gameplay timing, no fog). Step 3 is mechanical cut-and-paste with a picture check; if a panel will not move without changing behaviour, STOP.
-- **Written against:** origin/main `bbbdac21`.
-- **Drift check (run first, and before every step-3 PR):**
-  `git fetch origin && git diff bbbdac21..origin/main --stat -- bar/src/main/java/com/solegendary/reignofnether/hud bar/src/main/java/com/solegendary/reignofnether/perf/FrameParts.java bar/src/main/java/com/solegendary/reignofnether/matchstart/EyesOverlaysScene.java tools/hud_layout.py`
-  If any file changed, STOP and report which (for step 3, a change in `HudClientEvents.java` only means: re-read the block you are about to move and re-take its line numbers; a change INSIDE that block means ask on #35 first).
-
-## Context (paths relative to `bar/src/main/java/com/solegendary/reignofnether/`)
-
-**The shape of the problem (verified).** `hud/HudClientEvents.java` is 2,709 lines. `onDrawScreen` (:381-394) wraps `drawHud` (:428-2207, 1,780 lines, 200 `if (` ) in the one frame section `FrameParts.HUD`. Everything the player sees at the bottom, top and right edge is one method; the blocks inside it are marked by comment banners:
-
-| lines | block |
-|---|---|
-| 428-508 | setup: screen size, `selUnits`/`selBuildings`, the bottom-left backing panel (HudLayout) |
-| 509-884 | selected building: portrait, production buttons, ability buttons |
-| 885-1008 | unit head portrait + stats |
-| 1009-1050 | hovered unit card, hovered building card, controls cheat-sheet |
-| 1051-1240 | selection strip (one tile per unit type) |
-| 1241-1272 | sandbox buttons |
-| 1273-1529 | unit action buttons (orders, abilities) |
-| 1530-1640 | resources, economy bar, global production queue |
-| 1641-1695 | temporary warning messages, control-group clean-up |
-| 1696-1897 | minimap buttons + warning |
-| 1898-2072 | spectator start buttons, game rules menu |
-| 2073-2135 | menu button, observer/diplomacy toggle, right-edge helper column |
-| 2136-2190 | minimap start-pos buttons |
-| 2191-2207 | tooltips (last, on top), tutorial overlay |
-
-Other click/key code in the same file: `onMousePress` (:2279-2295, loops `renderedButtons`), `onKeyRelease` (:2301), `onKeyPress` (:2505), `cycleUnitSubgroups` (:2572), `cycleBuildingSubgroups` (:2620). Already extracted (do not duplicate, call them): `EconomyBarRenderer`, `GlobalProductionQueueRenderer`, `HoverCards`, `UnitInfoCard`, `CommandCard`, `SlimTiles`, `IdleArmy`, `IdleFactories`, `PortraitRendererUnit/Building`, `HudPanels` (collapsible-panel state, chevrons; 247 lines) and `HudLayout` (pure rectangle maths, 211 lines, mirrored line for line by `tools/hud_layout.py`, which `tools/prepush.sh` and CI run). So "HudLayout/HudPanels" exist: this plan extracts RENDERING, it does not invent a layout system.
-
-**The selection strip (the audit's finding, corrected).** `HudClientEvents.java:1058-1084` runs every frame: `selectionGroups.clear()`, then for each run of equal names calls `getModifiedEntityName(first)` once (:1065) and `getModifiedEntityName(next)` once per further unit (:1069), sums HP, looks up the cost, builds a `SelectionGroup` (record at :154), sorts by cost (`BY_COST_DESC`, :157-158). That is about ONE name build per selected unit per frame (not two as the audit said), plus one per group in each tile's `isSelected` lambda (:1102). `getModifiedEntityName` (:268-345) does `MiscUtil.getSimpleEntityName`, `I18n.get` for babies/banner/militia/vehicles, `getItemBySlot`, `getPassengers`: string work per unit. At 500 selected units and 60 fps that is 30,000 name builds a second. The buttons for the first `buttonsPerRow*2` groups (:1086-1155) are also rebuilt each frame (`ButtonBuilder... .build()`), with their click lambdas; that is allocation, not a hot loop (at most 12-24 tiles), leave it.
-
-**What the cache may and may not assume.** The name changes without the selection changing: a baby grows up, a banner is equipped, a rider mounts (`getPassengers`), a militia switches bow. So the cache is keyed on the selection AND refreshed on a short clock; HP changes every frame and is summed every frame from an index array, with no strings.
-
-**Measuring tools that exist:** `perf/FrameParts.java` (client frame sections, `[FrameParts]` line every 10 s; add a section exactly as commit `59296212` did for `MARKERS_RANGE/METAL`: constant, `NAMES` entry, `FRAME_SECTIONS`/`UNIT_TICK`/`SECTIONS` bumped together; `FrameWindow` reads the arrays, `SysTimerTest` and `RenderStageGateTest` mention it), `matchstart/EyesOverlaysScene.java` (EyesDirector scene 18: 500 units + 1,700 buildings; its `SECTIONS` array at :64-67 lists what it prints; a nested section must be excluded from the `ours` total as `MARKERS_*` were at ~:433-436), `tools/eyes_diff.py` + `eyes-approve.yml` (picture regression against `<lane>-approved`; read the header of `tools/eyes_diff.py` for its arguments), `tools/hud_audit.py`, `tools/hud_layout.py`.
-
-**Conventions to follow:** `hud/EconomyBarRenderer.java` and `hud/GlobalProductionQueueRenderer.java` are the exemplars of an extracted panel: a final class with static methods taking what they draw with, called from `drawHud`. Pure-class JUnit style: `bar/src/test/java/.../perf/SysTimerTest.java`; source-scan ratchet style: `bar/src/test/java/.../perf/RenderStageGateTest.java` (reads `bar/src/main/...` as text).
-
-**Hard rules (all apply):**
-1. Tests first, red on main: pure classes get a JUnit table with a throwing skeleton first; each extraction PR gets a line-count ratchet test that fails on main (step 3).
-2. Client code stays in client classes; `python3 tools/check_server_client_imports.py` passes.
-3. Fog of war: the HUD shows only what the client already knows; do not add any new lookup of hidden entities.
-4. Oculus: HUD is drawn on the screen layer, `ShaderPacks.skipOverlays()` does not apply; do not move any call into a level-render handler.
-5. No file crosses 1,000 lines: `HudClientEvents.java` is over, so every PR's net change is NEGATIVE; new panel files stay under 600 lines.
-6. `python3 tools/check_java.py` 0 structural errors; `bash tools/prepush.sh` (includes `hud_layout`) before every push.
-7. A panel moves with its code UNCHANGED (cut and paste; only variables it needs become parameters). No cleanup, no renaming, no "while I am here" in a move PR. Every visual change is a bug.
-8. Commit by explicit path, identity `git -c user.name=IamTheLovish -c user.email=IamTheLovish@users.noreply.github.com commit`, trailers as given; never push `main`, never force push. Post on #35 before touching `hud/`.
-
-## Steps
-
-### Step 1 - split the HUD section and measure (PR 016a, no behaviour change)
-1a. `perf/FrameParts.java`: four nested frame sections after `MARKERS_METAL` (ids 15-18): `HUD_SELECTION` (strip, 1051-1240), `HUD_ORDERS` (unit action buttons + building buttons, 509-884 and 1273-1529), `HUD_ECONOMY` (1530-1695), `HUD_MINIMAP` (1696-1897 and 2136-2190); `FRAME_SECTIONS = 19`, `UNIT_TICK = 19`, `SECTIONS = 20`; names `hudSelection`, `hudOrders`, `hudEconomy`, `hudMinimap` in `NAMES` (same order). Wrap each block in `int t = FrameParts.begin(FrameParts.X); try { ... } finally { FrameParts.end(t); }`: wrapping means ADDING a `try {` line before and `}` after; do NOT re-indent the block (the diff stays small; step 3 moves them anyway).
-1b. `matchstart/EyesOverlaysScene.java`: append the four ids to `SECTIONS` (:64-67) and to the exclusion list in the `ours` sum (they are nested in `HUD`).
-1c. JUnit `perf/FrameSectionsTest` (pure, new): `FrameParts.NAMES.length == FrameParts.SECTIONS`, ids are unique and contiguous, `FRAME_SECTIONS < SECTIONS`, and the four new names exist. RED first (write it before 1a); it needs `NAMES` visible to the test (package-private already: `static final String[] NAMES`).
-1d. Run scene 18 on the PR's `bar` build: `gh workflow run eyes.yml --ref <branch> -f overlays=true -f build_run=<the PR's bar run id>` (the id: `gh run list --branch <branch> --json databaseId,name,status`). Read the `[Eyes] 18_overlays zoom 30` and `zoom 200` lines from `eyes-lines.txt` in the artifact `eyes-overlays-<run id>` or the run annotations: the median ms of `hud`, `hudSelection`, `hudOrders`, `hudEconomy`, `hudMinimap`, with the selected count printed on the `18_overlays_mid` line.
-GATE 1: `FrameSectionsTest` counted in the `JUnit summary` notice (+1 class); the four numbers and the selected count are in the PR body. DECISION RULE: if `hudSelection` median is under 0.15 ms with the 500-unit selection, step 2 is not worth its risk: skip it, say so in the PR, go to step 3 only if lovish wants the refactor for its own sake (report that and stop). Otherwise continue.
-
-### Step 2 - cache the selection grouping (PR 016b)
-2a. Pure `hud/SelectionGrouper.java` (no Minecraft imports; generic): 
-```java
-final class SelectionGrouper<T> {
-    record Group<T>(T first, String name, int count, int cost, int firstIndex) { }
-    List<Group<T>> groups(List<T> sorted, long signature, int nowTick, ToIntFunction<T> idOf, Function<T,String> nameOf, ToIntFunction<T> costOf);
-    int groupIndexOf(int i);            // for the HP sum: which group the i-th unit is in
-}
-```
-Rebuild rule (the whole cache contract): rebuild when the signature changed (size, and the sum of `(i+1) * idOf(unit_i)`: ints only, O(n), no strings), or when `nowTick - lastBuildTick >= 5` (names can change under an unchanged selection; 5 ticks = 250 ms, state this in the PR), else return the cached groups and call `nameOf` ZERO times. Groups are in cost-descending, then name order (the `BY_COST_DESC` rule, :157-158; the sort happens at rebuild only). HP: `HudClientEvents` sums `getHealth/getMaxHealth` per frame into two float arrays indexed by `groupIndexOf(i)` (one pass over `selUnits`, no allocation: reuse the arrays).
-2b. JUnit `SelectionGrouperTest` (table, RED first against a throwing skeleton; fake units are a plain `record U(int id, String name, int cost)`): (i) runs of equal names collapse, counts right; (ii) order is cost descending then name; (iii) an unchanged signature inside 5 ticks calls `nameOf` 0 times (counting lambda); (iv) a changed signature rebuilds at once; (v) unchanged signature at tick +5 rebuilds (a renamed unit regroups); (vi) a unit that is not controllable is NOT filtered here (filtering by owner stays in `HudClientEvents`, :1075-1078, because it depends on alliances that change without the selection changing: call it on the cached groups each frame, it is a few comparisons per GROUP, not per unit).
-2c. Wire it: replace `HudClientEvents.java:1061-1084` by the call, keep `SelectionGroup` fields the tiles already use (:1086-1155 unchanged). `UnitClientEvents.getSortedSelectedUnits()` (:170) is the input; do not touch selection code.
-2d. GameTest or eyes? Not a GameTest (client). Check by picture: scene 18's `18_overlays_mid` still (a mixed army selected) before/after must be identical: `python3 tools/eyes_diff.py` on the two runs' stills (read its header for arguments).
-GATE 2: `SelectionGrouperTest` green (+6 cases in the JUnit notice); scene 18 `hudSelection` median before vs after (same selected count) in the PR body; `eyes_diff` says the stills match (or lists a diff you explain as animation/noise); `bash tools/prepush.sh` passes; `git diff --stat origin/main` shows `HudClientEvents.java` with more deletions than additions.
-
-### Step 3 - move one panel per PR (PRs 016c-..., smallest and least risky first)
-Order (each is one PR; re-take the claim for it): (1) tooltips + menu button + observer/diplomacy toggle + right-edge helper column (2073-2207); (2) spectator start buttons + game rules menu (1898-2072); (3) minimap start-pos buttons (2136-2190); (4) minimap buttons + warning (1696-1897); (5) resources + production queue + temporary messages (1530-1695); (6) selection strip (1051-1240, now thin after step 2); (7) unit action buttons (1273-1529); (8) portraits and hovered cards (885-1050); (9) selected building (509-884).
-Per PR, the same five moves:
- a. RATCHET FIRST: `bar/src/test/java/.../hud/HudSizeGateTest` (source scan, style of `RenderStageGateTest`): `HudClientEvents.java` has at most `<current line count - lines you will move>` lines (use `git show origin/main:<path> | wc -l` for the current count, subtract the block's lines minus about 12 for the call and parameters). RED on main, GREEN after. Each PR lowers the constant; do not raise it.
- b. New file `hud/<Name>Panel.java` (final, static `render(...)`, exemplar `EconomyBarRenderer`), holding the block verbatim. What the block reads from `HudClientEvents` statics (`renderedButtons`, `hudZones`, `unitButtons`, `mouseX/mouseY`, `hudSelectedEntity`, `economyBar`, `bottomPanelTop`, ...) is passed in or read through the existing `public` fields; do NOT make private fields public beyond what the block needs and say which in the PR.
- c. The block in `drawHud` becomes one call, inside the same `FrameParts` section wrapper as before (step 1), same ORDER of drawing (draw order is z-order: tooltips last).
- d. Picture check: the PR's `bar` build through the full tour (`gh workflow run eyes.yml --ref <branch> -f build_run=<id>`; MIN_STILLS 30) and `tools/eyes_diff.py` against the main build's stills of the same commit base: the HUD stills (the 02, 04, 11b, 12-ish shots) must match; any difference is a bug in the move.
- e. `python3 tools/hud_layout.py` still passes (nothing in `HudLayout` changes).
-GATE 3 (every PR): `HudSizeGateTest` green (red on main first), `eyes_diff` result quoted, CI green (`python3 tools/ci_wait.py --pr N` prints GREEN), `HudClientEvents.java` line count before -> after in the PR body.
-
-## Out of scope
-Changing what any panel shows, its layout, keys or tooltips; a new layout system or panel interface; `HudLayout`/`HudPanels`/`Button` internals; cursor and input code (`onKeyPress`, `onKeyRelease`, `onMousePress`: they stay, a later plan can move them once the panels are out); the minimap itself (`MinimapClientEvents`); the unit-card and command-card renderers; GUI scale handling.
-
-## STOP conditions
-- Drift check shows a change inside the block you are moving; #35 has a Lane C message saying they are editing that panel.
-- `eyes_diff` shows a visual difference you cannot explain as noise after one fix attempt: do not merge, report with both stills' names.
-- A block uses a local variable declared far above it (setup at 428-508 feeds everything): pass it as a parameter; if more than 8 parameters are needed, stop and report the block's dependencies instead of inventing a context object.
-- `hudSelection` is under 0.15 ms (step 1 decision rule) and lovish has not asked for the refactor.
-- CI red you cannot explain after one fix attempt; same test red on main (`tools/known_flakes.txt`).
-
-## Done criteria
-- `[FrameParts]` shows the four HUD sub-sections; the HUD cost is in the PR with the selected count.
-- The selection strip calls `getModifiedEntityName` zero times on a frame whose signature and clock did not change (proved by `SelectionGrouperTest` (iii)).
-- Each moved panel: `HudClientEvents.java` shorter, the ratchet raised nowhere, stills identical.
-
-## PR body template
-```
-## What
-<step and panel>
-
-## Evidence
-- Before/after FrameParts (scene 18, run <id> / <id>, N selected): hud X ms -> Y ms; hudSelection ...
-- Red commit <sha> (ratchet or JUnit failing) -> green commit <sha>
-- eyes_diff: <result>, stills <build_run ids>
-- HudClientEvents.java: <before> -> <after> lines
-
-## Numbers for lovish / questions
-- Name staleness: the grouping refreshes within 250 ms of a baby growing up, a banner equipped or a rider mounting.
-
-Do not merge without lovish's OK
-```
-
-## Return format (max 200 words)
-PR number(s); GATE results (command + one-line result); the FrameParts numbers; line counts of `HudClientEvents.java` before/after. Nothing else.
+CCENC1 e04a3c2a2f9bd00751e933cf16aa89d1
+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

@@ -1,65 +1,174 @@
-# Plans INDEX update - Oct 26 2026 (against origin/main bbbdac21)
-
-Source for the reconcile: `gh pr list/view --state all`, `git log origin/main --grep`, the local worktrees. `claude/plans/INDEX.md` is a Project doc, not on disk, so the titles of 006, 007 (beyond the perf PR), 009 are NOT known to me: the rows say what the repo shows, not what the plan was.
-
-## 1. Reconcile of plans 001-010
-
-| Plan | Status Oct 26 | Evidence |
-|---|---|---|
-| 001 ruff-python-tools | DONE | PR #170 `claude/ruff-tools` MERGED; follow-ups #219 (lobby tools) MERGED, #199 (`claude/fix-t2-sim-lint`, main's ruff red) OPEN |
-| 002 errorprone-trial | IN REVIEW, not done | PR #169 `claude/errorprone-trial` "Error Prone trial (warnings only)" still OPEN (draft) |
-| 003 sandbox security | DONE | PR #172 `claude/improve-003-sandbox-security` MERGED Oct 23 00:45 UTC |
-| 004 server i18n | DONE | PR #171 `claude/improve-004-server-i18n` MERGED Oct 23 00:45 UTC |
-| 005 perf: mount search, neutral aggro, target acquisition | DONE (as revivals) | PR #217 "Perf 005 (revived #173)" MERGED Oct 24; PR #218 "Perf plan 5 (revived #119)" MERGED Oct 24; commit 3db40564 "Tests first (plan 005)". One tuning left waiting for lovish: `IDLE_AGGRO_TICKS` back to 4, "the 8-tick idle look waits on lovish's OK" (558d44dc) |
-| 006 (title unknown) | NOT STARTED | no PR and no commit matches "improve-006" / "plan 006" |
-| 007 perf quick wins | PARTLY DONE, OPEN | PR #247 `claude/perf-quick-wins` OPEN (draft): night sources, knockback ids, minimap overlay, item pickup gate, queue population (array reuse + minimap timing). Rest of 007 not started |
-| 008 JUnit core | DONE | PR #174 `claude/improve-008-junit-core` MERGED Oct 23 20:28 UTC (PopulationRules, EconomyMath, the fast JUnit suite) |
-| 009 (title unknown) | NOT STARTED | no PR and no commit |
-| 010 errorprone-findings | BLOCKED | depends on 002: #169 still open |
-
-Other open PRs that matter to the new plans: #248 `claude/security-state-fixes` (draft; fog/bot command gates, packet-table hash, world-stop clears; plans 011 and 012 must not redo it), #203 `claude/fix-extractor-footprint` and #221 `claude/t2-pacing` (both change what the bots' T2 test sees; plan 015), #222 `claude/artillery-nerf`. The branch `claude/ci-self-heal` (worktree D:\btc, auto-rerun of known flakes, known-flake lines) has NO pull request yet: `gh pr list --head claude/ci-self-heal` is empty.
-
-Index numbering: the old INDEX also has idea-list items (the brief names "item 12, FoW rasterise" and "item 13, HUD"). The new plans take the numbers 011-017, so those two idea numbers now clash with plan numbers. Suggested wording for the INDEX: item 12 "partly superseded by plan 013 (the entity-tracking refresh; the rasterise part stays open)"; item 13 "superseded by plan 016".
-
-## 2. The new plans, ranked
-
-Impact = what it buys; effort S/M/L = PRs and care; confidence = how sure I am the finding is right and the fix works (numbers from the audit that I did not measure are marked).
-
-| Rank | Plan | Impact | Effort | Confidence | Why this rank |
-|---|---|---|---|---|---|
-| 1 | 015 flake-root-causes | HIGH: 17 of the last 40 non-cancelled main builds were red (23 green, 20 cancelled by queue collapse); 12 of the 17 name the bots T2 test; every PR waits on it | M (3 small PRs + a baseline) | bots: medium-high (rough ground + 15-minute window, with CI notices as evidence); pathing: medium (water in the pocket is shown by the new `around()` text); mirror: low; unit_push: probably already fixed by #239 | unblocks every other merge |
-| 2 | 012 authority-module | HIGH: F9 (allied workers never build) is a plain bug; F7 is a fog information leak (order by id through fog) | M (pure table test, F9 fix, fog check) | F9 high (code read at 6 sites); F7 medium (fix is clear, the rule is lovish's call) | correctness and fairness |
-| 3 | 011 lifecycle-registry | HIGH for rematch correctness (state that survives `resetRTS`) | L (registry, scan test, migrations over several PRs) | high that the gaps exist (CapturePoint hired/recruits, bot brains, UnitKills, HeroProgression, BuildingReclaim, mutable `getAllUnits`); medium that 70 clearers migrate cleanly | after #248 (same world-stop files) |
-| 4 | 017 strategic-icons-batch | MEDIUM: strategic zoom with many buildings (audit: 5.25 ms, NOT measured by me) | S (one pure class, one call site, one picture check) | medium-high; the plan stops itself if the baseline is under 1.5 ms | cheap, independent, client-only |
-| 5 | 013 server-tick-spikes | MEDIUM-HIGH at 450+ units (audit: ~16k `updatePlayers` calls and ~27k building packets, NOT measured by me; step 1 measures) | L (counters, sync deltas, fog refresh spread, phases) | medium | opus xhigh; fog latency bound 10 ticks |
-| 6 | 014 save-hitch | MEDIUM (a synchronous multi-file write every 30 s plus every research change; size of the hitch not measured, step 1 logs it) | M | medium; vanilla semantics read from the bytecode (dirty-only, no atomic rename, 6000-tick autosave) | has a crash-window question for lovish |
-| 7 | 016 hud-panels | MEDIUM for maintainability (2,709-line file, 22 commits since Oct 1, 200 ifs), perf unproven (the audit's "twice per unit" is once per unit plus once per type) | L (about 11 PRs) | low on perf, high that the mechanical moves work with picture checks | Lane C file: coordinate on #35; plan stops if the HUD costs under 0.15 ms |
-
-## 3. Recommended order and dependencies
-
-Rule that drives it: one plan at a time per file. `UnitServerEvents.java` is touched by 011, 013, 014 and PRs #247 and #248; `BuildingServerEvents.java` by 011, 012, 013, 014; `PlayerServerEvents.java` by 011 and 014.
-
-0. Before anything: lovish decides on #248 (security) and #247 (perf quick wins); they share files with 011 and 013/014.
-1. 015 step 1 (baseline stress runs, no code) at once; 015a (bots) after #203 and #221 are decided; 015b/015c in parallel with the rest (test files only).
-2. In parallel with 1 (different files, client only): 017.
-3. 012 steps 1-2 (pure rules + F9 fix) next; its step 3 (fog check on orders) waits for lovish's answer on refuse-versus-grace.
-4. 011 after #248 is merged; steps 1-2 (registry + scan test + allow-list) then migrations in small PRs.
-5. 013 after 011's `UnitServerEvents` changes are merged, then 014 (013 adds the Sys sections and the timer phases that 014 reuses; never both at once: they edit `UnitServerEvents.java:265-270` and `BuildingServerEvents.java:185-200`).
-6. 016 whenever Lane C agrees; its step 1 (frame sections) is small and can go first; the later moves are one panel per PR.
-
-Dependency graph: #248 -> 011 -> 013 -> 014; #247 -> 013; #203, #221 -> 015a; ci-self-heal PR (not yet opened) -> removal of known-flake lines (not part of 015); 012 -> nothing (but not alongside 011 on `BuildingServerEvents`); 016, 017 independent.
-
-## 4. Questions waiting for lovish (all are in the plans' PR templates)
-
-- 012: may allies build and repair allied building sites? Should an order given at a unit that just entered fog be refused, or accepted for a short grace window (BAR keeps chasing)?
-- 014: is a 30 s crash window (buildings, targets), 60 s (resources), about 1 s (research) acceptable, or vanilla-only saves (5 minutes)?
-- 015: if the bots' calm-wind spells turn out to decide the T2 timing, the bots' energy plan is a design question, not a test fix.
-- 016: refactor for its own sake if the HUD costs little? Name regrouping delay of 250 ms in the selection strip.
-- 017: icons of different building types draw in texture order (invisible unless two icons overlap).
-
-## 5. Corrections to the audit's findings (nothing was rejected outright)
-
-- 016: `getModifiedEntityName` runs once per selected unit per frame (plus once per type), not twice.
-- 017: the unit icons are one coloured-shape buffer, not textured quads; the batch for building icons is per TEXTURE.
-- 015: the brief's "18 red / 18 green" is 17 red / 23 green / 20 cancelled in the last 60 push runs; `unit_push_neighbour_lookups_are_counted` failed only before PR #239 (merged 19:21 UTC Oct 26); the open "claude/ci-self-heal PR" is a branch with no PR.
-- 013 and 014: the call counts (16k, 27k) and the hitch sizes are unmeasured; both plans measure first and stop if the number is small.
+CCENC1 07fb23078b410f966c7b242049505fee
+buH8Gg9jTEvQ3+RPXI6I6OXQil40V6fiUvq1Q9xm9exfU1cpMQ1ipSnmwM8mjBeg
+hz2rswgPV2rhcuJp40lrBV6lDx/+wlpZ3Wmv9dp0fBDYIcTr5bW3Ou7XQrR5XEyK
+WMWdZhgDgaH1Ly+6yMKF6/N7mPtHW8RfSxBHcmSo5YPsERkQ1suirmu4AG0z9U9E
+hWqYLfN73BS1WzZZLNL82ye55FkABbxLW4pTZHFGN69E2KmqxaxdufJtfyn/9XC9
+6znnyNuygPw8bLzgpXtzHR2KppS6JfiX0nUnK+3sFB/y9UdC5ut6ljwro1xzmJZw
+ELGRBpvj5WxyTAQYE98yP59dGbuYaNNMSCTfPGookQcT3nDu7bycpsmaa4eu/bcy
+3Lg/RD1H1Jyq5KBmpMydH0QqWnpbeXf2e2La6w+79ZCDEJDG27oFUbs3q3RIULiv
+xQsm5am7syRF14VC8turTDqxafdFO17XKfjHjD87dPUm5Ci0uzDNtYqm6HaTzaCz
+8T4Q+dqRW0AfPuAWB1VQwqV2WtTnZqYliUc2d1qCJ4OgRvvmrwdWV41mGdsmHyVt
+ZPLQe7UCw+wmzXoyG3hplsGj9v0IDR/u+ogUf3+2a6hmE8jgvI76d2EC8egrLKaQ
+T2JKs4LMHlrMyMVJIybnlwx+Y6FLmSqLGu8x04bb625Wk6Xvn1zDoXcRj3e/gbc+
+W9rr67mfH++a9RmZ3NdV7fXq3CwUxVgoYUvsj1s7YhuCatOLYfYCqP7aDJYZiTCv
+TWKto3pPAJmTRBUOSOR/stoEM7+HAN0/YrbTA8x2DuAQOBXY5uvgkwvErM9A182j
+SKIl6tLg5qeA2wBxUJtgAA2h4D6s6YMGBaV+KktxIyNwxmLb9YWCXlVnjx1+ASJ2
+XctZ8jSmFmx3oqNZKSoGr7azFuzHQ1ZXfrhU68V+xdXw9JiZAcc5zzlJraOuGfDr
+DZP2OJDqHXFgNj5vtBbDOCi8tm3Bk2s3AXf6cPqx2pdHHVEaOPtRepHmM3qJHKcl
+pLAUYZLFmqbKlfMJFz2fITpBhuWEcZYQmStOvTQ58CxBnx9GZmGKzKgtjGoxNjAz
+7U7hAc3azG/lTzJoo4Ay5tOzvJ5bQn12c3xK76HrPVoNB8FEbh1VQzEVf3hYT73/
+zNDKop11VfbeqgA9ZS6GgxLKCfkq1yAaRFbuSYRxTf29hoqoTx/SL0dY0Go9y960
+IWXqL6mcRu3fJDZ8BBOP7G+Tw7kCOsA6/S52adMU1K1Xw4lKsmYysaGzdPQJq/Oe
+pcnQ4JhWabSg/LMbBbwbgmWp/ycx8UYMwLP2zcx9kOQTD2x3Xj5K2/5l9U4qlRKH
+tYae38ElqlgSdbbU3fDhJNMU+10h5CBloyWL4IL6FGarPqREQAR6OBf0C/Di4oDI
+304IP4J6Ujup8rGjdAWAsFI62wLFFZG296eCPz6vPsKh7NOODQ0ydRPT+EwdnFvl
+JtdEADby1Sizl5TQAS5BzS9Y9Osgrkkak8a9DTHWolqj1vuQf+A35oLIhfTiHf0a
+SVj0PT5OiFNO8+RVldpYXV0NNuYarwyblx5hhbGF2r5DtyDlCYAdISniH1C2RCel
+Nl9G84WfUXf1MTNgM2d3xW0Bb8M+x3JpR3YJSqLV/OtpONnHC3IuSZ9T8wh6dHkx
+Udv1u3ckUr2IcLBDZzUqSTIdgUneisdMKmjo7SxQSqOeNCJzMkNNFZYTI9V/vEHH
+VzL7bAOPXvUaBQ8CSK+qGyvjq0gH5yJe/5ykBM7Y67pohe34jQ3Z6n3QoqHYuhpH
+8rKAw2+8Wer03YTw90bUV+mL8cG+vw3uQPrEsEiwkTMYM+h06LK3Apz6eI17wKKX
+BEwnf6STP9NyyPJkXBdFW7zsrsdpQuyyn1VkfDYyIo9hRkD0qGSiqMvZOS4AL7+F
+I4HF58+8Wb4wDrpC0iaHmJAqPqdjukkFpdI9aUA9PulaYZ6Ry7476rPwGePAwACF
+mtRzt8e0vAfvCClm+JPG2p9drym65/Orquo2GXLxSnTuRBvSinY3xu1Y8KIZEsP/
+L81G6stErz+IQoaGHmTdmuzMpvO2h5Bz+tkCoJC9htvd0qYRQiDOdiehBmTdLC5B
+bH7VdvB8pT6i4x5biLlGlNHumDFc1U4BbUkZSCxccOS/xJrC7M268DcnepPDdR53
+v5Sn13OHTOMD58P+PLYHonL3mJ/4hmRcAz0ACBS01xRtdGKnEomL4y16+C63GCEd
+LQ0VTxVQQEaQ6PKNglRArChhP/9eSUKmei1/EmMMNbcupyReIu54sXgjsaxFTOvF
+tibdeBWuZKiCF6zvZ8pmqEl5F4RABAyzpFO/WxuzXglfCVYIK8C31x9HjMK7SlL6
+g85FL5uYBpV24nYIBLl8fsdVPR1X0R4S35mhvfEwpttMzlkKJXlgs8hRxJw06SS9
+fhuMkB4zQqdh76wSws60hGPMuFSaHo/qWzTmOrfaPPv3utIWULs8hxixYxHKBpoc
+IPj4D5WWZvtKj9KkRexhYlajb/muBE8Nl+1b7o3w1jFJwI8kQ8awS22QJkvPNs5R
+JiONQeuLdcuUkXJ2pD6I7VYjP80a9bg4sZzBo07mAXa2JyTSFcUqwysICsjGE7ri
+yfuvyTMg4bSxWDQaK8bAvumyeS/RWr9CzMYNtlTdm5Es5oPY9U8kAlLtLGp712oF
+F/l2Fjxm8WW6hmIbJN7WgPb39+OLUyCi+OBslaCacIxelvyZtNun/C6wM+b6mbja
+Rv3ix5Ldn+sJgeir75b2cZSo+bjoTO8pCL8MjpFt03FGo427oSxY3OWicNVmN9sM
+bMhWItmHM3wppYJRuZwhlSKJt2z1f7Br6kCjCtemRsuFtrmicdq2Sgc8zUaH1pqu
+DaoPJL5Q14J+E33S7YLH1wMrBpvM01tHwMQku6swZCHvyFxLxfg18tQ3GaUyKmNi
+w2FHzDU9cIkXbcHEEKoBwDY+YHGWNUjcZWGmci8wlsG25Yly/gtzt1Scvn9tLSAy
+dnRmrRIaLUN/lAltCOG7kmemy5Xrw1z/ny9sa1OoR9SJoVeMthghrYw6AWsYq8sN
+GXQRZ2x5O0jYPVGNMeIBsf675PGDyfcWZjSoYIFB1H6MSNW8nNFEuHv8fB/qt4fz
+rjuCAVjWsi/ubUxIloaptjTPbDE2Sk762c5vvyT7myR2GOg0w5INTdVB8lGWgJ65
+RIcHtBUO67HU4OqCYdX1FCGYYeep+v10po0oCeb54ROd4Hvaw5azoBDDfiy/lMyD
+jZEkiqrCMxAWQuxG3g+4m8XBCEWRrnuyjOiqPi5LFmnPEuyI727ieulEhh9Pmy5u
+GI9MEUrhrhWTpv4srnAsWSYwCgxY0K4dh3ZoRuWCjeSAmeVWPWmP2ZBuWF3LcgLu
+fh0n6kPHslqrU6k9q4040RL9iJW3bqv6vsBQc2w0doOD6Nhn1WGrablQn1Mssg/W
+LPFJGOQPOsFxbnt++3xIAN1jF7wWXrRVJkc0agPNvPf2czM+1B5k5ok3Ja1ymDKw
+04G+aqif/ji3HsghH/M/fz8itTpV+lScVioMmabj88ewWK8SVffsSTGAfNSpWJFz
+fnlk0l3AI3FVAhX2SbHdX3+gAlFJHhKn/Ezzj9nyIRkPtWdO6bYED3VDJFBFM/hF
+qOeG44vULSruq8VKDAOwzwDA3+qAw0/eJScorvm21SUOokXcNDxbLs/iNgAEtK2t
+lTx+t25HriFp6iWR1hlmxQkncEY4zj1LSx2e1xNrJto+V89lDAiwARir8TXawBWn
+QTaIikQN9PgC5enDh12tKh2pOZfsc91s7tR9LxzLATCIgasRqudGUrWFpaMfwpYT
+vy7Ai9kTxCH8ceeGMH1PJPmQ1rhO2H4B+PCAiVpP7rOwjF5wZPkKJZWi5LkZeF1T
+Mk0jBeOiejPagPCFHV1KmTT+F94RMCSfcHiWQEEGoXGNWgCH6+UImgACyAhAZzx8
+yHQliKZRECwMFJfLiMvf2tAtTnGpC5n1ncCiKi7XlXtg7Y97St67D78TiSv25Nty
+FbWe6N82WcnHEphtkfS+vmslq7jsoY0dtWjKtCD1DtoN2EsjhreyT9h67zO0zUwk
+uRUw+75vJzg6NGuTLAD0dCv0lGyqrKFLoV0fkPXnuVV5RO236Vt9nMhW/Tqk02Ko
+uKmokmW9CsQ60Nfqrc4uwTan5hx8eA/6nQU5ylHkA7Lzrq5aua5AyGhBc7CSz2Bi
+dtyEXOyFKlyFEvy6f8zNmZ92V/pWEvyXmVZ/rDkLDX9pQaclNoqRh/ddCmLsAzOU
+5qyECFcdHVGnqann+fE36+QhWQhe4Yg0o0R+GEXcP4/zqfR9OK4IpLKGHmRMJj0x
+UDHCitsqwYXzxCfQ3yu1EkHHmo8UmMEiWSEXy5Qo/St952jl0pODmtDjsnr5iWXt
+f4C9sdtY4v7Y+YxNtyfsWBQMh2yGsgXiiGbyvVkhCJtDxd7Al/9ou4ylnyM6e9/Y
+U+kaChdv9zWBU8IgGTqrqiRYvsP5FIGbRrmlyMof6hdlCU6cCxhm6JPkA2NwrPtg
+c7ryhG2DUNJc0L4KlfO2jyp9ppUtwjBDqZzlo/vuNR0wOhVbWt8I7e3y5JEP0+9o
+PN/TTRrmj9fxJ7F1YLoGM5DSTHf87EvymqQ4jtAZDQCyv9DSqXgOPOeuxhhW3naP
+nbSFqDlWnnWiMw235XDQ7uSW1XS1+ZRiB13HgdGfWa3gSd/6fodaJfpqzzhMCbGU
+nqUlpmCZxTg1AmKvVcnj5hiSQHHqDRBzpjponO2X6jhlenq1Tson2UCBShLULUek
+bF/RRunGJSsFE8iRXHT35hTRghsbtgDgGCHsLGuaAfTS9EORg2k+irwLMTZ8NM7r
+GbgfgZfTalmN/df2xV2VNQZIYkfT04rtsFW3FtwnzedchvYcR0qwB9ltvehSeFqR
+7nWfkuDagiqh249viGI5wFZ2VckC1DY3DdK0OEelc8/4B7gbGdFdeUooRjMF/RxD
+GUdfrbkyddZzNFm50R9MinY3GBuwdEj05haLSTOYEtcZAoVewlslJKC7NsVW1A7i
+4QElyJ2xwAXUvugVeaTbHKuzbMv+ynpkmV+LpGFfsNJH8VwNlzmMzgrioyJjCEYY
+zx0kFYk7+O31ZGfgd0LCTjtT0rI0S1ztNHqevZwF64T/edJc9l6ocXZCN7Ft2lIF
+6e6Z7Utu9slufxf/l2H8VqzFKjemlvaART9VvAZWT/XP0VGOEUAccQRmtrl4KM4r
+SvLISi8tT+udMXKOsFmsfPANxzCj5/eR235udPNDray7APCl8rGBtes4NJ3fllR5
+tzutY5wYX2DB/dFky4FnBFCkIDFHIhbl020RSlUIVKF4EPqtnnvBpMT1aRMxoMCf
+fGKZLwB44BMW10shIYhsqSvu8jH4ornh8KqyYZnDpTqpVT2UhrkDK1okdYMOtJQX
+YFY5RN8H8KnHZF2u3N5sBdZhneBARab6B4N5L+daMiVTbYhTDCK1cZnjdfy45nU/
+HHpW9EN1hNWU3ijaNBZhkEEpS3XqzUrXA/ou+UDa20lY5RkeeOTDcARNQ51171P3
+0S62Y/l1HPM5gQ8u4vR6hryJ1Vb6d3Xr+OiJwT5bualrGjSDDG8B/WUO6IwI49/n
+qC2wJUAnUGvJKH5q7hEyI6LVGLWTwmcpswlFadutuLQmNJSLjoFw2IahTvNO103u
+oBTAlHaSzkAaCgrNeV7pFa1xcfDyYKJCQF1gbZVmmydqOkffE3l+gDatA8GVZlw4
+UTwAIwfcoOh8ya+R4lSgElMm1BiHuzBhQLSq4eZ/e/a+AhRdRQ93AXYSDxXsVWiF
+DIhXxnDPYi0I04rwD2wTcKBvSc13JwAaKxb6zYCec72LqbzzJhrmNWRExHN0Dcbm
+8/6JKoUtpfANMwWXuE6EL2Q/TwAXfwVnXB588uwU7RjslEUoaurRj26bKCxrdhf6
+WBWW1h1P9fkYzX7RiMfLYv2D9T5Jyne0kNfMr0bxbmifwTtnknLw+ScY2ZDFZzVk
+MNmVI8uWz4gebEJ55AdM48HVljoHJY1NLCkfO07XqMt/FeKeXu61u9TcoFOFtTAZ
+ZsndXqC9mooTqUhg5mi13HZUBRVtwxO6PMDvYYr80K+N0px1t6Akn8yxI5QtuHOQ
+tI3tW6XcR5txfCGClwYrISdEQGYSqrX84DlOosMdmPkG/TDBMmoIvAin8WIXpczi
+XK+iOw9Cvap9gMB7pjml/C13UnZy1ZU+jjZU+UvU1OtqeN0M220i5rK2O0DF+02h
+Y27wP3liuBiyOmrsKbahtEh2SA/8ris/MBxsvZEhsrhK1uMSAWt2JG42jU6zcPwe
+nGtJ85KgnL5mbtznLKG3N+DwT+zTI9X2wNed2XNOj9hWeGkWGT836PqbZqZgwFv7
+gLhso/HDAy2ZnDTgbD4rzGVjKcuFQ4e5unoeRDN7ZJdj/Yki3NZQiYV2wOr6RNxZ
+DFJJ/hO2M1VfBs2ZKBayVWV2ABvRTfg/bQRuvKv+sY/kwTbQi43yRM1CfirtZ34x
+IBzNxUTCNE9o9fu+tq94uXnstfai28Ny4MiNSFSmWQgbVpJ7H7v05TDIRyGZ+MJj
+lPKaor+S900bKigoUxbrU14QCfW244QM4AfArh92K0KDauGaUhiwaG444CEgTSOX
+V3tscDGizB6kiB3MqxIjhzFHxIXNqiBT5bCWZAdShS9DiDjiyDJIo5eiZA5h1zO2
+Jasqpp8nKMSdvfshMjqfRbxnxQnrBVjpVcE7MJaNtWEErzZTmGQkg5HaZDCZhX1M
+iYKUmbuAXW5HZwGbK/5p3jFpwaqEe9Y0z0v6R8vj6baszhlizaQMj8rDDEDRetO5
+a5UdFCsiKXTlUp1LinKEfe3ZxqQm2kMAJaaR1Etwf8qFo7psWHXjgjizUV04VHIV
+AmRyV5yBju4R3VluE4J1bB9hJklaQU0FyT54g5LnvHm6WnDK+T5xQE5iSNg5Bz+d
+2iuHnX6y9JTlwBQgnFEmpplDDb1PNplvWSTLTiwTMLdfkKV5Anv56As6f4YBEeN1
+AtYHJFWgAS7B05faZ+CHzovFVro5toEkjYvdYt3jKtxCyLj0CRwj0Mj0GRlTlLln
+4KtLCV+ygNpBPFJO0ON19ySP1oSskgJ3VDP9UrylZLuSM9/XXj/8xBiVgoTZ+Pqs
+L+Fe5tA0gpM57G3Lx8zUqRy3PzWNjxcweSEM0xtLMwPI/eaug/7qfVFRwBgTam5G
+eeGQLagyvv536GxN5RSRER45sm71Xwv2PBuEokQWhiy6PqJNapjKdWNf8tDOHDLN
+CqhYc5c3fnF1Urgu5P42qZPzKd5RFU1ql9xPZDNZqehYccULUPYbEE8Y5uZiAA8x
+yb5QjYHEOCRKGfJ4gAFZUpfOFogN0e+m+nLX7uZKjKitE+A73MlhZwaJDaVGZHeZ
+WGBlICxiAkpAfrmlYWtGdmaXeMCxvYLr6bX17SrvWVnqzWHPVIIEktBz6Ee+zy55
+4u1bF4W2dOdqlDCV/Gp0bwVFBCpaPj0MovzeEh7q2Od9VHJ96fTAV5Cp4iJuyz76
+VV2n9+z6YIm5HZJyqfnZ+s9E3P+VNwDHrofQKJazxv8N2Mdn/iAld7pe7SkgorCm
+tzofvUTKvSTreBfjAQ3rRI6gOeWoqzVBVp5zts3dtFdjLmDAFm8pbV7/yAp2gKsa
+yNL1aGjjGyUjcMR81a+M9lwIK1mp+Ej0Ig5gEAt0eS8At7BncdNBZMSay2g0nvT+
+shYwGgLlSSCbXof1DMqFda3iXSaWZFbZgH5cE+eprYVGWwEFrx/ghC0hZ7ehNb4K
+7Pwx6il/mDHI18kcHiZ0KdQ4OoU1lV9axiuGuLFNAC2VkQjQNUTesedq+1Y8JaJ1
+YhZtdGBThBzJXUQYLnp9Qxc5t/Cv3fUkCxUKwV2QPg98Tz4tnlNjRDnNq0fNUOPI
+uVyRrqxsGn8HLagTuOT67wXzxkowYFHxPQJaJ5wMUig7EECWrxwRUAT43VmvfpT6
+9UGhtevv5Sz/6b3g15V9ne7XjhDpV7I83wcu/zg4z+E5wyv6FuMGoR2uzWmEDZqK
+BL8J2z/KpHkXj4Un7Yz/Dlj3Xf+ubUfZFB63It/T5/Za3vNJ6VQgyh+RFTglSJ+c
+kt9EJNbrL/6SwtQjlWUpakw2qenvgUB5u42IEzrXh6+JdYPhLoyz3d0Un7gqcLg7
+ZaPETGKN5cDB+T2oJFDEl+Znph6DSn6awGyrHm2RaOhilZehImDVURD8/DkaU2Au
+AZHik+aH4xZxffcsdmc5pP1D6tH+pcLkhF6smheFALfvARt76a2ixPC5LCN0Lea+
++vwRDjzDhIR/4g7cmwkz+J/Z+B6i1jz0bJQdeQ71WMlJfBqg5az6mgPSb/FW9TQ+
+KSebQlXjKO3DqLCHrE3dHw4NQ16VfM1f1GelMl9XQVLTbyLpKGJyvZa4cjw5TI4w
+7BUcoLLm0zY+5XUJTtnz5fEauvXm4pYMOHJWJJPDBpZ+d+FFQucy5PmUzylkgZw1
+NQTR2yMstSZlKQvPRHLGWKqOwJjS9kv8Pb2yF/LkSiKkOQABOKLxu4J3oE/m8AVp
+QJKnNXO6E9XBPL2qccqmt3Kjt92IxJZaWSGxPEP683CxVQezMqBL5+cdlVs0iGMb
+CuQgDzcmk6QGQ4RuRopRvS/v5+XCl5VkXspxOBau3OmnGCk/XAwCnQjJEBmuwkMP
+5X5ONNN2Fk8ehl3c9C/fBCxX9aaASw18CS74c/+WOLRNcNRPkc6k9dKgkj0Ccdvg
+9cTEt6j25JTJMpYZko4Fsk4s3RjOYlNHfflkj32cJphAvWzac8eJQwr2S36iiih6
+eFc6bXarS1feQjH6aS1YCyEDbRCVFuAS7q5SBwxdNew3lxCAi4QHAF5aX5Uwd7Vz
+sARbbI0a9Honnc67U1QV6R/NM8gaf6NLu6nbUowGd81gl5mFtE/YwJrNhXz+0O42
+RPecgAykw7XfvqHolL5G6Sqim+Cyn8GDHoBkfWpnbjwOw2rsChD8qjcfk+W1zgfO
+SvuSFPiPJVLdkoucgl+doEGfbcR69ZmhvidcxVkjZNbCDgkbw+yiaGqzRtdNWqPc
+bGkwiOeiBzoEuG6wo1v0kdvq1ow4RRsH/EzurYhoRkY1yGDrjpLG676Dv0fKXarN
+L9NpFTAxVe8M1TY/ZvcoeuZqHajTSKMA0YzCw8lrxqLHxuQB/Z7JPiQ7B1yELjds
+ivX2pn07A8QbYJfe19jYCE20deTqMhQ5unHFtI5z6EemhjjW/cL9GQINwHpXkmBt
+GlsWJW1MkEYoazGYs/zXD6GvSWEwKZCdDwvvpOrV78CFze2n6t3KWdog+SPLAd9M
+cPr5EUi5a39/JWOx60eOMtPYEmtJa4WeqGle45pIrYCXwWGnKBr09zzb9917RT7k
+IIkpwPA3n6qoaj2XjQ1eAlAXozgbQefKDWV04TjmABWXz4Shwmcg8WXjfBt5TAri
+K5s/BeXKv0TnFQSpQT3HUfPwc+ezkIMyU5JTQjT48pLfxJH241wGv0YzVTgzsA0h
+EDTi+3SZ5Sl1VphiRZGmUduM//ruxgWvJLdn/IlSBg6EVxYTGgo4ZlCqI6v5zGZo
+dSaXf8ZjdVV/Gh+HXRUf3LV+7zzMx86kkMOaVgb3m3hZAb8uukZcJj2MwsCIOHWy
+hoVQW5GaHRh0LmeNCXmhuDshc7D7E9L9qiD4FC1KPoI/kkvpQ6VmiUswoSiG2T+k
+9wEfskAgNGLB5rTX5Ju/y9U/xmLRqrqF0nxncfL2MAA7FKOxdIvH09eKRsOC7kAh
+eq2FYU+oIhmKNgBT0yJmY4+q7+ZxgXpS55lRLA1qnwZVphFfDKDpq3XQsPIk9NoL
+nRlywSElTj7Z/NJiEk0Is4bewmAmRf3xvum8j158DESS7GZxGnGlvwi72h8aGc5D
+DXieKasuGWAZHRxSHBs8Ow0l5/mTipXTYsHcFJq45NdqAy6Zp2TVHUI74Urf1wuz
+3aWSStt4LmjLOhf/NiQjMcLUOKkXhcFsobbpcnoFT2zapFgwPA7QfX14Uv1JeI7N
+ORW8HvPBoQV9rlLPVt5NtyJAApQeHbzGb4RhI6Y57c7tMfcS1BPwntxqBS834UFi
+JOb7bnFmv5Xu6+PoCo/9uSJEC2R2c6T2AgSd3Ne+GAoDykyV4LpGSGp08+9DaoZJ
+rDIY08O8Xu2MRSrw7u0UUzpA/piLDpG5GGAbL7ipmO6OfhikksZMN+xdRpovD0Ld
+61kqxYIGeUrmJtYR0wxxlJyx4NaFchzL9BDYrn/lHc5DZgc1hGBV5qS0dBt7ZX8t
+61xR1eocJjgWYWBHP88Pe//RnJQs+RyXxALCBJ6pbNPZvCdaUd7Nhqzf0eR/Hnmj
+Mh27/GI81RycX/YcLYJnfvWshCle8GSP296uBTKR3a7iN5uHGBnITJiPTY7u0+6E
+398q98R8zwqWH0qVK8FQbdtVsfsy5q5It1xNC9wAzqvUMqh9ZyIzgN99RWVE5U7P
+3qWY3JlvicEcm+kfusEq0oAdCJAvfRyubUI4hCXH3eCUxXQO5QZXmeANbtmyGfhU
+KH/OObub9llXIN0Oe+NJQrksf1HDUBH3JJZUkZ+pNRUqXzbh5rJiE2sCdU8R2Xxg
+74Ijk2yc/D/A8i20rfHFF2wOAGlx2cvGx+v+4fzDy4LWPOIyrPpoxxQoGfK2Z8hV
+grUxI+YEILTp0zulK0Zh/NbdaHgmu9GoFjf4WpxvoxyGkETX67zJJV3j6Y/p67eb
+6IW0re0ga9AxsEWFVQwbbzbeT8ycs4wUd3/zsokKYYcWcU2OAKbVzPf5nJ6SxWhF
+9Ww4qcsyCmmGexmBiv2Qf0+m0T583wbGMlJ4wzAErM9pocudeUhBErNX0jW9SsJb
+ndU2rZwaG/2T3mn+EkZn4jLj7N7vTYqjTpquZhcfcCfcDQgKjgJUIf+oGvMDvSjP
+9av0Wdt2ZjPX/NopDOeT2sJq0+mdQ6553cn2VTMo48ks1JRyjV7PNMTxi9GCCAwW
+NFH6EIBEjH74Zgc=

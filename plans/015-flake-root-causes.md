@@ -1,116 +1,402 @@
-# 015 - flake root causes (bots T2 test, vanilla_path_*, mirror_images, unit_push)
-
-- **Goal:** find and remove the causes of the GameTests that turn main red at random, by evidence from stress runs, without loosening any assertion into a guess.
-- **Lane:** Lane A (CI, tests). Test files only, plus `gametest/ArenaReady.java`. No gameplay code, no bot tuning.
-- **Branch:** one per fix, `claude/improve-015a-bots-t2-window`, `claude/improve-015b-pathing-arena`, `claude/improve-015c-mirror-arena` (015d is a verification only, no branch).
-- **Claim:** `python3 tools/claim.py check flake gametest bots tier mirror pathing` then `python3 tools/claim.py take improve-015 --lane "Lane A" --branch claude/improve-015a-bots-t2-window --what "Flake root causes: bots T2 test, vanilla_path, mirror images (plan 015)"`. Release when the last PR merges.
-- **Model / effort:** opus, xhigh (the evidence is statistical; each step ends in a decision from data, not a recipe).
-- **Written against:** origin/main `bbbdac21`.
-- **Drift check (run first):**
-  `git fetch origin && git diff bbbdac21..origin/main --stat -- bar/src/main/java/com/solegendary/reignofnether/gametest/TierGateGameTests.java bar/src/main/java/com/solegendary/reignofnether/gametest/PathingBudgetGameTests.java bar/src/main/java/com/solegendary/reignofnether/gametest/PerfPushGameTests.java bar/src/main/java/com/solegendary/reignofnether/gametest/ArenaReady.java tools/known_flakes.txt .github/workflows/build.yml .github/workflows/flake-stress.yml`
-  If any changed, STOP and report which. Also run `gh pr list --state open --json number,headRefName,title | ConvertFrom-Json` and note whether these are still open (they change what is a test bug and what is a game bug): #203 `claude/fix-extractor-footprint` (the bots' "no valid footprint over the patch"), #221 `claude/t2-pacing` (180 s research: moves every bot lab time by about a minute), #198 `claude/new-match-arena`, and the branch `claude/ci-self-heal` (auto-rerun + known-flake list; do NOT duplicate it, and do not edit `tools/known_flakes.txt` on this plan's branches: its push/vanilla_path lines only exist on that branch, main's file has just the bots line).
-
-## Context (paths relative to `bar/src/main/java/com/solegendary/reignofnether/`)
-
-**How red main is.** Last 60 push runs on main (Oct 23-26): 17 failure, 23 success, 20 cancelled (queue collapse, not red). The named failures of those 17 (check-run annotations, `... failed! <message>`): `bots_reach_tier_2_after_fielding_t1_units_and_not_before_minute_5` in 12 (runs 40390295545, 40390282834, 40386085495, 40371868540, 40226460747, 40226292150, 40067524235, 40067414549, 40062165059, 40041045817, 40040234054, 40030957358), `unit_push_neighbour_lookups_are_counted` 2 (40372095754, 40353770653), `vanilla_path_*` 2 (40401681056, 40353462816), `mirror_images_decoys_draw_fire_deal_nothing_and_fade` 1 (40390295545, job bar-tests (8)), `artillery_backs_out_of_its_dead_zone` 2 (40232859495, 40067524235; not in this plan, see Out of scope). Runs can show several.
-
-**Fixes that already landed today and change the picture (verify, do not redo):** PR #239 (merge `cd37b45d`, Oct 26 12:21 PDT = 19:21 UTC; commit `0b711989` "Shard-1 flakes: per-test isolation") gave `Sys.force` per-holder holds and `Sys.lifetime` counters (`perf/Sys.java:127-142`, `:217-219`), a stone fence round the wall-detour arena (`gametest/PathingBudgetGameTests.java:193-205`, restored in `restore` at :213) and the diagnostic `ArenaReady.around(...)` appended to the chaser and detour failure messages. Both `unit_push_neighbour_lookups_are_counted` failures (main 5421b13f 15:53 UTC with 174 of 1600 lookups, main 5ba2a036 17:48 UTC with 696) are BEFORE that merge.
-
-### A. bots_reach_tier_2_after_fielding_t1_units_and_not_before_minute_5 (`gametest/TierGateGameTests.java:404-518`, alone in `SHARD_9` of `.github/workflows/build.yml:55`)
-- Window: `BOT_T2_MINUTES = 15` (:384), so the test ends at game minute 15; it needs each of the hard, medium, easy bot to have its T2 lab finished by then (`labDone`, :459-460).
-- Messages seen: "medium never finished its T2 lab (research done 8:23, at 14:59)" (4 runs), "easy never finished its T2 lab (research done 10:01..14:41, at 14:59)" (6), "easy never finished the Tier 2 research (started 14:01 / 13:07)" (2). The research itself is done early; the LAB is what is late or never.
-- The CI notices say why. `[T2Snap]` lines of the failing run 40390295545 (job id 121816260113, annotations): medium: `flame_sanctuary: no valid site within 32 blocks of 1615, 73, 636`, later `energy_converter_nether: no valid site within 32 blocks`; easy: `metal_extractor_dark: no valid footprint over the patch at 1524, 61, 6..`, `wind_generator_dark: no build progress for 45 s at 1594, 62, 822, cancelled`; hard: `metal_extractor: no build progress for 45 s at 1514, 78, 575`. The base sites sit at heights 61-83 on generated terrain around x+1500 (`SkirmishGameTests.soakAnyRow(level, x+1500, z, 3)` at TierGateGameTests:412, defined at SkirmishGameTests:1594 - it looks for DRY rows, not FLAT ones).
-- The passing runs are close to the edge: `[T2Timing]` easy lab at 11:22, 12:20, 12:35, 11:48, 13:02, **14:36** (run 40372095754, 23 s before the cap), medium 9:49-10:44, hard 8:34-9:39 (runs 40401681056, 40395268052, 40390295545, 40386173420, 40386085495, 40377109655, 40372095754). So the easy bot's lab time has a right tail that crosses 14:59 when it loses minutes to site-search or build-progress failures.
-- Hypotheses, in order: **H1** the test's wilderness bases make the bots' site search and extractor footprint fail (real matches play on a prepared flat arena, `claude/new-match-arena` shifts it to fresh ground; the open PR #203 fixes the extractor "no valid footprint" for bots and players, which is exactly this message); **H2** the 15-minute window leaves no margin once H1 costs a minute or two; **H3** the per-minute wind multiplier (`[T2Snap] ... (wind x0.59)` etc.) shifts the energy the bots can spend: compare the wind column of a failing and a passing run before believing it (in run 40390295545 all three bots saw 0.59, 1.08, 1.14, 1.34, 0.90, 1.26, 0.44, 0.49, 1.03, 0.70, 0.85, 0.88, 1.22, 1.43 per minute; if every run has the same sequence, H3 is out). Related coupling: #221 makes research 180 s, which moves every lab time later by about a minute and would turn a 30% flake into a certain failure.
-- `tools/t2_gate_sim.py` is the existing pure simulation of the gate; it does not model terrain, so it cannot answer H1.
-
-### B. vanilla_path_* (`gametest/PathingBudgetGameTests.java`)
-- `vanilla_path_wall_detour_beyond_the_short_search_still_arrives` (:183-): run 40401681056 on main bbbdac21 (AFTER #239): "did not get round the wall in 420 ticks (4.54 from its spot, at x 11.53 z 8.59, nav done true; speed 0.250, moving 0.000, in water false ... ahead [1: Block{minecraft:water}[level=7] / air / below stone] [2: water level=5] [3: water level=4], near [])". The new `around()` text names it: **flowing water in the arena's pocket**, 1-3 blocks ahead of the unit at feet height, so the vanilla pathfinder (water is a malus for a land mob) ends its path ("nav done true") at the edge of the water. The fence (:193-205) only stones x/z -1 and 16 at y 2-4; `SkirmishGameTests.openGround` (:5058-5074) clears y 2-4 and turns a FallingBlock at y 5 to stone, nothing else. The arena is cut into the ground at y = -61 (`ArenaReady.java:34-45` javadoc: ocean at 63, caves and aquifers below); water from a cave or aquifer cell at y >= 5 over the pocket (or beside it at y 1 or 5) pours into the air that was just made. Whether it appears depends on the slot the batch gave the test, which is why it passes most of the time.
-- `vanilla_path_melee_chaser_runs_down_a_walking_target` (:70-120): run 40353462816 (main dd262f02, before #239): chaser 4.32 apart after 306 ticks, `nav done false`, target moved 14.43 (it reached its spot), both `entity-ticking true`, at y -58. No cause in the message (the `around()` diagnostic did not exist). The `ArenaReady.pad` javadoc (:34-45) documents the likely family: arenas are ~21 blocks apart, inside a Vindicator's aggro range, so on the arena floor a neighbour test's units can crowd and knock a test's units about; and the terrain around the pocket is generated. Treat as the same family until `around()` says otherwise.
-
-### C. mirror_images_decoys_draw_fire_deal_nothing_and_fade (`gametest/SkirmishGameTests.java:9683-`)
-- Run 40390295545 (job bar-tests (8), after #239's merge time): "the decoys did not last half their lifetime: 0; last shatter: Jade Guard ... at 148, -58, 196 by inWall (eyes in Block{minecraft:gravel} at 148, -57, 196, feet at 148.50/-58.00/196.50, chunk loaded true) (tick 683)". Eyes at y -57 is template y 3, inside the cleared pocket (y 2-4), so gravel got INTO the pocket. `openGround`'s comment (:5065-5069) records the same bug from Oct 21-22 and its partial fix (only a FallingBlock directly at y 5 is stoned). Gravel/sand at y 6 or more over an air cell at y 5, or beside the pocket, is not covered. Cause not proven; the test calls `openGround` at :9687.
-
-### D. unit_push_neighbour_lookups_are_counted (`gametest/PerfPushGameTests.java:76-100`)
-Both failures predate #239 (see above) and the 174 case is the very bug #239 fixed (a shared measuring flag switched off by another test). The 696 case (43% of the 1600 lookups; threshold `UNITS*40/2 = 800`) is not obviously the same: after #239 the test holds its own `Sys.force(hold, true)`, but `Sys.begin` also returns 0 (no count) whenever `Thread.currentThread() != serverThread` or measuring is off (`perf/Sys.java:97-99`), and units that die or never tick count fewer. Treat as FIXED unless step 1 shows otherwise.
-
-**Conventions to follow:** `gametest/ArenaReady.java` (`pad`, `whenTicking`, `around`, `describe`) is the toolbox for tests whose units move or fight: a glass pad in the sky takes the terrain and the neighbours out. Exemplars of tests that use it: grep `ArenaReady.pad(` (each caller takes its own height, 11 or more apart from the rest; pick a free one by reading ALL the callers (`git grep -n "ArenaReady.pad(" origin/main -- bar/src/main/java`; heights seen in the first 10 hits: 135, 140, 152, 164, 176, 188, 248, 260, 301) and the javadoc at :34-45). AGENTS.md "Writing GameTests": judge where units END UP with a bounded poll, never at one fixed tick; "a flake is a bug - fix it (or make its failure message diagnostic)".
-
-**Hard rules (all apply):**
-1. Tests first / red on main does not fit a flake; instead each fix needs BEFORE evidence (a stress run on main that fails or an `around()` text that names the cause) and AFTER evidence (a stress run with 0 failures at the same runner count).
-2. No assertion is loosened into a guess. Moving a test onto a pad, flattening its ground or widening a window whose length was only a budget are allowed; changing what is asserted is not.
-3. Client code must not leak into server code (`python3 tools/check_server_client_imports.py`). Fog of war and Oculus: not touched.
-4. No file crosses 1,000 lines: `SkirmishGameTests.java` is about 15,358 lines and `TierGateGameTests.java` is 555: change `SkirmishGameTests` by net <= 0 lines (move the mirror test's setup into `ArenaReady` or a call to a helper, do not add a block), put new helpers in `ArenaReady.java` (check it stays under 1,000).
-5. `python3 tools/check_java.py` 0 structural errors; `bash tools/prepush.sh` before every push.
-6. Stress runs are read from the `[Stress]` annotation, not the job colour (commands in each step).
-7. Commit by explicit path, identity `git -c user.name=IamTheLovish -c user.email=IamTheLovish@users.noreply.github.com commit`, trailers as given; never push `main`, never force push.
-
-## Steps
-
-### Step 1 - baseline on main (no code, about 40 CI minutes of runners; do it first)
-```
-gh workflow run flake-stress.yml --repo IamTheLovish/Beyond-and-Tabs -f ref=main -f shard=9 -f runners=10 -f focus=bots_reach_tier_2
-gh workflow run flake-stress.yml --repo IamTheLovish/Beyond-and-Tabs -f ref=main -f shard=1 -f runners=6 -f focus=vanilla_path,unit_push
-gh workflow run flake-stress.yml --repo IamTheLovish/Beyond-and-Tabs -f ref=main -f shard=8 -f runners=6 -f focus=mirror_images
-```
-(`shard=` repeats a whole CI shard so a test keeps its batch neighbours; `tests=test:<name>` runs it alone, where the neighbour flakes cannot show.) Read each: `gh run list --workflow flake-stress.yml --limit 3 --json databaseId,status`; then `gh run view <id> --json jobs --jq '.jobs[]|select(.name=="summary")|.databaseId'` and `gh api repos/IamTheLovish/Beyond-and-Tabs/check-runs/<jobid>/annotations --jq '.[].message'`. For the failing samples pull the `around()` / `[T2Snap]` text from that sample's job annotations the same way.
-Write the numbers into the PR bodies: failures per test of N. Decide per test with this table:
-- 0 failures in all: the cause is rare or fixed; say so, change nothing for that test, go to the next.
-- bots >= 2 of 10: continue with step 2.
-- vanilla_path wall-detour fails and `around()` shows water: step 3. Chaser fails: read its `around()` text and put the finding in the PR (water, neighbour units, block ahead, or nothing).
-- mirror fails: step 4.
-- unit_push 0 of 6: it is FIXED by #239; write one line in the final report, nothing else.
-GATE 1: three `[Stress]` annotations quoted (runners, failures per test) in the first PR.
-
-### Step 2 - bots test (PR 015a). Only after #203 and #221 are merged or closed (check at drift time; if either is open and the baseline of step 1 is not 0, wait for lovish's word: report both numbers and stop)
-2a. Diagnose, no behaviour change: in `TierGateGameTests` log once per base at the start `[T2Terrain] <name> height range <min>..<max> over 96x96, wet columns <n>` (use `level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z)` on a 12-block grid; no new dependency). Dispatch step 1's bots command on that branch (ref = the branch). Compare `[T2Terrain]` of failing and passing samples, and the `[T2Snap]` wind column of one failing and one passing sample.
-2b. Pick the fix by what 2a shows, one of:
- - Rough ground separates failing from passing samples (H1): build the bases on flat ground. Before `startRTSBot`, for each start build a plateau of 100x100 at the start's height (stone 3 deep, grass top, 24 blocks of air above, water replaced), as a helper `ArenaReady.flatBase(level, centre, radius)`, restore NOT needed (x+1500 is the test's own far ground, as today). Same assertions, same 15 minutes.
- - Ground is the same in failing and passing samples but the easy lab time spreads over 11:20-14:40 (H2): then the budget is the problem: raise `BOT_T2_MINUTES` to 20 (it only feeds `BOT_T2_TICKS` and the timeout), and keep every assertion. State the new margin from 10 samples: the slowest lab time must end at least 3 minutes before the cap.
- - The wind sequence differs between failing and passing samples (H3): STOP, report with both sequences; this is a game-design question for lovish (the bots' energy plan under calm wind), not a test fix.
-GATE 2: after the fix, step 1's bots command on the PR branch: `10 runners; 0 with any failure` and `bots_reach_tier_2_after_fielding_t1_units_and_not_before_minute_5: failed 0, passed 10`. If not 0, do NOT merge: report the new messages.
-
-### Step 3 - pathing arenas (PR 015b)
-3a. `ArenaReady.sealed(helper)`: after `openGround`, put stone on the whole lid (template y 5 over x/z 0..15, not only a FallingBlock) and make a fluid scan of the pocket x/z -1..16, y 1..5: any fluid block becomes stone (y 1 and 5) or air (y 2-4, inside), counting how many were found; return the count.
-3b. Use it in the two `vanilla_path_*` tests that stay on the arena floor (detour and chaser) right after `openGround`, and append `fluid cells removed: <n>` to the failure text.
-3c. If step 1's chaser failure showed neighbour units or terrain (not water): instead move the chaser and shooter tests onto `ArenaReady.pad(helper, <free height>)` and offset their coordinates by the pad's return value (the pad is already air above and glass below).
-GATE 3: step 1's shard=1 command on the branch: `vanilla_path_...: failed 0, passed 6` for all three tests; and a unit run of the fluid scan: a GameTest `sealed_arena_has_no_fluid_after_openGround` that places a water source at y 5 over the pocket's middle, calls openGround + sealed, ticks 20 and asserts no fluid in the pocket (RED on main because `sealed` does not exist; GREEN after).
-
-### Step 4 - mirror images (PR 015c)
-4a. Diagnose first, 6 samples of `-f shard=8`: on failure append to the message the block column at the shatter x/z from y -61 to -50 and the count of `FallingBlockEntity` within 8 blocks.
-4b. If a fall from above is shown: use `ArenaReady.sealed` (step 3a) in the mirror test; if the gravel is not from above: use `ArenaReady.pad`. Net change in `SkirmishGameTests.java` <= 0.
-GATE 4: `mirror_images_decoys_draw_fire_deal_nothing_and_fade: failed 0, passed 6` (shard 8, 6 runners).
-
-## Out of scope
-`artillery_backs_out_of_its_dead_zone` (two failures, "never hit the target (moved at most 4.6) 8.6 blocks away (dead zone 8.0)... nav done true, path none": probably a game-or-test question on the artillery's set-up time, which the open PR `claude/artillery-nerf` #222 changes; list it in the report as the next candidate); `tools/known_flakes.txt` and the auto-rerun (the `claude/ci-self-heal` branch); bot AI, tier gate numbers, pathfinding code; changing the shard layout.
-
-## STOP conditions
-- Drift check shows changes; #203 or #221 open at step 2 with a non-zero baseline.
-- Step 1 shows a different test failing in the stress runs (not on this list): report it by name with its message; do not fix it in this plan.
-- A fix makes another test in the same shard fail (`gh run view` of the PR's CI): revert that step, report.
-- Wind (H3) or a game bug is the cause: report, do not change game code.
-
-## Done criteria
-- Per test, one of: fixed with 0 failures of N in a stress run at the same shard/runner count as the baseline; or shown already fixed (push); or reported as a game-design question with the evidence.
-- No assertion changed except the window length (015a option 2) with its margin stated.
-- `SkirmishGameTests.java` not longer than before.
-
-## PR body template (one per PR)
-```
-## What
-<the test, the root cause in one sentence, the fix>
-
-## Evidence
-- Before (main bbbdac21): flake-stress run <id>: [Stress] "<runners>; <n> with any failure", "<test>: failed X, passed Y"; the failing message / around() text: <paste>
-- After (this branch): flake-stress run <id>: "<test>: failed 0, passed N"
-  read with: gh run view <id> --json jobs --jq '.jobs[]|select(.name=="summary")|.databaseId'
-  then: gh api repos/IamTheLovish/Beyond-and-Tabs/check-runs/<jobid>/annotations --jq '.[].message'
-
-## Numbers for lovish / questions
-- <only if a game question came up, e.g. wind under calm spells>
-
-Do not merge without lovish's OK
-```
-
-## Return format (max 250 words)
-Per test: baseline failures of N, cause (proven / hypothesis), PR number, after failures of N. Then the list of tests still flaky. Nothing else.
+CCENC1 5e7a51db189a5f42f2e2ea0f47a2ae82
+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
+x8PWm0EHreHSoBTIL7bqcrYhbfPp

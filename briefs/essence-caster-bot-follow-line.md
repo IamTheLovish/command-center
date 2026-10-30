@@ -1,16 +1,28 @@
-# Essence casters: the bot follow-the-army line (identical in every caster PR)
-
-Bots train casters, but `BotPlayer`'s army list holds only attackers, so a caster that isn't one idles at its lab with 0 essence (found in the PR 364 round 3 review). Every caster PR adds the SAME edit to `bar/src/main/java/com/solegendary/reignofnether/bot/BotPlayer.java`, in the "healers follow the army" block (on main around lines 1340-1347). Identical text lets the PRs merge one after another without conflicts.
-
-Replace this line:
-```
-                        && !(le instanceof com.solegendary.reignofnether.unit.units.storm.LanternFortressUnit))   // the Fortress shields it
-```
-with exactly these two lines:
-```
-                        && !(le instanceof com.solegendary.reignofnether.unit.units.storm.LanternFortressUnit)    // the Fortress shields it
-                        && !(le instanceof com.solegendary.reignofnether.essence.EssenceCarrier))   // essence casters follow the army too
-```
-Then check that this block runs for YOUR faction's bot. It sits in `verdantHabits`, so confirm where that method is called. If it does not run for your faction, tell Command Center Rust before adding anything else.
-
-Add a test that a bot's lagging caster of your race is ordered to the army centre.
+CCENC1 d9fd55ab887a2d5dbc2ecbbf63ff5fdc
+ihttaSQsn4E42zaEetmywx0JjWzXiOIYDo4HaHiWiiOa6ZAHOLG0JWU8ECKQrynk
+lV3jl0uIjIueGzshgkELDBkmSQ7gTxIElTxLfMfkXFmZr1ucq/HRtxE9/cKCEoo2
+raBAsdAYPJwfIamMq4wrUHZ/cXlumHPjjxGKtg0U5A29vbRvqUsRc/TPAnYPzcJx
+XyizEt8vbJP7odVcmv0fJaVHafYv1MSj7wIp4IDgTpbh6IDPyyZjfvQ8B/pT5iuy
++NAyKMTcUUBl2N0hm1nv6OvzlvKg2P0w2y2AFjg01vY9aWTr42D8V9tMJYmKXIe5
+gVcKdqrzZBS217afb4MS1fZf7hUS1+3ZcYre4lGDKQMuHNhmhxNAZrT3UIUwfawE
+tx7q2VF8PFGfbD2VQH7C1tfD1yXANe5Gpll1bpZ6in8P1/iQtp7PSX5NDZ94Jxmy
+L6tN9Z8GLtTBRcbTHvJcyDMv9rvtJWvrg+C/54zahM7srjeyxNM9LDuuD9bZZMdr
+Jh4eKnVpi583/6BEPItr+iA4tHg5bZd0SYjsJwjxPR29mtBqd8S7mRJXhdOKbp2C
+L8TlZRgJGXq0n0e9XET3KDR21Lpm/iN9oSyUG8atNY5mM1mj5qJy0ab5q/hBfouE
+zHKdgpWoYVQUP6z25FLxcjGIAJYlOHWibmPBIEC9O363rKweJoY3060EuwO6RY3s
+mggmCWPExWLyl1wjmhP6CN+2Rz1t/592iLpT2564veWiOyrxzSKTZucLHBow/KV+
+Wn7nD24eIbT2tFsO3kLne6DfkcNqMYwFd2cyGu/9ulr1JYvUu/nACFv4TY9rGjHU
+1k1SGf6uJ8noNobHKGqGOpMrCKUBqaU2Pn0P/bL4AD4iAZ4OIH7ezmZNwiUt42EX
+z30j/0xYrCDwKu/cbl3fJzJFbUho1jkeobe8neES5jkc2aCE2YZ9B2tYP/xvaCio
+DyRHeaqpVni9BWm++gHegGumfETuAz7kbFp4U/qSgfXDkhXkONqOEMvr5FmsHD3q
+A4sOInaPP1VWjQ+fwdUwZIty6H+T46+dTcq8uBm++LZjZZMjQ6XwlyYeOeVvD1EZ
+ZYfNlSl9PJLLlJ6N5K+NpzS46tkl17+rMNvyTGqjlz7IdZYxhWCI68I49Kk/oqNS
+ercSH9Jtn6TqP9spGa/WSdGjzd03fOUb/ZwJy7731vXXWv1XqSbW0XJvyhnNMXeb
+Kq72DBetDwW0CturHLHmH9BvXE3qY3DInAJ4sNbaqmkaFuDc0VbyK49EwoDV43nI
+6irbARyB8aj6BwgtdSrhcdgmQuKNqTIRcBf9BE5bAvnQ0/uBxrbgEImp6Qm/XD5h
+THZ+HYGpdtgrwJsHNoN++5xtpyiAeKHv6i0uLWEBPH5Ecvhskb7hvyX7e3dBeiaZ
+SyVPgBU0hMJVPvGrHl2DVVFKx0VSvzdlVgm6rY8MW73tzHf2lvvytr7gi/e4iW6h
+Oy+mMEGc4E9QkJzIbUxqLwIbcvAQtF0aduw4kQoToilBAhxVwFRGB+nuNs0dO+t1
+IyG0w8RlWUGUypds/LE4ItFj7+RlGYPOtcqlJ7khIvug/T78/oIiPTDRUKxreyrm
+1m1YHPBqDKUVuCXm7WEOKAHM2vwL6LyvmG1/hIZd7rDaRjNA0TzlGEeetxcanZNZ
+k5MFEBYGGLZGmg2pJxDVH/7gVZFI6QZmzykJyGHSoQ6zBOgwoA==

@@ -1,44 +1,87 @@
-# Review: Joisco's AI pack (for-lovish-2026-10-27.zip) - 2026-10-27 03:20 ET
-By Claude (chat "session 3", not a booted gen). Source: JOISCO-AI-PACK.md + 6 skills, read as data.
-Skill backups before these changes: skills\_backup-20261027-b\.
-
-## Adopted into our skills today
-| idea (his pack) | where it went |
-|---|---|
-| Real context % from the statusline (`context_window.used_percentage`, verified in the statusline docs) instead of a hand estimate | command-center "Context and handoff" |
-| Handoff = rewrite one RESUME HERE block, under ~10 KB, with a dead-ends list | command-center |
-| Read compaction metadata before naming a compaction's cause | command-center |
-| Questions as AskUserQuestion buttons, recommended first, default-and-log when blocked | command-center "Directing" |
-| Kickoff check before the first edit (blast radius, test per requirement, end-to-end, cost) | command-center "Directing" |
-| Skill fix the same day as a [tmp, seen 1, expires +14d] line; narrow lesson format; evidence pointer required | command-center "Directing" |
-| Tool-call cap + cheaper alternative in every brief; "or" makes requirements optional; agents chase scores | brief-sharpener |
-| Fail loud, no silent fallbacks (review item 12) and the Done table with "ran after last edit?" + glossed-over row | lean-code |
-| Judge sees previous round + KEEP list; every capture asserts its state | bat-art-director, bat-animation-study |
-| `disable-model-invocation: true` on manual-only skills (verified in the skills docs: description not in context) | grill-design, improve |
-| Grill: start from the problem, a recommended answer per question, look it up before asking | grill-design |
-
-## Not adopted (and why)
-- Haiku as the default builder, Sonnet only as fallback: our ledger shows 91% first-try on the current routing, and Forge Java edits are not "well specified" chores. Could be trialled on the mechanical tier with metrics.ps1 before/after.
-- The decisions Inbox dashboard: built for many parallel lanes; for us buttons are enough. Revisit if lovish wants phone answers while away.
-- /clear in the same tab: our new chat per gen works and doesn't hit his duplicate-session problem (he agrees).
-- 50% handoff instead of our 40/50: compatible once we read the real number; no change.
-
-## Unverified
-- `idleCompaction` setting: not found in the current settings-reference index (checked 2026-10-27). Don't change settings on this claim; ask Joisco for the exact doc section.
-
-## Needs lovish (settings/hooks/scripts - his approval route)
-1. Statusline script that writes `used_percentage` + `context_window_size` per session id to a file, and `cc.ps1 ctx` reading it (cc.ps1 change: keep gate-selftest n/n).
-2. A question-guard Stop hook (blocks a reply ending in "?" without buttons). Fits D036 ("if you think its good").
-3. `ledger-close -Estimate` (estimate vs actual tokens) to check the tiers.
-4. Handoff receipt bound to the writing session, so parallel commanders never boot from each other's handoff.
-5. Note: his classifier refused `-ExecutionPolicy Bypass` on his scripts; ours all use it. If a Claude Code session gets refused on cc.ps1, that's the likely cause.
-
-## From his Lane C state (for lovish / the next gen)
-- #257 is the alliance-lock PR (D032), our lock-alliances branch: draft, tests first, red CI expected until the implementation lands.
-- Merge rule question: should Lane C merges wait for our Mode A file + `gate done` (D033/D038)? #247 was merged from his side without Mode A.
-- AGENTS.md section 8 (after #246): are Parry, Hivebound and the Oct 16 home screen dropped, and does LANES.md line 37 (Photon/GeckoLib) retire per D035?
-- Plan 016 (hud-panels) touches Lane C files: coordinate on #35; its step 1 (frame sections) can go first.
-- Lane C now follows #248's rules: PacketHandler.register(...), `.requires(...)` on new commands, `instanceof LivingEntity` checks.
-
-## What his side plans to copy from ours
-Gates + selftest fixtures per mistake, ledger by script, auditor advice with announce, API off-load for chores, metrics.ps1, "a mistake repeated twice must name its enforcer".
+CCENC1 994f040bdcbffc012f0b1b634cc99db1
+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

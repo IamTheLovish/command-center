@@ -1,27 +1,71 @@
-# automerge plan (Command Center Eris, Oct 30, from Erin's). Format: PR FULL_HEAD red=RUNIDS|none green=RUNIDS|none
-# green runs must have checked out the head; red runs must show every runner failing. CI-only heads use none/none.
-# Order = merge order (one merge per pass, then every PR is re-checked against the new main).
-# Merged lines are in logs/automerge.done (14 in Archon: 360 179 357 216 339 384 373 363 376 381 347 355 352 359).  Erin: 370 372 382 375.
-# FLAGGED (green 40868016260 2/8; no test moves without main evidence, baseline 40824403225):
-# SUPERSEDED (r5 PASS bf347504; waits green 8, dispatch needs lovish) 177 cbc8a7b72c50d9a0581c5f7af41e79d22f4f4a1d red=none green=40868016260
-# FLAGGED (CI shard 9 bots_reach_tier_2 3/3; waits the easy-bot tier-2 PR or a main-vs-374 comparison):
-# SUPERSEDED by lovish "no max population" (~21:40Z; claude/no-max-population): 374 be4e1d0779f365ba1e5df77607c66e7357e51afe red=40877672279 green=40877695389
-# SUPERSEDED (r5 12ecad96) 372 567fcc131e860ac9e27154e2f9ac08042da77484 red=40889424129 green=40889441183
-# WAITS red 40964852451 + green 40964855165 read (r3 PASS): 380 2d7036b0f0019886c9cc0e4f2d84d7c91ec57f56
-# WAITS green 40950117679 read (merge-only round on 85b0a454 posted): 362 85b0a45448e797c337b52f84dcddf6647725ab51 red=40950113361 green=none
-# WAITS green 40953400719 read (merge-only round on a94b7bb1 posted): 177 a94b7bb1fe8d18a6955d99f0d1cb8d7beb1a2fe3 red=none green=none
-# WAITS green 40952359012 read (merge-only round on 4f5eec9e posted): 365 4f5eec9e1665d37b393cc453820b8591ba24e8e1 red=40952335236 green=none
-# 377 2a6420a9 (merge-only identical, 382 lines): add after #375 merges and 377 is retargeted to main + merged main
-# WAITS reds 40956778841 + 40960844851 (590da80c, second skeleton) and greens 40956765258 (7c1279bf) / 40960638437 read: 366 302af3495553ef42dd785fb6947773b42bdba618
-# WAITS red 40971717143 + green 40971719732 read (r7 PASS): 364 a3a698f2a01bf6bd2944281fa1a02dde7351d456
-377 d616fdf7258b73927a6567bae0b7cf183fd07748 red=none green=none
-# WAITS red 40971420765 (ca85afc0) + green 40971440715 read (r3 PASS): 394 0010e140c57f723c6bd37e4115a6fea23bd63b35
-396 2bf7663cb39b3c148b1c1d08fea00d7bdeabad51 red=40966226838 green=40966229854
-397 bcb1908b2100a58f0c7a5a946a80ddbb2c78d582 red=40968180326 green=40968183756
-# Eris 00:15Z Oct 30: every parked run below is still QUEUED (none read yet). Uncomment only after tally.sh shows every per-test line as expected.
-# WAITS red 40969301107 + green 40969304023 read (r3 PASS tier 1; supersedes the 85b0a454 line): 362 040b7649
-# 386 shader slice 1: r7 PASS 4ffaf27a (tools-only delta, checked by Eris); eyes stills read by Erin on 1ed3c986 (no shader change since); art permission. CI-only line.
-386 4ffaf27ac44ed77ed42e6a6655b331a23f077672 red=none green=none
-# 399 anim finish-tune: r1 PASS code + r2 PASS look (opus, eyes 40978023283 vs 40874612621). CI-only line; one BoneMaps line conflicts with 377 (builder merges main into the second).
-399 5ed8b46415e58bab197cdeaaca8761875db3c389 red=none green=none
-# WAITS reads (r8 PASS merge-only fe444026; code = aa38fd2a r7): T1 red 40972849144 + green 40972868269 (1f76caf9) + voodoo_ green 40979445467 (aa38fd2a); then: 365 fe4440262fa4f92d081ff80d2ce4c11ae00105da red=none green=none (CI on fe444026 incl. shard 9 bots)
+CCENC1 c919a725b133f403f78999d69b9110b8
+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
+4Jzt+bID6VM=

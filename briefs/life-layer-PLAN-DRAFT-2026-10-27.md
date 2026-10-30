@@ -1,252 +1,305 @@
-# Plan: Shared Humanoid Life Layer (L-series PRs)
-
-**Inputs used:** the animation foundation audit (Oct 21, `7ce498e3`), the unit codemap (`bbbdac21`), and D035 as stated in the brief (no GeckoLib or Photon; consolidate the four animation systems into one). The north-star file and the decisions log were not attached. I take the north star only from the audit's quote ("every soldier breathes, shifts its weightâ¦"). Anything I could not confirm in the audit or codemap is marked **VERIFY**.
-
----
-
-## 1. Goal and scope
-
-Lift the 60+ humanoid units at once:
-- 28 renderers on `AbstractVillagerUnitRenderer`
-- 9 on `VindicatorUnitRenderer`
-- skeleton, zombie and piglin humanoids
-- the 9 RoN keyframe models
-- the 5 Sunforged generated bodies
-
-The layer adds breathing, idle weight shift, look-at, directional hit reactions and real deaths. It works without Lane B touching each model.
-
-Out of scope: quadrupeds, dragons and Alex's Mobs creatures. They inherit the shared state and math later, through Lane B's own rigs.
-
-Audit scores today: breath 3, weight shift 2, look-at 4, hit 2, death 2. The target for this plan is 5-6 on each for every humanoid. Each score is earned by lovish's eye, not claimed.
-
----
-
-## 2. Consolidation: which system becomes the base
-
-| Today (audit Â§1) | Becomes |
-|---|---|
-| **Life layer** (`animations/Life.java`, #72): pure functions of age and entity id | **The base: the math library.** Extended with springs, chains, look and fidget. |
-| Generated bodies plus procedural `setupAnim`, keys as data (`design/anims/*.json` -> `gen/*Anim`, #66) | **The clip format.** Every authored clip becomes keys-as-data via `anim_lab`. |
-| Vanilla keyframe clips (`KeyframeHierarchicalModel`, Blockbench exports) | Ported to keys-as-data (PR L8). The `KeyframeAnimations.animate` path is retired. |
-| Vanilla / Alex's Mobs models | Humanoids get the additive Life pass through a renderer mixin. Creatures stay as they are. |
-
-**Why Life is the base**
-- **It is the only system that is stateless and shared.** Audit Â§1: "pure functions of age + entity id", and it already underpins the Bone Dragon, `Quadruped` (#76) and `Dragon` (#79).
-- **It is effectively free.** Audit Â§4: Life math is 0.03 ms per 500 units; posing as a whole is about 1 Âµs per unit and 1-2% of unit cost.
-- **It can react.** Directional flinch, spring settle and look lag all need it. Keyframe clips cannot do any of these (audit Â§2: "overshoot and settle â¦ separates The Isle from a sine").
-- **The audit's own verdict:** "the pattern is right, the bar is far" (procedural rigs over generated bodies, keys as data).
-
-**Why the others are not the base**
-- Keyframe clips are authored per model and are direction-blind.
-- Vanilla posing is nothing more than `limbSwing` sines.
-
-**"One system" means:**
-- one state store (`AnimState` slab)
-- one math library (`Life.*`)
-- one clip format (keys-as-data)
-- one hook point per body family
-
-It replaces:
-- the per-model `WeakHashMap<Entity,float[]>`
-- the rigs' private `STATE` maps
-- the duplicated derivation of yaw rate and speed in each rig
-
----
-
-## 3. Module layout
-
-```
-unit/modelling/animations/
-  life/AnimState.java       pooled float slab keyed by entity id; slots below
-  life/MotionSnapshot.java  client tick: speed, accel, yaw rate, vert speed, airborne,
-                            tSinceStop/Start, exertion, attack phase
-  life/HitStamp.java        last hit: age, dir (hurtDir yaw), magnitude class, source
-  life/Life.java            (existing) + spring(), chain(), look(), fidget(seed,t)
-  life/HumanoidLife.java    the additive pass: breath, weight shift, look, flinch
-  life/DeathPose.java       death contract, fling, corpse hold
-  life/BodyProfile.java     per-body-type data (section 6), table generated from data
-  life/LifeLod.java         zoom-based switches (section 5)
-mixin/
-  LifeRendererMixin.java    hook into LivingEntityRenderer (VERIFY: name a new mixin or
-                            extend AnimProfileRendererMixin)
-  LivingEntityHitStampMixin.java   client animateHurt(yaw) -> HitStamp
-```
-
-**Hook points (all VERIFY against 1.20.1 mappings and our mixins):**
-
-1. **Snapshot.** Runs in a client tick handler, once per tick, only for units drawn last frame. Candidate: a new handler, not `UnitClientEvents` (already about 2183 lines). VERIFY tick event choice.
-2. **Additive pass.** Inject in `LivingEntityRenderer.render` immediately **after** `model.setupAnim(...)` and before the body and layer draws.
-   - The Life layer adds rotations and offsets on top of whatever the model posed.
-   - This covers vanilla `HumanoidModel`/`IllagerModel`, the keyframe models and the gen bodies uniformly.
-   - Team and glow layers reuse the same parts, so they inherit the pose. VERIFY that layers copy or share part transforms after this point, especially `PassPruning` hiding subtrees.
-3. **Death flip.** Vanilla rotates on `deathTime` in `LivingEntityRenderer.setupRotations`. VERIFY the method and the exact injection point.
-   - Opted-in body types cancel the flip.
-   - `DeathPose` drives the parts instead.
-4. **Hit stamp.** Mixin on client `LivingEntity.animateHurt(float yaw)`.
-   - **VERIFY this fires for unit damage at all.** Codemap trap: unit damage bypasses vanilla via `LivingEntityMixin.actuallyHurt`. It is not confirmed that `ClientboundHurtAnimationPacket` is still sent.
-   - If it is not sent, the fallback is a `hurtTime` rising-edge detector plus a yaw from the last known attacker position. That fallback is less accurate.
-5. **Gen bodies.** They already call `restPose()` and then their sines.
-   - Their breath and smoothing move onto `AnimState` in L8.
-   - Bone mapping comes from `dsl_to_game.py` output, never by hand-editing `models/gen/` (codemap trap, AGM s7).
-
-**Stay out of server files:**
-- `UnitServerEvents`, being edited by #247/#248 (rebase, do not redo).
-- `UnitActionItem`, where plan 012 requires a net change of â¤0 lines.
-
-The layer is client-only except the optional stagger one-shot (section 7, L6b).
-
----
-
-## 4. Behaviours (technique per audit Â§2)
-
-### Breath
-- An additive layer on the spine, clavicles/arms and head:
-  - shoulders rise
-  - head lifts slightly
-  - quick in, long out (`Life.breath`)
-- Rate and amplitude come from shared exertion: running raises it, and it settles over about 10 s, as in `Quadruped`.
-- Phase is offset per entity id.
-
-### Idle weight shift
-- A slow hip sway (body translate plus a small roll) with counter-rotation on the legs.
-- A seeded fidget scheduler: `Life.fidget(seed, tSinceStop)` picks from a small additive bank:
-  - glance
-  - shoulder roll
-  - weapon re-grip
-  - stance widen
-- Fidgets fire only when `tSinceStop` exceeds about 2 s. A spring "settle" plays on stop.
-
-### Look-at
-- Per-bone shares: eyes 100%, head 60%, neck 30% (where a neck bone exists), chest 10%.
-- A critically-damped spring on the target yaw and pitch. The head arrives late and settles; a large target change gives a "notice" snap.
-- Target priority:
-  1. the current attack target
-  2. the ordered move/attack point (own units, known in `UnitClientEvents`)
-  3. the nearest visible threat
-  4. idle glance
-- **Fog safety (codemap trap F7 spirit):**
-  - Only look at entities the client renders as visible.
-  - Never use a server-sent id to point a head at something hidden in fog. A head turning into fog leaks information.
-  - VERIFY which client fog query to use (`fogofwar` package) and whether `UnitSyncClientboundPacket` carries a target id.
-
-### Hit reactions
-- **Directional flinch.** Uses `HitStamp.dir` relative to `yBodyRot`, in 4 quadrants:
-  - torso twists away from the hit
-  - head snaps
-  - a short spring recoil
-- The flinch is additive over locomotion and never stops the walk.
-- **Magnitude:**
-  - The client does not know the damage (audit Â§2).
-  - L6a classes the hit from the observed health delta if health is synced (VERIFY).
-  - L6b adds a server one-shot for heavy hits (stagger: one step back, arms out) only if a poise decision exists. Any new `UnitAction` value goes at the **end** of the enum (AGM s4).
-
-### Death
-- The rig opts out of the flip.
-- A 20-tick fall seeded by the last hit direction: knees buckle, the torso falls along the hit vector, arms trail on springs.
-- A small root fling from the hit impulse.
-- A client-side corpse hold of a few seconds, render only (the entity is already gone server-side), then sink and fade.
-- Per body type, a death style: fall back, fall forward or crumple.
-
----
-
-## 5. Cost budget at 1000 humanoids, and LOD
-
-Audit baseline (CI, vanilla `ModelPart` path):
-- posing about 1 Âµs per unit
-- draw 42.7 / 62.7 Âµs per unit (RTS / close)
-- gate: posing under 40 Âµs per unit, animation share under about 10%
-
-**Budget (`[AnimBench]` extended to 1000 units, `[Anim]` in client):**
-
-| Piece | Budget per unit | Budget at 1000 units |
-|---|---|---|
-| Motion snapshot + hit stamp (per tick, 20 Hz) | â¤ 0.5 Âµs | â¤ 0.5 ms per tick |
-| `HumanoidLife` additive pass (per frame) | â¤ 2 Âµs | â¤ 2 ms per frame |
-| Death and corpse (concurrent, capped at 64) | â¤ 3 Âµs | negligible |
-| Total animation share of unit cost | â | â¤ 10% (audit gate) |
-
-Allocations per frame must be zero: slab slots only, no `WeakHashMap`, no boxing.
-
-**LOD policy.** The audit's decision stands: **no animation decimation** ("a block of units stuttering at 10 Hz reads worse than static").
-
-- **Always on wherever a body is drawn:**
-  - breath
-  - weight shift
-  - flinch
-  - death fall
-- **What turns off:**
-  - **Past `DETAIL_ZOOM` 36:**
-    - eye motion (eye parts are `lod` parts and hidden anyway)
-    - the chest share of look (the head carries 100% of the visible share)
-    - micro-fidgets under about 1 px (shoulder roll, re-grip)
-  - **Past zoom 50:** corpse hold shortened and capped lower.
-  - **Not drawn (culled, off-screen) or icons past zoom 70:**
-    - no per-frame pass
-    - snapshot skipped
-    - state resumes from age and id without pops, because breath and weight shift are functions of time
-- **Fallback:** if a block of 1000 units on lovish's PC exceeds budget, cut the fidget evaluation rate per unit first. That is an event scheduler, so it does not stutter.
-
----
-
-## 6. Data per body type (`BodyProfile`)
-
-The five families:
-1. Vanilla `HumanoidModel` (zombie, skeleton, piglin)
-2. `IllagerModel` (vindicator family; arms-crossed variant)
-3. Villager-unit model (VERIFY the actual model class behind `AbstractVillagerUnitRenderer`)
-4. RoN keyframe (named bones per model)
-5. Sunforged gen (bone names from DSL)
-
-Fields per profile:
-- **Bone map:** pelvis/body, chest, neck (optional), head, eyes (optional), arms L/R, legs L/R
-- **Limits:** head yaw/pitch, torso twist
-- **Look shares**
-- **Breath:** amplitude and rate scale
-- **Sway amplitude**
-- **Fidget bank ids**
-- **Flinch scale**
-- **Mass class:** light, medium or heavy; scales recoil and fling
-- **Death style and opt-in flag**
-- **Per-unit overrides**, for example the Royal Guard is heavy with a slower breath
-
-Storage and validation:
-- Authored as JSON under `design/anims/bodies/` and generated to Java by `anim_lab`, keeping keys as data (#66).
-- A unit test asserts that every humanoid renderer resolves to a profile.
-
----
-
-## 7. PR sequence
-
-Each PR is shippable, reviewable and gated.
-
-| PR | Content | Visible change | Gate |
-|---|---|---|---|
-| **L1** | `AnimState` slab, `MotionSnapshot`, `HitStamp` mixin; reset on level unload/rematch (codemap trap R1); `[Anim]` gains slot count | None | `[AnimBench]` snapshot â¤0.5 Âµs/unit at 1000; unit tests; GameTest waits 1-2 ticks after teleport (AGM s4); hit stamp verified firing on unit damage |
-| **L2** | `Life.spring/chain/look/fidget` + `BodyProfile` data and generator | None | JUnit: spring critically damped, no overshoot past spec; zero allocations (bench); profile coverage test |
-| **L3** | `LifeRendererMixin` + breath + exertion on all 5 families | Army breathes | `anim_lab` review sheet (breath curve per family; VERIFY sheet mode exists, else L3 adds it); eyes stills: 20 Halberdiers plus 20 villager units at zoom 5/30/50, out of phase; `[Anim]` posing +â¤1 Âµs/unit |
-| **L4** | Weight shift + fidget scheduler + stop settle | Idle life | Review sheet over a 30 s idle timeline; eyes stills: block at zoom 30 at t=0/10/20 s with no two neighbours synchronous |
-| **L5** | Look solver with fog-safe targeting | Heads/eyes track | Eyes stills: ranged unit tracking a moving target; fog test confirms no head turns toward a fogged enemy; `[Anim]` â¤2 Âµs/unit total |
-| **L6a** | Directional flinch (4 quadrants) + health-delta class | Flinches | Review sheet: one flinch per quadrant; eyes stills mid-flinch, front and back hit |
-| **L6b** | (Only if a poise decision exists) server stagger one-shot | Stagger | GameTest with `AutocastState.setAll(unit,false)` (AGM s4); new enum value at end |
-| **L7** | Death contract, fling, corpse hold (cap 64, rematch reset) | Real deaths | Eyes stills at death ticks 0/10/20/+60 for each death style; `[Anim]` during a 50-unit death wave |
-| **L8** | Consolidation: Sunforged `WeakHashMap`s, and `Quadruped`/`Dragon` `STATE` (with Lane B) onto `AnimState`; the 9 keyframe clips ported to keys-as-data; `KeyframeHierarchicalModel` path removed | None intended | Review sheets: old vs new clip, frame-matched; eyes stills before and after identical; `[AnimBench]` keyframe layer â¤ today's 0.19 ms/500 |
-
-**Rules for every PR:**
-- `[Anim]` must appear in the eyes log.
-- No PR may move posing past 40 Âµs per unit or animation share past 10%.
-
----
-
-## 8. What lovish must judge by eye
-
-Numbers cannot decide these:
-
-1. **Breath readability at zoom 30.** Visible without a whole block "bobbing". This is the single most important amplitude call.
-2. **Variety.** Does a block of 40 read as individuals? Watch the phase spread and fidget frequency, and check that nothing fidgets in unison.
-3. **Look feel.** Snap-then-settle speed and how far the torso joins in. Alert, or twitchy?
-4. **Flinch strength by mass class.** Readable in a big fight without everyone looking drunk.
-5. **Death.** Fall styles per family, fling distance (heroic vs silly), and corpse hold length (atmosphere vs clutter at 8v8).
-6. **Stagger (if L6b).** Does it feel earned and match the poise rules?
-7. **L8 regression.** The 9 ported RoN clips must look the same as before, especially Marauder and Wildfire.
-
-Each call is made on the eyes stills and review sheets attached to its PR, and the PR merges only on his sign-off.
+CCENC1 3211febcc0fc7788176a72786e4c913b
+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

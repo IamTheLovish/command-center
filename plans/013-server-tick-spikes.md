@@ -1,113 +1,372 @@
-# 013 - server tick spikes (fog tracking refresh, building sync, aligned timers)
-
-- **Goal:** remove the every-10/20-tick server spikes of a late 450+ unit match by counting first, then sending only what changed and putting the periodic timers on different ticks.
-- **Lane:** Lane A (performance). Post on issue #35 before editing `fogofwar/FogOfWarServerEvents.java` (fog is shared with Lane C).
-- **Branch:** `claude/improve-013-server-tick-spikes`
-- **Claim:** `python3 tools/claim.py check server tick spikes fog building sync` then `python3 tools/claim.py take improve-013 --lane "Lane A" --branch claude/improve-013-server-tick-spikes --what "Server tick spikes: net counters, building sync deltas, fog refresh spread, timer phases (plan 013)"`. Release when the last PR merges.
-- **Model / effort:** opus, xhigh (touches fog of war visibility latency and tick timing).
-- **Written against:** origin/main `bbbdac21`.
-- **Drift check (run first):**
-  `git fetch origin && git diff bbbdac21..origin/main --stat -- bar/src/main/java/com/solegendary/reignofnether/fogofwar/FogOfWarServerEvents.java bar/src/main/java/com/solegendary/reignofnether/building/BuildingServerEvents.java bar/src/main/java/com/solegendary/reignofnether/building/BuildingClientboundPacket.java bar/src/main/java/com/solegendary/reignofnether/unit/UnitServerEvents.java bar/src/main/java/com/solegendary/reignofnether/unit/UnitSyncBatcher.java bar/src/main/java/com/solegendary/reignofnether/perf bar/src/main/java/com/solegendary/reignofnether/mixin/fogofwar`
-  If any changed, STOP and report which. (Open perf PR #247 `claude/perf-quick-wins` edits `UnitServerEvents.java` (queue population) and `UnitClientEvents.java`; it must not touch lines 100-112 or 250-265. If it does, STOP.) Plan 014 (save hitch) touches `UnitServerEvents.java:265-270` and `BuildingServerEvents.java:185-200`: do not do both at once.
-
-## Context (paths relative to `bar/src/main/java/com/solegendary/reignofnether/`)
-
-Verified on bbbdac21. Numbers below the "audit" label are from the Oct 26 overnight audit and are NOT yet measured by us: step 1 produces the real ones.
-
-**Spike A - fog entity-tracking refresh.** `fogofwar/FogOfWarServerEvents.java:513-520` (`worldTick`): every `UPDATE_TICKS = 10` ticks (line 110) it calls `updatePlayerBrightChunks()` then `refreshEntityTracking()`. `refreshEntityTracking` (lines 755-769):
-```java
-for (LivingEntity le : UnitServerEvents.getAllUnits()) {
-    if (le.level() != serverLevel) continue;
-    Object te = tracked.get(le.getId());
-    if (te instanceof ...TrackedEntityInvoker inv)
-        inv.reignofnether$updatePlayers(fogged);
-}
-```
-i.e. every unit x every fogged player, in one tick, every 10 ticks (audit: ~16k `updatePlayers` calls at 450 units x 8 players; calls per second = units x players x 2). Why it exists (javadoc 749-754): vanilla re-decides tracking only when an entity or player changes chunk section, so a still enemy would not appear when a friendly walks up. `applyVision` (lines 684-747) already computes whether a player's vision changed: `prevSent == null || !prevSent.equals(sent) || !masksEqual(prevEdge, edge)` at line 735.
-
-**Spike B - building sync.** `building/BuildingServerEvents.java:1037-1044`: every `BUILDING_SYNC_TICKS_MAX = 20` ticks (line 144) every building calls `BuildingClientboundPacket.syncBuilding(originPos, blocksPlaced, partialBlocksDestroyed, ownerName, scenarioRoleIndex, mergeEnabled, MergedBuildings.SERVER.anchorOf(building))`, which goes through `sendFiltered` (`building/BuildingClientboundPacket.java:54-63`): `findBuilding` once per call, then for EVERY online player `FogOfWarServerEvents.canPlayerSeeBuilding` and one `PacketHandler.INSTANCE.send` each. Audit: ~27k packets per second at 1,700 buildings, most carrying unchanged values. The unit equivalent was already fixed: `unit/UnitSyncBatcher.java` (header comment lines 25-60: one packet per player per sync, delta against a per-player snapshot, a full refresh every N syncs staggered by unit id, snapshots dropped when a player starts/stops tracking).
-
-**Spike C - aligned timers.** All of these start with their counter at its maximum and so fire on the same ticks: `unit/UnitServerEvents.java:108` (`UNIT_SYNC_TICKS_MAX = 20`, counter line 109) and `:257` (`getTickCount() % 20 == 0`, the chunk loader), `building/BuildingServerEvents.java:144` (20) and `:1099` (`% 10`), `fogofwar/FogOfWarServerEvents.java:110` (10), `building/Blueprints.java:65` (`SWEEP_TICKS = 10`), `building/BuildingReclaim.java:45` (`STEP_TICKS = 10`), `building/FactionAuraServerEvents.java:52` (`PASS_TICKS = 10`), `building/StewardServerEvents.java:35` (`PERIOD_TICKS = 20`), `hero/PossessionServer.java:862` (`% 10`), `ability/abilities/AwakenThicket.java:174` (`% 20`), `attackwarnings/AttackWarningServerEvents.java:19` (10). Per-entity `le.tickCount % 20` timers (BotGameEnders, Heat, MachineRepair, FactionHero) are NOT aligned (they depend on each entity's age): leave them.
-
-**Measuring tools that exist:** `perf/Sys.java` (server sections, `[Sys]` line every 10 s while the server is slow, in a lag capture or `/rts-perf`; each section reports self ms, worst tick and calls per tick; new section ids go at the end of the list, `SECTIONS` at line 63 and `NAMES` at 65-69 must be extended together), `perf/SysReport.java` (pure line formatter, JUnit-tested by `bar/src/test/java/.../perf/SysTimerTest.java`), `perf/ServerTickProfile.java` (`/rts-perf <seconds>`, op only, p50/p95/max). The load test: `gametest/SkirmishGameTests.java:2323` `stress_8v8_server_systems_stay_in_budget` (batch `stress_8v8`, 8 owners; it does not register buildings and has no players, so it exercises neither building sync nor fog). That file is about 15,358 lines: do NOT add to it.
-
-**Conventions to follow:** `unit/UnitSyncBatcher.java` for per-player delta snapshots; `perf/SysTimerTest.java` for pure-class JUnit style; a new `[Sys]` section is added exactly as `PUSH_SCAN` (id 21) was: constant, name, `Sys.begin/end` around the work.
-
-**Hard rules (all apply):**
-1. Tests first, red on main. For pure helpers: a JUnit table test with a throwing skeleton first. For behaviour: a GameTest that fails on main.
-2. Client code must not leak into server code (`python3 tools/check_server_client_imports.py`).
-3. Fog of war: a player never gets information the fog hides. Delta sync must re-send a building/unit in full when it BECOMES visible to a player. Visibility latency after a vision change must stay <= 10 ticks (today's worst case).
-4. Oculus: nothing rendered here.
-5. No file crosses 1,000 lines: `BuildingServerEvents.java`, `UnitServerEvents.java`, `FogOfWarServerEvents.java` are over; net change in each must be <= 0 (move code out to new files). New GameTests in a new class.
-6. `python3 tools/check_java.py` 0 structural errors; `bash tools/prepush.sh` before every push.
-7. New GameTests: 10-run flake-stress, read the `[Stress]` annotation, not the job colour (commands in PR template). No assertion on tick counts or timings that depend on load: use bounded polls and structural counts (packets sent, calls made), never milliseconds.
-8. No gameplay numbers change. Commit by explicit path, identity `git -c user.name=IamTheLovish -c user.email=IamTheLovish@users.noreply.github.com commit`, trailers as given; never push `main`, never force push.
-
-## Steps
-
-### Step 1 - count first (PR 1, no behaviour change)
-1a. Pure class `perf/NetCount.java` (no Minecraft imports): categories `BUILDING_SYNC, UNIT_SYNC, FOG_CHUNKS, PLAYER_CHUNKS, OTHER`; `add(category, bytes)`, `snapshotAndReset()` returns packets and bytes per category, `format()` returns `[Net] 10 s: buildingSync 2700 pkts 0.9 MB | unitSync ...` (categories with 0 packets omitted). Write `bar/src/test/java/.../perf/NetCountTest.java` FIRST (skeleton throws, RED; then GREEN): adds across categories, reset, formatting incl. empty window and MB/KB rounding.
-1b. Hook it, only while `Sys.isMeasuring()` (bytes need an encode, so never in normal play): `BuildingClientboundPacket.sendFiltered` (after the visibility test, per packet sent), the send in `UnitSyncBatcher`, `FogChunksClientboundPacket.send`, `PlayerChunksClientboundPacket.send` (called from `FogOfWarServerEvents.java:523`). Print `NetCount.format()` next to the `[Sys]` line in `Sys.report()`.
-1c. Add `[Sys]` sections `BUILDING_SYNC` (around the `onWorldTick` building loop) and `FOG_TRACKING` (around `refreshEntityTracking`); extend `Sys.SECTIONS` and `NAMES`, add both to the `SysTimerTest` name-count assertion if it has one.
-1d. Per-slot profile: in `perf/ServerTickProfile.java` also keep mean tick ms by `tickCount % 20` and print it in the `/rts-perf` summary as `slots: s0 12.1 | s1 3.0 | ...` (top 5 slots). This proves or disproves the alignment (Spike C) before anything moves.
-GATE 1: `python3 tools/check_java.py` 0 errors; `NetCountTest` green in CI; a GameTest run prints a `[Sys]` line containing `buildingSync` and `fogTracking` (use the existing 8v8 stress log: `gh run view <id> --log` is large, use the check-run annotations of the `bar` job and look for `[Sys]`). Put the first real numbers (from `/rts-perf 60` run by lovish at minute 15+ with 450+ units: executor cannot run the client, ask for it in the PR) in the PR body: calls/s of `updatePlayers`, packets/s and MB/s of building sync, worst slot.
-
-### Step 2 - building sync sends only what changed (PR 2)
-2a. Pure `building/SyncDelta.java` (no Minecraft imports): `SyncDelta<K>` keeps per key a `long version` bump when a caller passes a new value tuple (`set(key, int[] fields)` or a hash) and per viewer a map key -> last version sent; `boolean dueFor(viewer, key, nowTick)` is true when the viewer never got it, the version differs, or `nowTick - lastFull(viewer,key) >= FULL_REFRESH_TICKS (200)` staggered by `key.hashCode() % 20`; `forgetViewer`, `forgetKey`. JUnit `SyncDeltaTest` FIRST (skeleton RED): unchanged -> not due twice in a row; changed -> due once; new viewer -> due for all; full refresh staggers; `forgetViewer` re-sends everything.
-2b. Extract the loop at `BuildingServerEvents.java:1037-1044` into `building/BuildingSync.java` (`static void pass(ServerLevel, Collection<ServerPlayer> viewers, BiConsumer<ServerPlayer, BuildingClientboundPacket> sender)`), so a GameTest can drive it with fake viewers and a counting sender. For each building: build the tuple (`blocksPlaced`, `partialBlocksDestroyed` rounded, `ownerName`, `scenarioRoleIndex`, `mergeEnabled`, merge anchor), then for each viewer that `FogOfWarServerEvents.canPlayerSeeBuilding(sp, b)` AND `dueFor` -> send. A building that becomes visible (visible now, not visible at the last pass) is treated as never sent (clear that viewer's entry when the test says not visible). On `BuildingServerEvents` remove/destroy, `forgetKey`; on player disconnect `forgetViewer`. Register the new state with the lifecycle registry if plan 011 has merged (`LifecycleScanTest` will fail otherwise), else add it to that plan's allow-list notes in the PR.
-2c. GameTest first (new class `gametest/SyncSpikeGameTests.java`, own batch `sync_spike`): 40 registered buildings, 4 fake viewers (see `gametest/AudienceGameTests.java` for fake players and `FogOfWarServerEvents.recomputeVisionFor`), a counting sender. Assert (structural, no timing): pass 1 sends one packet per (visible building, viewer); pass 2 with nothing changed sends 0; after changing one building's `blocksPlaced` pass 3 sends exactly its visible viewers; after a viewer's vision gains a building pass 4 sends that building to that viewer only; after 10 more passes with nothing changed the staggered full refresh sends each building to each viewer exactly once per 200 ticks. On main (before 2b) pass 2 sends the full count: RED.
-GATE 2: `gh workflow run flake-stress.yml -f ref=claude/improve-013-server-tick-spikes -f tests="test:<name>" -f runners=10` on each new test (comma-separate them), then read the `[Stress]` annotation (PR template): `10 runners; 0 with any failure`. In CI the `[Net]` line of the stress run shows buildingSync packets per 10 s down by more than 90% against the step-1 baseline (copy both numbers into the PR; if it is not, say so and stop).
-
-### Step 3 - fog tracking refresh without the full cross product (PR 3)
-3a. Measure the real cost from the `[Sys] fogTracking` row of step 1 before changing anything. If it is under 0.5 ms per tick averaged (calls spread over the 10-tick period), STOP and report: nothing to fix.
-3b. Design (decided): keep today's period (10) and today's latency bound. (i) `applyVision` returns `boolean changed` (the condition at line 735); collect the UUIDs of players with `changed` in a set for this pass. (ii) For a changed player: run `updatePlayers(List.of(player))` for every unit THIS tick (same latency as today, but 1 player, not all). (iii) For all fogged players unchanged: only units that moved to another BLOCK since their last refresh (cache `Int2LongOpenHashMap id -> BlockPos.asLong()`, cleared for ids that left `getAllUnits`, registered with lifecycle) get `updatePlayers(unchangedFogged)`, and those are spread by `id % 10 == tickCount % 10` over the ten ticks between passes ONLY IF the step-1 worst-slot number shows the pass is still a spike; otherwise run them in the pass. Never skip a unit for longer than 10 ticks.
-3c. GameTest first (`SyncSpikeGameTests`): (a) a still enemy in range of a player who then walks a friendly next to it is tracked by that player within 10 ticks (the javadoc case at lines 749-754; this must stay green); (b) the number of `updatePlayers` calls in a pass with no vision change and no unit movement is 0 (count with a test hook `FogOfWarServerEvents.refreshCallsForTests`); (c) with one of 4 players changed, calls == units. RED on main for (b) and (c).
-GATE 3: flake-stress the new tests: 0 failures in 10; `[Sys] fogTracking` in the CI stress log is lower than the step-1 baseline; lovish re-runs `/rts-perf 60` (listed in "Numbers for lovish").
-
-### Step 4 - timer phases (PR 4)
-4a. Pure `perf/TickPhase.java`: `static boolean due(long tick, int period, int phase)` = `tick % period == phase`; constants `UNIT_SYNC (20, 0)`, `FOG (10, 5)` (fires at residues 5 and 15 mod 20), `BUILDING_SYNC (20, 10)`, `CHUNK_LOADER (20, 17)`, `BLUEPRINT_SWEEP (10, 2)`, `RECLAIM_STEP (10, 8)`, `FACTION_AURA (10, 3)`, `STEWARD (20, 14)`. Residues mod 20 then are: period 20 {0, 10, 17, 14}; period 10 {5,15, 2,12, 8,18, 3,13}: all distinct. Adjust residues in the file if the step-1d slot profile shows a different heavy slot; the only rule is that every residue mod 20 used by any entry is unique. JUnit `TickPhaseTest` FIRST: the table computes every entry's residues mod 20 (a period-10 entry has two) and asserts all of them are pairwise distinct across entries. RED against a skeleton, then GREEN.
-4b. Replace each counter with `TickPhase.due(server.getTickCount(), P, phase)` (one at a time, keeping its logic). Where a counter is also a "time since" value, keep the counter and only change its INITIAL value.
-GATE 4: `TickPhaseTest` green; the `/rts-perf` slot line (step 1d) from a CI stress run shows the heaviest slot is no longer more than 2x the mean slot (copy numbers into the PR); all shards green (`python3 tools/ci_wait.py --pr <N>` prints GREEN).
-
-## Out of scope
-Fog rasterisation (`updatePlayerBrightChunks`, `coveredFor`, `rasterizeCircle`): a separate cost, not touched here; unit sync (`UnitSyncBatcher` is already delta); save timers (plan 014); client-side cost; any gameplay number; moving the per-entity timers.
-
-## STOP conditions
-- Drift check shows changes, or #247 touches the lines named above.
-- Step 3a shows the fog refresh is cheap: report, skip step 3.
-- A fog GameTest shows an enemy appearing later than 10 ticks after your change: revert step 3 and report.
-- You need a real `ServerPlayer` and AudienceGameTests has no way to fake one: report instead of inventing one.
-- CI red you cannot explain after one fix attempt; the same test red on main (`tools/known_flakes.txt`).
-
-## Done criteria
-- `[Net]` and the two `[Sys]` sections exist and are tested; baseline and after numbers are in the PRs.
-- Building sync: unchanged buildings are not re-sent; newly visible ones are; full refresh every 200 ticks staggered.
-- Fog refresh: no full unit x player pass unless vision changed; latency <= 10 ticks proven by a GameTest.
-- Timers sit on distinct residues, proven by `TickPhaseTest`.
-- Overlap check: `claude/plans/INDEX.md` (a Project doc) may list an older "FoW rasterise" perf item. This plan supersedes its refresh part; the rasterise part stays open. Say which in the PR.
-
-## PR body template
-```
-## What
-<one sentence: which step>
-
-## Why
-Server tick spikes every 10/20 ticks at 450+ units (audit: ~16k updatePlayers calls and ~27k building packets per second, unmeasured until PR 1).
-
-## Evidence
-- Baseline [Sys]/[Net] lines (run <id>): <paste>
-- After (run <id>): <paste>
-- Red commit <sha> -> green commit <sha>
-- Flake-stress run <id>, [Stress] annotation: "10 runners; 0 with any failure", "<test>: failed 0, passed 10"
-  read it with: gh run view <id> --json jobs --jq '.jobs[]|select(.name=="summary")|.databaseId'
-  then: gh api repos/IamTheLovish/Beyond-and-Tabs/check-runs/<jobid>/annotations --jq '.[].message'
-
-## Numbers for lovish
-- Please run `/rts-perf 60` at minute 15+ with 450+ units before and after and paste the p95/max and the slot line.
-- Fog: appearance latency after a vision change is unchanged (<= 10 ticks).
-
-Do not merge without lovish's OK
-```
-
-## Return format (max 200 words)
-PR number(s); per GATE the command and one-line result; the baseline vs after numbers (packets/s, updatePlayers calls/s, worst slot ms); anything you stopped on. Nothing else.
+CCENC1 d858647d10bbd84e93535e58b4776aa5
+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
+FZH3PmjNkDb671kJfQKpjIJ0Vg==

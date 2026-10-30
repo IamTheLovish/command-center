@@ -1,184 +1,305 @@
-# GPU units spike: can units be drawn outside the vanilla entity path? (2026-10-27)
-
-Feasibility spike for the living-army motion system. The answer is wanted, not the code: nothing from it merges.
-Spike branch: `claude/spike-gpu-units` (worktree `D:\bt-gpu-spike`, two local commits `ac026307` and `1f7b57e6`, **not
-pushed**). It holds one throwaway file, `spike-gpu-units/GpuUnitsSpike.java`, plus `run.sh`, and both are labelled THROWAWAY.
-
-## Recommendation
-
-**Go, with our own renderer only, in the shader-friendly form "C". No-go on Flywheel and Veil. Gate: one in-client
-proof under Oculus + Complementary, before round 3 (smooth skin) commits to it.**
-
-- **C = GPU pre-skin, then a plain draw.** Each body type sits in a static VBO once. Every frame, the CPU uploads only the
-  bone matrices: N units × B bones. A GPU skinning pass (transform feedback, GL 3.0, inside Minecraft's 3.2 core context)
-  writes posed vertices into a buffer. That buffer is then drawn with the unit's ordinary entity `RenderType`, from a
-  render stage, through `VertexBuffer.drawWithShader`. With a shader pack on, Oculus swaps in the pack's own entities and
-  shadow programs, and those see plain entity vertices. That means no instancing inside the pack and no pack patching.
-- **Why not plain instancing (B)?** B is the fastest path, but its vertex shader is ours. With a pack on, the pack owns the
-  vertex stage, so B would either lose the pack's lighting and shadows or need the pack patched, which is the
-  Flywheel-compat route. B is fine as a no-pack fast path later, but C serves both cases with one code path.
-- **Rounds 1 and 2 don't wait for this.** See "Roadmap" below.
-
-## Measured numbers
-
-### 1. Today's cost: `[AnimBench]` rerun locally
-
-Source: `bar/src/test/.../perf/AnimationCostBench`, `./gradlew test --tests '*AnimationCostBench*'`, at commit `d9fac5c6`
-(origin/main, 2026-10-27), on the i7-12700KF here. It measures 500 units a frame, median of 30 frames, on the vanilla
-`ModelPart` path, writing into a vertex sink that only counts (so the real buffer write comes on top).
-
-| Phase | ms / 500 units | per unit |
-|---|---|---|
-| posing: restPose + procedural (Halberdier, 279 parts) | 0.33 | **0.7 µs** |
-| Life math (breath, wing beat, 12-link chain) | 0.08 | 0.2 µs |
-| Halberdier body pass, RTS zoom (6000 verts) / close (8568) | 10.78 / 16.66 | 22 / 33 µs |
-| team + glow passes, pruned | 1.74 + 0.73 | 5 µs |
-| **draw total, RTS zoom / close** | | **26.5 / 38.3 µs** |
-| Radiant Paladin body pass, RTS (10488 verts) / close (12120) | 21.71 / 27.21 | **43 / 54 µs** |
-
-This confirms audit §4. Posing is about 2% of a unit's CPU cost, and the CPU vertex transform is the rest. This PC is
-about 1.6× faster than the CI runner (the CI figures were 42.7 / 62.7 µs per unit), so the ratios hold. At 500 Paladins,
-the body pass alone costs 22–27 ms of CPU per frame, more than a whole 60 fps frame. With a pack's shadow pass, entities
-are drawn a second time (reasoned, see below).
-
-### 2. Throwaway prototype: three draw paths, same image
-
-Source: `spike-gpu-units/GpuUnitsSpike.java` (`bash run.sh 500 12120`). It uses LWJGL 3.3.1, the version MC 1.20.1 ships,
-with a hidden GL 3.3 core window on an RTX 3070 Ti (driver 610.88) and the i7-12700KF. The body is generated: 32 bones,
-rigid skinning, one bone per vertex as with `ModelPart` today. Posing is the same for every path. Frames are 1280×720,
-median of 60. All three paths drew identical pixel counts (117,358 / 117,353 / 160,626), which checks that they draw the
-same army.
-
-| 500 units × 10,368 verts (Paladin-sized) | CPU ms/frame | CPU per unit | GPU ms/frame |
-|---|---|---|---|
-| A: CPU vertex transform + upload (vanilla-like) | 74.2 | 148 µs | 38.4 |
-| B: instanced GPU skinning (our shader) | 1.17 | 2.3 µs | 1.2 |
-| **C: GPU pre-skin to buffer + plain draw** | **1.28** | **2.6 µs** | **4.2** |
-
-| Other sizes (CPU / GPU ms) | A | B | C |
-|---|---|---|---|
-| 500 × 4,608 verts (Halberdier-sized at RTS) | 33.3 / 16.4 | 1.32 / 0.94 | 1.25 / 2.40 |
-| 2000 × 4,608 verts | 137.0 / 67.8 | 4.64 / 2.04 | 4.73 / 8.51 |
-
-How to read these:
-- **A is not a precise model of today.** Its Java `ByteBuffer` writes are slower than `BufferBuilder`. The bench above is
-  the authority for today's cost. A is here to show the shape: CPU cost and upload grow with vertex count.
-- **In B and C, almost all the remaining CPU is posing plus a 1 MB matrix upload.** It stays flat at about 2.3–2.6 µs a
-  unit, whatever the vertex count. That is roughly **15–20× less CPU per unit than today's vanilla path** (43–54 µs for
-  the Paladin).
-- **C pays about 3 ms more GPU than B** at 500 Paladins, because it writes and re-reads ~166 MB of posed vertices. With a
-  pack, the plain draw happens twice (main and shadow), and the pack's own fragment work then dominates either way. Not
-  measured under a pack: the prototype has no Oculus.
-- Linear blend skinning adds 2–4 matrix fetches and a blend per vertex on the GPU, which is trivial there. On the CPU
-  path it would multiply the dominant vertex cost (reasoned, not measured).
-
-## Options compared
-
-| | (a) Flywheel 1.0 | (b) own instanced renderer (= B) | (b′) own renderer, pre-skin (= C) | (c) Veil |
-|---|---|---|---|---|
-| Forge 1.20.1 build | yes, bundled with Create 6 (`flywheel-forge-1.20.1`); Modrinth only lists the old 0.6 for 1.18/1.19 | n/a | n/a | **no**: Modrinth lists Veil only for Fabric/NeoForge 1.21.1 |
-| Licence vs GPL-3 | MIT: fine as a dependency | ours | ours | LGPL-3: fine, but moot |
-| Oculus + Complementary | **turns its instancing off when a pack is on and falls back to CPU** (stated by the compat mods). It needs a third-party mod that patches the pack's shaders (Iris & Oculus Flywheel Compat, CC0; Ocuwheel; Colorwheel, which is Iris-only). | **pack loses control** (our vertex shader); same patching problem | **pack draws it**: plain entity vertices, the pack's own gbuffers and shadow programs | Iris Veil Compat needs Iris 1.8.1+ and Veil 4, with no Oculus build |
-| Shadow pass | via the compat mod only | ours to fake | **reasoned yes**: Oculus re-fires the level render stages for the shadow map (seen in our own code and logs, `postfx/ShaderPacks.skipOverlays`, Oct 22 match), so a stage-hooked draw lands there too | — |
-| Embeddium | independent | independent | **independent**: bypasses `ModelPart` entirely, which also avoids the eyes #249 trap where Oculus cancels `ModelPart.render` | — |
-| `MeshBody` / `MeshCube` | needs a custom instance type and shader | direct fit: each part's `pos/nrm/uv/quads` becomes a VBO, and the part index becomes the bone index | same as B (the `a b c c` quads become triangles) | — |
-| `TeamColourLayer`, glow, upgrade layers | port each as an instance shader | a draw per pass, per-instance colour | **re-draw the posed buffer** with the team or emissive `RenderType`, colour baked per instance in the skin pass | — |
-| Mipmaps | same atlas | same atlas | same `RenderType` texture state, so unchanged | — |
-| Skinning (round 3) | write it ourselves inside Flywheel's shader system | ours | ours | — |
-| Verdict | **no-go**: zero gain on lovish's real setup without a third-party pack patcher, plus a heavy dependency | keep as an optional no-pack fast path | **go (gated)** | **no-go** |
-
-## Shader compatibility: what was seen and what is reasoned
-
-**Seen, in our repo or its logs:**
-- Oculus 1.8.0 cancels `ModelPart.render` for Sodium writers and redraws from cube constructors. That is why `MeshCube`
-  goes through `PlainBuffers`, and it is the trap any `ModelPart`-level trick falls into (eyes #249, documented in
-  `MeshCube`/`PlainBuffers`).
-- A prebuilt `VertexBuffer.drawWithShader` drawn under a vanilla `RenderType` gets the pack's program swapped in by
-  Oculus, and draws correctly with and without shaders. This is the `StartMarkers` precedent (gbuffers_basic, eyes runs
-  39066637227 with shaders and 39086552639 without).
-- Oculus fires render stages a second time for the shadow map. Real geometry drawn there gets a shadow (building parts,
-  per the `ShaderPacks` docs).
-
-**Seen today:** in the standalone GL 3.3 prototype, the three paths produce identical images, and C's second draw uses a
-non-skinning shader on plain posed vertices.
-
-**Reasoned, not seen:**
-- Flywheel's and Veil's behaviour under packs. This comes from their compat mods' pages, not from running them.
-- C under Oculus would use the pack's entities program for an entity `RenderType`, just as gbuffers_basic was swapped in
-  for `StartMarkers`.
-- **C must write Oculus's extended entity vertex format when a pack is on.** That format adds `mc_Entity`,
-  `mc_midTexCoord` and `at_tangent` to `NEW_ENTITY`. Without the tangents, our units' `_n`/`_s` maps (`SimpleTextureMixin`)
-  would shade wrongly. The skin pass can output those fields: rest tangents are rotated by the bone, and mid-tex comes from
-  the face. The exact layout has to be read from Oculus at runtime.
-
-## Risks
-
-1. **The extended vertex format** (above). It is the biggest unknown and can only be proven in a client with Oculus.
-2. **Per-entity state that packs and vanilla read:** the entity id (`entityId` uniform or `mc_Entity` used for
-   per-entity effects), the hurt flash (overlay), fog-of-war hiding, and **selection outlines**. Outlines use vanilla
-   glowing (`mixin/EntityMixin`), so the posed buffer must also be drawn into the outline target for selected units.
-3. **Hybrid rendering:** held items (`ItemInHandLayer` on 21 renderers), banners, eyes, upgrade trims and glows, name tags
-   and health bars stay on the vanilla path. The entity renderer keeps running but skips the body, and needs bone
-   matrices for hand and attachment points. That is cheap, because posing produces them anyway.
-4. **Draw order and translucency.** The `MeshBody` comment notes that coplanar trims depend on part draw order. A VBO
-   keeps that order within a unit, but translucent passes across units lose vanilla's per-entity ordering.
-5. **GPU cost under a pack.** C writes posed vertices once and the pack reads them twice. That is +3 ms GPU at 500
-   Paladins on a 3070 Ti, more on testers' weaker cards. A far body (audit §3.6) still matters on the GPU side.
-6. **Maintenance.** We would own a renderer that Oculus, Embeddium or a pack update can break. The eyes shader lane is
-   the regression net.
-
-## Steps for lovish (in-client proof)
-
-There is **nothing for lovish to run today**: the prototype is standalone, so it doesn't show pack behaviour. The decisive
-test needs a small in-mod spike, about a day of work. On a throwaway branch, add a client command that draws 500 copies of
-the Radiant Paladin mesh body with path C from `RenderLevelStageEvent.AFTER_ENTITIES`, next to 500 vanilla Paladins. Then
-lovish would:
-
-1. Install the spike jar in the normal pack (Embeddium 0.3.31 + Oculus 1.8.0), with **shaders off**. Run `/spikegpu 500`,
-   look at the two armies side by side, and note the FPS and the `[Frame]` / `[Anim]` lines in `latest.log`.
-2. Turn on **Complementary Reimagined**, run the same command, and check:
-   - (a) the C army is lit and fogged like the vanilla army;
-   - (b) it **casts shadows**;
-   - (c) its normal and specular maps look the same, which is the tangent check;
-   - (d) team colour and glow show;
-   - (e) selecting a C unit draws its outline.
-3. Send back screenshots of both armies (shaders on and off) and the log. Pass means (a)–(e) look the same as the vanilla
-   army, at a fraction of the frame time.
-
-The eyes shader lane can run the same check headlessly for regressions afterwards. lovish's approval of the look in his
-own client is still needed.
-
-## Roadmap impact (snapshot + springs → jointed bodies → smooth skin)
-
-- **Rounds 1 and 2 are unaffected.** They can go ahead on today's path. Posing is about 1 µs a unit and stays cheap at
-  10× its current work. One requirement: **the AnimState snapshot outputs a flat array of per-bone matrices** (model
-  space, bone order fixed per body type), rather than mutating `ModelPart` fields as its source of truth. A thin adapter
-  can copy that array into the `ModelPart` tree for the vanilla renderer. The same array is exactly what C uploads, so
-  the renderer can be swapped later without touching animation.
-- **Round 3 (smooth skin) should wait for the GPU path.** On the CPU path, LBS turns the already dominant 26–54 µs per
-  unit vertex transform into a multi-bone blend per vertex. On the GPU it costs almost nothing. So the in-client proof of
-  C belongs between rounds 2 and 3. If it fails under packs, round 3 needs a rethink (skin only the close-zoom LOD on the
-  CPU, or B for players without packs).
-- **Jointed bodies (round 2) get easier with C.** Fewer, larger parts per bone make for a smaller bone count per instance
-  and less matrix upload. `dsl_to_game`'s nearly-one-part-per-cube trees (341 cubes in 279 parts) would become
-  bone-indexed vertices in one VBO, with no tree walk at all.
-
-## Sources
-
-- Local `[AnimBench]` run, 2026-10-27, commit `d9fac5c6`; `design/animation-foundation-audit.md` §4 (CI runs
-  39580028441, 39582976366).
-- Prototype: `D:\bt-gpu-spike\spike-gpu-units\GpuUnitsSpike.java`, run 2026-10-27.
-- Repo code: `unit/modelling/mesh/MeshCube.java`, `PlainBuffers.java`, `maps/StartMarkers.java`,
-  `postfx/ShaderPacks.java`, `mixin/EntityMixin.java`, `unit/modelling/layers/TeamColourLayer.java`.
-- [Flywheel (GitHub)](https://github.com/Engine-Room/Flywheel): MIT, GPU instancing for entities and block entities.
-- [Flywheel 1.20.1 README mirror](https://git.grimmauld.de/mirrors/Flywheel/raw/branch/1.20.1/dev/README.md):
-  `flywheel-forge-1.20.1` artifact.
-- [Iris & Oculus Flywheel Compat](https://modrinth.com/mod/iris-flw-compat): Flywheel turns its optimisations off under
-  packs.
-- [Ocuwheel](https://www.modpackindex.com/mod/173147/ocuwheel-oculus-flywheel-compat): Forge 1.20.1 Create, Flywheel and
-  Oculus fix.
-- [Colorwheel](https://www.curseforge.com/minecraft/mc-mods/colorwheel/files/8206638).
-- [Veil (GitHub)](https://github.com/FoundryMC/Veil) and [Veil (Modrinth)](https://modrinth.com/mod/veil): LGPL-3;
-  Modrinth API lists only Fabric/NeoForge 1.21.1.
-- [Iris Veil Compat](https://www.curseforge.com/minecraft/mc-mods/iris-veil-compat).
-- [Oculus (Modrinth)](https://modrinth.com/mod/oculus/version/yUsIHXQX).
+CCENC1 1e92e512a289de9330af437286d23742
+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
+2ZYFz27IAmNIH1yxj2ooJ/DWfl7KQdjvZbscDg==

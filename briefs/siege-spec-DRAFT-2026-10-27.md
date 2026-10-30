@@ -1,232 +1,278 @@
-# Siege spec, draft 1: walls, buildings, siege, game enders, towers, pacing
-
-**Ground truth used:** `design/defences.md` and `design/balance.md` (big units and game enders) only.
-
-**Missing inputs, which must be checked before this is final:**
-- **`decisions.md` was not attached.** I could only respect the rules restated in the two docs:
-  - one shape and one price per job across all seven factions;
-  - danger is shown (telegraphs);
-  - no multiplicative buff piles;
-  - game enders are announced, slow and counterable.
-- **PR 222 (artillery range and setup) and PR 146 (vehicles breaking buildings) were not attached.** Wherever this spec touches them, it states a *placeholder* rule and flags it **[verify vs PR]**.
-
-All numbers marked *(est.)* are starting points for `tools/balance_audit.py` and DuelGameTests, not tuned values.
-
----
-
-## 1. Target pacing (sets every other number)
-
-**BAR (from memory):**
-- A fortified line is cracked by artillery plus a T2 push in the low minutes.
-- Raids on unguarded extractors are near-free.
-- LLT and HLLT make raiding cost something rather than making it impossible.
-- I am not certain of exact BAR timings.
-
-**Proposed rule.** Pacing is anchored to the game-ender clock in `balance.md`. The first strike lands about **4.2 min of construction + 3 Ã 50 s charge â 6.7 min** after placement. A counter-attack is meant to be a real answer ("the counter-attack is the classic answer to a slow plan"). So an equal army must be able to crack a defended base well inside that window.
-
-| Scenario | Target *(est.)* |
-|---|---|
-| T1 raid of equal metal vs one anti-raid tower at an expansion | Tower wins (already tested: `defence_anti_raid_tower_out_trades_its_cost_vs_raiders`) |
-| T2 army with siege vs base whose defences â 25% of attacker's metal: breach outer wall | 30â45 s |
-| Same: reach and kill capitol | 2â3 min, attacker loses 40â60% |
-| Same army **without** siege units | Breach â¥ 2Ã slower; capitol only with â¥ 1.5Ã metal |
-| Pure turtle (â¥ 50% metal in static) vs equal army that keeps teching | Turtle loses on economy within ~8 min (est.) |
-
-These rows become DuelGameTests "Siege" rows, alongside the existing "Beast" row.
-
-**Conflicts:** none yet. `balance.md` Â§3 has no siege-pacing row.
-
----
-
-## 2. Walls and gates
-
-**BAR.** Dragon's teeth and fortification walls are cheap, block pathing and are reclaimable. Any weapon can damage them, but units do not auto-target them. *Unsure:* whether BAR gives walls a damage reduction.
-
-**Current rules (`defences.md`):**
-- **Wall segment:** 15 m, 400 HP.
-- **Fortified wall:** 40 m / 20 e, 1100 HP. Roughly the same HP per metal; you pay for footprint and time.
-- **Gate:** 320 HP. Shuts while an enemy is within 6 blocks.
-- **Auto-targeting:** ordinary units never auto-target walls (`MiscUtil.isBuildingAutoAttackable`).
-- **Siege, heavy and experimental units** draw aggro from walls and deal Ã3 / Ã6 (`WallSegment.drawsAggroFrom`, `WallPlacement.destroyRandomBlocks`).
-
-**Proposed rule:**
-1. **Keep the current wall rules.** Walls exist to buy time and channel a push into gates and towers. They are not a damage sponge for everyone.
-2. **Manual attack by ordinary units deals Ã0.5 to walls and gates** *(est.)*.
-   - A T1 army can still cut through if ordered, slowly.
-   - This prevents an unbreakable wall when the attacker has no siege.
-3. **Gates are the weak point by design.** 320 HP is below a plain wall, so attackers have a reason to hit the gate.
-   - Gates should take the Ã3 / Ã6 siege multiplier like walls.
-   - *Unclear in docs:* whether gates use `WallPlacement` damage.
-4. **Breach time targets** *(est.)*, one T2 siege unit with no repair:
-   - plain segment â¤ 10 s;
-   - fortified segment â¤ 25 s.
-   - Example: Gorehorn Rhino does 6 dps Ã 2.5 building multiplier = 15 dps.
-     - With Ã3 on top: about 9 s plain and 24 s fortified.
-     - Without Ã3: about 27 s and 73 s.
-   - So the stacking question below decides whether the targets hold.
-
-**Conflicts:**
-- **Multiplier stacking is undefined.**
-  - Does the Rhino's 2.5Ã building damage (`balance.md` Â§1.2) stack with the wall Ã3 (`defences.md`)?
-  - Is the Rhino even classed as "siege/heavy" for `drawsAggroFrom`?
-  - **Proposal:** take the higher of the two multipliers, never the product (no multiplicative piles).
-- **Breach Charge vs wall lines.** Breach Charge stops at the "first building" for 120 damage. That one-shots nothing in a wall line: plain walls have 400 HP. This is fine. Note that the charge also ignores the Ã3, because it is a flat ability hit.
-
----
-
-## 3. Building HP, armour and repair under fire
-
-**BAR (I believe):**
-- Buildings have HP and share a default armour class in the weapon damage tables. Some weapons deal reduced damage to buildings.
-- Constructors repair at build power at any time, including under fire. *Unsure* whether repair costs resources in current BAR.
-
-**Proposed rule:**
-1. **No armour types on buildings.**
-   - `balance.md` Â§2.5 states "buildings take block damage, not damage types". Adding armour classes would be a new hook in every weapon.
-   - Use one per-attacker **building multiplier** (the Rhino's 2.5Ã is the model) and HP as the only tuning knobs.
-2. **Repair under fire is allowed, at reduced rate.**
-   - A building damaged in the last 3 s repairs at 50% *(est.)*.
-   - Reason: a constructor ball out-healing a tower line makes turtling unbeatable. Pure BAR behaviour may be fine at BAR's scale but is untested here.
-   - The Steam Hauler's heat cost (`balance.md` Â§1.7) is the faction-flavoured precedent for "repair has a price".
-3. **Repair rate cap:**
-   - One T1 constructor â¤ 8 HP/s *(est.)*. That is about one raider's dps, so one worker can hold one raider and no more.
-   - Stacking workers is linear (BAR-like) but capped at 4 per building *(est.)*.
-4. **HP reference ladder** (existing, keep):
-
-| Building | HP |
-|---|---|
-| Trap | 60 |
-| Raid tower | 260 |
-| Gate | 320 |
-| Wall | 400 |
-| Enhanced raid tower | 600 |
-| Anti-T3 emplacement | 700 |
-| Fortified wall | 1100 |
-| Game ender | 2400 |
-
-**Conflicts:**
-- **Trap rearming.** Trap rearming *is* repair (`defences.md`). Exempt traps from the under-fire penalty, or rearming a snare mid-fight becomes pointless.
-- **Game-ender raids.** The under-fire penalty makes game-ender raids (10% HP = one stage, `balance.md` Â§2.1) slightly stronger. This is intended; flag it to the balance audit.
-
----
-
-## 4. Siege units
-
-### 4a. Artillery range and setup **[verify vs PR 222]**
-
-**BAR.** Artillery outranges standard defences and LLT and HLLT, but is fragile and inaccurate against moving units. *Unsure* whether any BAR artillery has an explicit deploy time; most fire on the move or after a short turn.
-
-**Proposed rule (placeholder until PR 222 is read):**
-- Artillery range **> 16** (the enhanced raid tower and anti-T3 range), so artillery always out-ranges T1âT2 towers.
-- Artillery range **< 20â24** (Sky Watch, Flak) is irrelevant, because those are air-only.
-- Suggested numbers: range 20 *(est.)*, setup 2 s to deploy and 2 s to pack *(est.)*.
-  - This mirrors the Shellback's Moor (2 s each way), so the faction language stays consistent.
-- **Minimum range 4** *(est.)*, again mirroring the Shellback's dead zone. Melee that reaches the guns is safe.
-
-**Conflicts:**
-- **Shellback battery range.** The Shellback's deck battery reaches exactly **16**, equal to tower range, not more. Either:
-  - it is not "artillery" under this rule (it is a beast, so the exemption is acceptable), or
-  - it moves to 17 *(est.)*.
-- **Mortar Galley.** `balance.md` calls the Mortar Galley the Tidewrought artillery, but neither doc gives its range. Audit all artillery against the >16 rule.
-
-### 4b. Vehicles breaking buildings **[verify vs PR 146]**
-
-**Proposed rule:**
-- Vehicles and heavies use the wall multiplier set by the `drawsAggroFrom` class: Ã3 heavy, Ã6 experimental.
-- Against non-wall buildings they use their own building multiplier: default Ã1.5 heavy *(est.)*, Rhino Ã2.5.
-- Never both (see Â§2).
-
-**Conflict:** if PR 146 implemented building damage as block destruction (like `destroyRandomBlocks`), confirm it does not bypass building HP.
-
-### 4c. Do T1 raiders hurt buildings?
-
-**BAR.** Yes. Raiding extractors and constructors is the core of the early game.
-
-**Proposed rule:**
-- **Yes, at Ã1 against economy buildings.**
-- **Ã0.5 against walls and gates on manual order only** (Â§2).
-- **Ã0.5 against towers** *(est.)*. A raider squad must not trade into a tower it should flee from. The existing tower test already expects towers to win.
-- This keeps lovish's "raiding units that necessitate a reaction" (`defences.md`). Undefended extractors die; towered ones don't.
-
----
-
-## 5. Game enders vs fortified bases
-
-**BAR.** Nuke versus anti-nuke stockpile, silo raids, and commando strikes on energy.
-
-**Current rules (`balance.md` Â§2):**
-- 5500 m / 12000 e, 2400 HP.
-- Auto-targets the nearest enemy capitol.
-- Ward Spire: 650 m / 2500 e, 64-block radius, 90 s charge, intercepts one strike.
-
-**Proposed rules:**
-1. **Ward Spires are not stopped by walls.** A fortified base still needs a Ward Spire. Static defences protect against armies, not against strikes.
-2. **Game-ender damage is tuned against fortified-base HP.**
-   - A Sun Spire strike (400 to buildings, r10) kills:
-     - every raid tower and plain wall in radius;
-     - leaves fortified walls (1100) and emplacements (700) standing.
-   - Doom Forge (500) behaves the same.
-   - This is good: a strike strips the light defence layer, then an army must still walk in. Keep it.
-3. **Enhanced and fortified buildings take Ã0.75 from strikes** *(est.)*. This is the turtle player's reward. Ward Spires stay the hard counter.
-4. **Raiding a game ender through its defences** must be achievable inside one 50 s stage:
-   - 240 damage per stage knock-back (10% of 2400);
-   - one T2 siege unit at about 15 dps needs about 16 s.
-   - That is reachable if the attacker breaches the outer wall in 30â45 s (Â§1).
-
-**Conflicts:**
-- **World Seed.** The World Seed's 500 to buildings (25/s) is a damage-over-time field. Should rule 3 apply to it? Proposal: yes, uniformly.
-- **Placement rule.** `balance.md` says the game ender is built "near home". Inside a fortified base it may be unraidable within one stage. Add a minimum distance of 24 blocks from own capitol *(est.)* only if playtests show this.
-
----
-
-## 6. Defensive towers: counters on both sides
-
-**BAR.** LLT, then HLLT, then heavy defences, with artillery out-ranging all of them. Turtles lose to artillery and to economy; rushes lose to a well-timed LLT.
-
-**Existing ladder (`defences.md`):**
-- **Raid tower:** 110 m, 7 dps, range 14, Ã1.5 vs â¤70 HP units.
-- **Enhanced raid tower:** 260 m, 18 dps, range 16.
-- **Anti-T3 emplacement:** 15% of the priciest T3, range 16, Ã3 vs experimentals.
-
-**Proposed rule.** Each tower has one designed loser and one designed killer:
-
-| Tower | Beats | Loses to | Number to hold *(est.)* |
-|---|---|---|---|
-| Raid tower | Equal-metal T1 raiders | 2 T2 heavies; artillery | Dies to 2 T2 heavies in â¤ 20 s |
-| Enhanced raid tower | T1 armies â¤ 2Ã its metal | Artillery (range > 16); siege beasts | Rhino + 1 heavy kill it in â¤ 25 s |
-| Anti-T3 emplacement | A lone experimental (Ã3) | T2 mass (no bonus vs them) | 3 T2 heavies kill it in â¤ 20 s |
-| Sky Watch / Flak | Flyers | Any ground unit (air-only) | Unchanged |
-
-**Anti-turtle levers:**
-- artillery out-ranges every tower;
-- repair under fire is halved;
-- towers deal no bonus damage to T2 heavies;
-- game enders strip light defence.
-
-**Anti-rush levers:**
-- the raid tower is capitol-tier, at 110 m, and buildable in the field by combat engineers;
-- gates shut automatically within 6 blocks of an enemy.
-
-**Conflicts:**
-- **Tower stats are faction-shared** ("one shape and one price per job"), but the factions' T2 heavies differ. "Dies to 2 T2 heavies in â¤ 20 s" must hold for the *weakest* T2 heavy. Add this to `DefenceGameTests`.
-- **Self-firing T2 towers.** The Storm Oak, Lighthouse Battery and Rail Battery are outside the shared ladder (`defences.md`, "Existing defences stay"). Audit their range against the >16 artillery rule.
-
----
-
-## Implementation order *(proposal)*
-
-1. Siege DuelGameTests rows that assert the Â§1 pacing table.
-2. Multiplier rule: max, never product.
-3. Artillery range audit against 16.
-4. Repair-under-fire penalty.
-5. Strike Ã0.75 on enhanced and fortified buildings.
-
-Tune numbers only after the step-1 tests exist.
-
----
-
-## Questions for lovish (taste)
-
-1. **Repair under fire:** halved while a building is under attack (anti-turtle), or full BAR-style repair, accepting that a constructor ball can hold a line?
-2. **Ordinary units versus walls:** may a T1 army chew through walls slowly on a manual order (Ã0.5), or are walls strictly a siege/heavy problem, as today?
-3. **Capitol loss** (already open in `balance.md` Â§4): does a capitol destroyed end the game? This decides whether "crack a base" means "take the capitol" or "raze everything", and so it decides the Â§1 pacing targets.
+CCENC1 3582f4985c7e5d150051556c390d35c4
+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
+BH0j7SEacrVd/NM8Ru41i+QYtbg=
