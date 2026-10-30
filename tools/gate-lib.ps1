@@ -4,7 +4,7 @@
 # Stub mode (ctx.Stub = folder): gh data is read from files there (openprs.json, auth.txt, pr<N>.json, pr<N>.diff) - used by gate-selftest.
 
 function New-GateCtx([hashtable]$o) {
-  $c = @{ Root = 'D:\Command Center'; Repo = 'D:\BeyondAndTabs-Repo'; Stub = ''; BatchClone = 'D:t-batchgreen'; NoCache = $false; NoLog = $false; Verbose = $false; Now = $null; PrCache = @{}; StressCache = @{}; Rows = $null; GhCalls = 0 }
+  $c = @{ Root = 'D:\Command Center'; Repo = 'D:\BeyondAndTabs-Repo'; Stub = ''; BatchClone = 'D:\bt-batchgreen'; NoCache = $false; NoLog = $false; Verbose = $false; Now = $null; PrCache = @{}; StressCache = @{}; Rows = $null; GhCalls = 0 }
   if ($o) { foreach ($k in $o.Keys) { $c[$k] = $o[$k] } }
   return $c
 }

@@ -43,6 +43,7 @@ check_runs() {  # kind ids head [green checkout] -> prints evidence lines; retur
   local kind=$1 ids=$2 head=$3 want=${4:-$3} id st t hdr co
   [ "$ids" = none ] && return 0
   for id in ${ids//,/ }; do
+    [[ "$id" =~ ^[0-9]+$ ]] || { echo "BAD $kind id '$id' is not a run id"; return 2; }
     st=$(gh run view $id -R $R --json status --jq .status 2>/dev/null)
     [ "$st" = completed ] || { echo "WAIT $kind $id $st"; return 1; }
     t=$(tally $id); hdr=$(echo "$t" | grep "\[Stress\]" | head -1); co=$(echo "$t" | grep '^CHECKOUT' | awk '{print $2}')
@@ -72,7 +73,13 @@ check_batch() {  # pr head batch -> 0 ok, 1 wait, 2 bad (last line says why)
   n=${#members[@]}
   [ $n -ge 2 ] || { echo "BAD batch ${b:0:8} has fewer than 2 plan lines"; return 2; }
   k=0; for m in "${members[@]}"; do k=$((k+1)); [ "$m" = "$pr" ] && break; done
-  for m in "${members[@]:0:$((k-1))}"; do grep -qx "$m" "$DONE" || { echo "WAIT batch order: #$m merges before #$pr"; return 1; }; done
+  for m in "${members[@]:0:$((k-1))}"; do
+    grep -qx "$m" "$DONE" || { echo "WAIT batch order: #$m merges before #$pr"; return 1; }
+    # it must have merged the head the batch tested (done also records PRs someone merged by hand, at any head)
+    got=$(gh pr view $m -R $R --json state,headRefOid --jq '"\(.state) \(.headRefOid)"' 2>/dev/null)
+    [ -n "$got" ] || { echo "WAIT #$m not readable"; return 1; }
+    [ "$got" = "MERGED $(awk -v p="$m" '$1 == p {print $2}' "$PLAN" | tail -1)" ] || { echo "BAD batch member #$m merged as '$got', not its planned head"; return 2; }
+  done
   # the batch head = base + member 1 .. n merged in plan order: walk its first parents, second parent = that member's head
   cur=$b
   for ((i=n-1; i>=0; i--)); do
@@ -93,6 +100,11 @@ check_batch() {  # pr head batch -> 0 ok, 1 wait, 2 bad (last line says why)
   set -- $ci
   [ "$1" = completed ] || { echo "WAIT batch CI ${4:-none} ${1:-not found}"; return 1; }
   [ "$2" = success ] || { echo "BAD batch CI $4 is $2"; return 2; }
+  # success also when the GameTests were skipped (routed to the org mirror, docs only, [compile-only]): require bar and
+  # every bar-tests shard to have run here and passed
+  got=$(gh run view $4 -R $R --json jobs --jq '[.jobs[]|select(.name=="bar" or (.name|startswith("bar-tests")))] | "\(length) \([.[]|select(.conclusion!="success")]|length)"' 2>/dev/null)
+  set -- $ci
+  [ -n "$got" ] && [ "${got% *}" -ge 2 ] && [ "${got#* }" = 0 ] || { echo "BAD batch CI $4: GameTests did not all run and pass here (bar + bar-tests jobs, not-success: '$got')"; return 2; }
   echo "SINCE $3"; echo "BATCHCI $4"; echo "BASE $base"
   for m in $sq; do echo "SKIP $m"; done
   return 0

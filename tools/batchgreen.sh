@@ -146,6 +146,7 @@ else
   [ -f "$STATE" ] || die "no state file $STATE" 2
   read -ra PRS <<< "$(st_get prs)"; branch=$(st_get branch)
   for pr in "${PRS[@]}"; do HEAD[$pr]=$(st_get "head_$pr"); TESTS[$pr]=$(st_get "tests_$pr"); done
+  [ -z "$(st_get result)" ] || die "batch $branch already finished: $(st_get result) (see logs/batchgreen.log)" 2
   say "resume $branch: ${PRS[*]}"
 fi
 union=$(for pr in "${PRS[@]}"; do echo "${TESTS[$pr]}" | tr , '\n'; done | sort -u | paste -sd, -)
@@ -183,7 +184,9 @@ if [ -z "$bsha" ]; then
     "Members in merge order (each keeps its own Mode A review and red):" \
     $(for pr in "${PRS[@]}"; do echo "- #$pr ${HEAD[$pr]}"; done) "" "Base: main $base" "Batch head: $bsha" "Tests: $union" "" \
     "🤖 Generated with [Claude Code](https://claude.com/claude-code)")
-  bpr=$(gh pr create -R $R --draft --base main --head "$branch" --title "Batch green: $(for pr in "${PRS[@]}"; do printf '#%s ' $pr; done)(throwaway, do not merge)" --body "$body" | grep -oE '[0-9]+$')
+  # label ci-here: the batch's GameTests must run here (tools/ci_route.py would otherwise send them to the org mirror and
+  # skip bar / bar-tests in this run)
+  bpr=$(gh pr create -R $R --draft --label ci-here --base main --head "$branch" --title "Batch green: $(for pr in "${PRS[@]}"; do printf '#%s ' $pr; done)(throwaway, do not merge)" --body "$body" | grep -oE '[0-9]+$')
   [ -n "$bpr" ] || die "gh pr create failed (branch $branch is pushed: open the PR by hand, then add bpr= to $STATE)"
   st_set base "$base"; st_set bsha "$bsha"; st_set bpr "$bpr"
   say "batch PR #$bpr opened on $branch (${bsha:0:8})"
@@ -210,6 +213,8 @@ while [ -z "$sid" ]; do
         [ -n "$sid" ] || die "dispatched but no flake-stress run titled for $bsha after 2 min: find it, add sid=<id> to $STATE, --resume"
         st_set cid "$cid"; st_set sid "$sid"
         say "batch #$bpr compiled (CI $cid); green dispatched: flake-stress $sid, $RUNNERS runners, $union";;
+      "")  [ "$(gh run view $cid -R $R --json jobs --jq '.jobs[]|select(.name=="bar")|.conclusion')" = skipped ] && die "batch #$bpr CI $cid skipped job bar (routed to the mirror or no code): no compile, no GameTests here" 4
+           sleep $POLL;;
       "completed "*) die "batch #$bpr does not compile (CI $cid, bar build: $step): the members break each other - the coordinator decides the split" 4;;
       *) sleep $POLL;;
     esac
@@ -238,6 +243,8 @@ broken=""
 echo "$t" | grep -qE "INVALID|NO SAMPLE" && broken="INVALID / NO SAMPLE: $hdr"
 [ "${n% *}" = "$RUNNERS" ] || broken="${broken:-header is not $RUNNERS runners: $hdr}"
 [ "$cconc" = success ] || broken="${broken:-batch CI $cid is $cconc after 3 attempts}"
+gt=$(gh run view $cid -R $R --json jobs --jq '[.jobs[]|select(.name=="bar" or (.name|startswith("bar-tests")))] | "\(length) \([.[]|select(.conclusion!="success")]|length)"' 2>/dev/null)
+[ -n "$gt" ] && [ "${gt% *}" -ge 2 ] && [ "${gt#* }" = 0 ] || broken="${broken:-batch CI $cid did not run and pass every GameTest job here ($gt)}"
 declare -A VERD LINES
 pass=(); fail=(); idx=0
 for pr in "${PRS[@]}"; do
@@ -259,7 +266,9 @@ for pr in "${PRS[@]}"; do
   elif [ -n "$broken" ]; then verdict="NO EVIDENCE: $broken"
   elif [ "${VERD[$pr]}" = FAIL ]; then verdict="FAIL: this PR's own tests failed in the batch (lines above). Back to its builder."
   else verdict="FLAG: no evidence from this batch (another member failed); the coordinator decides the split"; fi
-  { echo "[batch green] batch head $bsha base $base members $(for p in "${PRS[@]}"; do echo ${HEAD[$p]}; done | paste -sd, -)"
+  # the marker (what the gate accepts) only on a pass: a failed batch's comment names the head without it
+  { if [ -n "$allok" ]; then echo "[batch green] batch head $bsha base $base members $(for p in "${PRS[@]}"; do echo ${HEAD[$p]}; done | paste -sd, -)"
+    else echo "Batch green FAILED - batch head $bsha (not evidence for any member)"; fi
     echo "Batch PR #$bpr (branch $branch), base main $base; members in merge order: $(for p in "${PRS[@]}"; do printf '#%s %s  ' $p ${HEAD[$p]:0:8}; done)"
     echo "Batch CI (build, pull_request): run $cid $cconc"
     echo "Green: flake-stress run $sid, checked out ${co:-?}, $RUNNERS runners, tests $union"
@@ -272,7 +281,7 @@ for pr in "${PRS[@]}"; do
   gh pr comment $pr -R $R -F "$LOGD/batchgreen-post-$pr.md" >/dev/null 2>&1 || say "WARN comment on #$pr failed"
   say "#$pr: ${verdict%%$'\n'*}"
 done
-{ echo "[batch green] batch head $bsha: $hdr; CI $cid $cconc; green $sid"
+{ echo "Batch ${allok:+PASS}${allok:-FAIL}: batch head $bsha: $hdr; CI $cid $cconc; green $sid"
   for pr in "${PRS[@]}"; do echo "- #$pr ${VERD[$pr]}"; echo "${LINES[$pr]}" | sed 's/^/    /'; done; } > "$LOGD/batchgreen-post-batch.md"
 gh pr comment $bpr -R $R -F "$LOGD/batchgreen-post-batch.md" >/dev/null 2>&1
 st_set result "${allok:+PASS}${allok:-FLAG}"
