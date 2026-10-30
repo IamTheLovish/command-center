@@ -13,7 +13,8 @@
 #      every green run: completed, checkout == head (batch: == the batch head), not INVALID / NO SAMPLE, "0 with any failure"
 #   4b. batch lines only: every member above it in the plan merged; the batch head is exactly base + the members merged in
 #      plan order (parents); main is EXACTLY that base + the earlier members' squash commits (else FLAG: main drift);
-#      the batch PR's build CI on the batch head completed green (the gate recomputes the batch tree itself)
+#      the batch PR's build CI on the batch head completed green; cc.ps1 batchtree (the gate's tree recompute) says ok.
+#      The gate counts the batch run only with gate done -Batch <batch> (passed from this field)
 #   5. overlap: no main commit since the newest CI run on the head shares a file with the PR (else FLAG); batch lines:
 #      since the batch CI, not counting the squash commits of the batch's own members
 #   6. coordinator evidence round appended + posted, gate done PASS, gh pr ready, main unchanged, merge --match-head-commit
@@ -196,7 +197,7 @@ for pass in $(seq 1 $MAX); do
     [ -z "$shared" ] || { flag $pr "overlap with main since CI ($cit):$shared -> merge main + merge-only check"; continue; }
     [ -n "$DRY" ] && { log "DRY PR$pr: every check passed; would run gate done, write the round, ready and merge"; NEWFLAG=1; continue; }
     # gate FIRST (it needs only the reviewer's PASS on the head); a round is written only when the gate passes
-    g=$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\\Command Center\\tools\\cc.ps1" gate done -Pr $pr 2>&1 | tr -d '\r')
+    g=$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\\Command Center\\tools\\cc.ps1" gate done -Pr $pr ${batch:+-Batch $batch} 2>&1 | tr -d '\r')
     echo "$g" | grep -q "GATE done #$pr: PASS" || { flag $pr "gate not PASS: $(echo "$g" | grep -E '^FAIL|GATE' | tr '\n' ' ')"; continue; }
     # evidence round (coordinator), post
     k=$(( $(grep -c "^## Round" "$f") + 1 ))

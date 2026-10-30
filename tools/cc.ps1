@@ -12,7 +12,7 @@ param(
   [string]$Q = '', [int]$MaxTokens = 1500, [switch]$DryRun, [switch]$Force,
   # gate options (preflight / accept / report-lint / gate start|done)
   [string]$Task = '', [string]$Files = '', [string]$AllowOverlap = '', [string]$Override = '', [string]$Report = '', [string]$Stub = '',
-  [switch]$EditsWorkflows, [switch]$Heavy, [switch]$NewPr, [switch]$NoCache, [switch]$NoLog, [switch]$Reviewer
+  [string]$Batch = '', [switch]$EditsWorkflows, [switch]$Heavy, [switch]$NewPr, [switch]$NoCache, [switch]$NoLog, [switch]$Reviewer
 )
 $ErrorActionPreference = 'Stop'
 $GateVerbose = ($VerbosePreference -eq 'Continue'); $VerbosePreference = 'SilentlyContinue'   # -Verbose = gate detail lines, not cmdlet chatter
@@ -530,7 +530,7 @@ function Cmd-ReviewDiff {
 }
 
 # ------------------------------------------------------------------ gates (logic in gate-lib.ps1; no model calls)
-function New-CcGateCtx { return (New-GateCtx @{ Root = $Root; Repo = $Repo; Stub = $Stub; NoCache = [bool]$NoCache; NoLog = [bool]$NoLog; Verbose = $GateVerbose }) }
+function New-CcGateCtx { return (New-GateCtx @{ Root = $Root; Repo = $Repo; Stub = $Stub; Batch = $Batch; NoCache = [bool]$NoCache; NoLog = [bool]$NoLog; Verbose = $GateVerbose }) }
 function Get-StartParams { return @{ Task = $Task; Pr = $Pr; Branch = $Branch; Files = $Files; EditsWorkflows = [bool]$EditsWorkflows; Heavy = [bool]$Heavy; NewPr = [bool]$NewPr; Reviewer = [bool]$Reviewer; AllowOverlap = $AllowOverlap; Override = $Override } }
 function Finish-Gate($ctx, [string]$title, $checks, $sw, [string]$logTitle) {
   Write-GateResult $ctx $title $checks $sw
@@ -599,7 +599,7 @@ function Cmd-BatchTree {
 }
 
 function Show-Help {
-  Write-Output 'cc.ps1 <boot|boot-done|ledger-add|ledger-close|tally|branch-check|ctx [-Session id]|handoff-lint <file>|handoff-stub|handoff-verify|advice-done|digest|review-diff|gate start|gate done|preflight|accept|report-lint|ledger-lint|gate-selftest> [options]  (see tools\README-cc.md)'
+  Write-Output 'cc.ps1 <boot|boot-done|ledger-add|ledger-close|tally|branch-check|ctx [-Session id]|handoff-lint <file>|handoff-stub|handoff-verify|advice-done|digest|review-diff|gate start|gate done|preflight|accept|report-lint|ledger-lint|gate-selftest|batchtree "b|base|h1,h2"> [options]  gate done -Pr N [-Batch <batch head>]  (see tools\README-cc.md)'
 }
 
 switch ($Cmd) {

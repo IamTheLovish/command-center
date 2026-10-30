@@ -284,8 +284,17 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
     Write-Text (Join-Path $sc 'pr289.json') $j $false
     Write-Text (Join-Path $sc 'stress-40599999990.txt') ($one -f $bh, '8') $false
     if ($case[3]) { Write-Text (Join-Path $sc ('batchtree-' + $bh + '.txt')) $case[3] $false }
-    $c = Invoke-GateAccept (St-Ctx $r20 $sc $now) '289'
+    $cx = St-Ctx $r20 $sc $now; $cx.Batch = $bh
+    $c = Invoke-GateAccept $cx '289'
     St-Assert $case[6] $c 'gametests' $case[4] $case[5]
+    if ($case[0] -eq 'ok') {
+      # round-5 review: the same marker, tree and passing run, but the merge names no batch (the PR merges alone)
+      $c = Invoke-GateAccept (St-Ctx $r20 $sc $now) '289'
+      St-Assert 'batch green: without -Batch (a member merging alone) the batch run does not count' $c 'gametests' 'FAIL' 'sealed_arena_has_no_fluid_after_openGround'
+      $cx = St-Ctx $r20 $sc $now; $cx.Batch = 'c0ffee5d6f708192a3b4c5d6e7f8091a2b3c4d5e'
+      $c = Invoke-GateAccept $cx '289'
+      St-Assert 'batch green: -Batch naming another batch does not count this one' $c 'gametests' 'FAIL' 'sealed_arena_has_no_fluid_after_openGround'
+    }
   }
   # a failed batch is evidence for no member, even where the member's own line reads failed 0 (another member failed)
   $sc = St-Stub $tmp 'batch-failedrun' $fx 'auth-noworkflow.txt'
@@ -295,7 +304,8 @@ function Invoke-GateSelftest([string]$ToolsDir, [bool]$verbose) {
   Write-Text (Join-Path $sc 'pr289.json') $j $false
   Write-Text (Join-Path $sc 'stress-40599999990.txt') ("workflow: flake-stress`nref: $bh`n[Stress] 8 runners; 2 with any failure`nsealed_arena_has_no_fluid_after_openGround: failed 0, passed 8`nother_members_test: failed 2, passed 6") $false
   Write-Text (Join-Path $sc ('batchtree-' + $bh + '.txt')) 'ok' $false
-  $c = Invoke-GateAccept (St-Ctx $r20 $sc $now) '289'
+  $cx = St-Ctx $r20 $sc $now; $cx.Batch = $bh
+  $c = Invoke-GateAccept $cx '289'
   St-Assert 'batch green: a batch run with any failure is evidence for no member' $c 'gametests' 'FAIL' 'sealed_arena_has_no_fluid_after_openGround'
   # REAL git (Oct 30): Get-GateBatchTree on a tiny local repo: base + h1 + h2 merged in order is ok; a hand-edited merge,
   # the members in the wrong order, and a base that is not on origin/main are refused

@@ -4,7 +4,7 @@
 # Stub mode (ctx.Stub = folder): gh data is read from files there (openprs.json, auth.txt, pr<N>.json, pr<N>.diff) - used by gate-selftest.
 
 function New-GateCtx([hashtable]$o) {
-  $c = @{ Root = 'D:\Command Center'; Repo = 'D:\BeyondAndTabs-Repo'; Stub = ''; BatchClone = 'D:\bt-batchgreen'; NoCache = $false; NoLog = $false; Verbose = $false; Now = $null; PrCache = @{}; StressCache = @{}; Rows = $null; GhCalls = 0 }
+  $c = @{ Root = 'D:\Command Center'; Repo = 'D:\BeyondAndTabs-Repo'; Stub = ''; Batch = ''; BatchClone = 'D:\bt-batchgreen'; NoCache = $false; NoLog = $false; Verbose = $false; Now = $null; PrCache = @{}; StressCache = @{}; Rows = $null; GhCalls = 0 }
   if ($o) { foreach ($k in $o.Keys) { $c[$k] = $o[$k] } }
   return $c
 }
@@ -212,7 +212,10 @@ function Test-GateStress($ctx, $d, [string]$n, [string]$diff, $L) {
     # own head is a member, and Get-GateBatchTree recomputes the batch as exactly base + the members merged in order.
     # The comment only points; the git objects decide. Any other descendant (a stacked branch, a later fix) is another ref.
     $why = ''
-    if (-not $mine -and $ref -match '^[0-9a-f]{40}$' -and $d.headRefOid) {
+    # ... and only for the batch the caller is merging this PR with (gate done -Batch <sha>, passed by automerge.sh from the
+    # plan's batch= field): a member merging alone, or in another batch, does not get the batch's green
+    if (-not $mine -and $ref -match '^[0-9a-f]{40}$' -and $d.headRefOid -and $ref -ne [string]$ctx.Batch -and $prTxt -match ('\[batch green\] batch head ' + $ref)) { $why = 'batch: not the batch this merge names (gate done -Batch)' }
+    if (-not $mine -and $ref -match '^[0-9a-f]{40}$' -and $d.headRefOid -and $ref -eq [string]$ctx.Batch) {
       $bm = [regex]::Match($prTxt, ('\[batch green\] batch head ' + $ref + ' base ([0-9a-f]{40}) members ((?:[0-9a-f]{40},)*[0-9a-f]{40})(?![0-9a-f])'))
       if ($bm.Success) {
         $mem = @($bm.Groups[2].Value -split ',')
