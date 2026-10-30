@@ -23,5 +23,5 @@
 # 386 shader slice 1: r7 PASS 4ffaf27a (tools-only delta, checked by Eris); eyes stills read by Erin on 1ed3c986 (no shader change since); art permission. CI-only line.
 386 4ffaf27ac44ed77ed42e6a6655b331a23f077672 red=none green=none
 # 399 anim finish-tune: r1 PASS code + r2 PASS look (opus, eyes 40978023283 vs 40874612621). CI-only line; one BoneMaps line conflicts with 377 (builder merges main into the second).
-399 b586fc2699d2bec86bc51cfa15832f14f8d46dcc red=none green=none
+399 5ed8b46415e58bab197cdeaaca8761875db3c389 red=none green=none
 # WAITS reads (r8 PASS merge-only fe444026; code = aa38fd2a r7): T1 red 40972849144 + green 40972868269 (1f76caf9) + voodoo_ green 40979445467 (aa38fd2a); then: 365 fe4440262fa4f92d081ff80d2ce4c11ae00105da red=none green=none (CI on fe444026 incl. shard 9 bots)
