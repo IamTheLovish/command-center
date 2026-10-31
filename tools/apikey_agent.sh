@@ -19,7 +19,7 @@ unset_args=(); for v in $(env | grep -oE '^(CLAUDE_CODE_[A-Z0-9_]+|ANTHROPIC_[A-
 cd "$wd" && env "${unset_args[@]}" ANTHROPIC_API_KEY="$key" claude -p --bare ${RESUME:+--resume "$RESUME"} --model "$model" --max-budget-usd "$max" \
   --permission-mode auto --output-format json < "$prompt" > "$out/result.json" 2> "$out/stderr.txt"
 rc=$?
-python - "$out/result.json" "$CC/itachi2-api/spend-ledger.jsonl" "$stamp" "$stamp-$slug" "$model" <<'EOF'
+PYTHONIOENCODING=utf-8 python - "$out/result.json" "$CC/itachi2-api/spend-ledger.jsonl" "$stamp" "$stamp-$slug" "$model" <<'EOF'
 import json, sys
 res, ledger, at, run, model = sys.argv[1:]
 try:
